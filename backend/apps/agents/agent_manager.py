@@ -1075,11 +1075,14 @@ class AgentManager:
                 )
                 backend_port = os.environ.get("OPENSWARM_PORT", "8324")
                 pre_selected_bids = self._get_pre_selected_browser_ids(session.dashboard_id)
+                from backend.auth import get_auth_token as _get_auth_token
+                _auth_tok = _get_auth_token()
                 mcp_servers["openswarm-browser-agent"] = {
                     "command": sys.executable,
                     "args": [browser_agent_server_path],
                     "env": {
                         "OPENSWARM_PORT": backend_port,
+                        "OPENSWARM_AUTH_TOKEN": _auth_tok,
                         "OPENSWARM_AGENT_MODEL": session.model,
                         "OPENSWARM_DASHBOARD_ID": session.dashboard_id or "",
                         "OPENSWARM_PRE_SELECTED_BROWSER_IDS": ",".join(pre_selected_bids),
@@ -1099,11 +1102,13 @@ class AgentManager:
                     os.path.dirname(__file__), "invoke_agent_mcp_server.py"
                 )
                 backend_port = os.environ.get("OPENSWARM_PORT", "8324")
+                from backend.auth import get_auth_token as _get_auth_token2
                 mcp_servers["openswarm-invoke-agent"] = {
                     "command": sys.executable,
                     "args": [invoke_agent_server_path],
                     "env": {
                         "OPENSWARM_PORT": backend_port,
+                        "OPENSWARM_AUTH_TOKEN": _get_auth_token2(),
                         "OPENSWARM_PARENT_SESSION_ID": session.id,
                         "OPENSWARM_DASHBOARD_ID": session.dashboard_id or "",
                     },
@@ -1179,9 +1184,21 @@ class AgentManager:
             # WebSearch delegation through 9Router would fail. Only
             # consider Anthropic reachable if 9Router can actually serve
             # the Anthropic-format request.
+            # Deliberately exclude openswarm-pro from the "has anthropic
+            # path" heuristic when the primary is non-Claude. Reason: if
+            # a Pro user picks GPT or Gemini as their primary, we
+            # shouldn't drag their WebSearch/subagent calls through our
+            # Pro Anthropic pool — they're already paying for a
+            # ChatGPT/Gemini subscription we can use for free. Pro still
+            # kicks in when they switch the primary to a Claude model.
+            _primary_is_claude = _m.startswith("cc/") or (
+                isinstance(_router_model_id, str)
+                and not _router_model_id.startswith(("cc/", "cx/", "gc/", "ag/", "gemini/"))
+                and _api_type_for_session == "anthropic"
+            )
             _has_anthropic_path = (
                 bool(getattr(global_settings, "anthropic_api_key", None))  # direct env bypass
-                or _9r_has_anthropic
+                or (_9r_has_anthropic and _primary_is_claude)
             )
 
             _need_web_mcp = not _has_anthropic_path
@@ -1197,11 +1214,13 @@ class AgentManager:
                     _primary_hint = "openai"
                 else:
                     _primary_hint = ""
+                from backend.auth import get_auth_token as _get_auth_token3
                 mcp_servers["openswarm-web"] = {
                     "command": sys.executable,
                     "args": [web_mcp_server_path],
                     "env": {
                         "OPENSWARM_PORT": backend_port,
+                        "OPENSWARM_AUTH_TOKEN": _get_auth_token3(),
                         "OPENSWARM_PRIMARY_API": _primary_hint,
                     },
                     "type": "stdio",
@@ -1375,26 +1394,61 @@ class AgentManager:
                 # `cc/*` pinned-Claude routes (user has a real Claude
                 # sub via 9Router) we stay on 9Router directly so that
                 # sub quota is used — no need to proxy through Pro.
-                _is_pro = getattr(global_settings, "connection_mode", "own_key") == "openswarm-pro"
-                _has_bearer = bool(getattr(global_settings, "openswarm_bearer_token", None))
-                _use_proxy = _is_pro and _has_bearer and api_type != "anthropic"
-                if _use_proxy:
-                    env = {
-                        "ANTHROPIC_API_KEY": "anthropic-proxy",
-                        "ANTHROPIC_BASE_URL": f"http://127.0.0.1:{backend_port}/api/anthropic-proxy",
-                        # See claude-sonnet branch above. Pinning these
-                        # ensures subagents and CLI's WebSearch
-                        # delegation use model IDs the Pro cloud accepts.
-                        "CLAUDE_CODE_SUBAGENT_MODEL": "claude-sonnet-4-6",
-                        "ANTHROPIC_SMALL_FAST_MODEL": "claude-haiku-4-5-20251001",
-                        "ANTHROPIC_DEFAULT_HAIKU_MODEL": "claude-haiku-4-5-20251001",
-                    }
-                    logger.info(f"[MCP-DEBUG] Using anthropic-proxy (Pro bearer + non-Claude primary)")
+                # Pro + non-Claude primary: intentionally do NOT route
+                # subagents/WebSearch through our Pro Anthropic pool.
+                # The user is already paying for a ChatGPT or Gemini
+                # subscription — use that lane (free to us) and keep
+                # the Pro credit for when they actually select a Claude
+                # primary. The plain 9Router branch below picks a
+                # subagent model that matches whichever OAuth lane they
+                # have active.
+                if False:  # reserved for future Pro-only routing cases
+                    pass
                 else:
                     env = {
                         "ANTHROPIC_API_KEY": "9router",
                         "ANTHROPIC_BASE_URL": "http://localhost:20128",
                     }
+                    # No Pro bearer → the CLI's default subagent model
+                    # (`claude-haiku-4-5-20251001`) would hit 9Router
+                    # with no Anthropic route and fail with "No
+                    # credentials for provider: anthropic". Pick a
+                    # subagent model that matches whatever lane the
+                    # user DOES have, in priority order: own Anthropic
+                    # key > Claude-sub > ChatGPT-Plus > Antigravity >
+                    # Gemini-CLI. If none of those are connected, leave
+                    # it unset and the CLI will fail gracefully.
+                    try:
+                        _sub_conns = _conns  # reuse the list fetched above
+                    except NameError:
+                        _sub_conns = []
+                    _active = {c.get("provider") for c in _sub_conns
+                               if isinstance(c, dict) and c.get("isActive")}
+                    _sub_model = None
+                    _small_model = None
+                    if global_settings.anthropic_api_key:
+                        _sub_model = "claude-sonnet-4-6"
+                        _small_model = "claude-haiku-4-5-20251001"
+                    elif "claude" in _active or "anthropic" in _active:
+                        _sub_model = "cc/claude-sonnet-4-6"
+                        _small_model = "cc/claude-haiku-4-5-20251001"
+                    elif "antigravity" in _active:
+                        _sub_model = "ag/gemini-3-flash"
+                        _small_model = "ag/gemini-3-flash"
+                    elif "gemini-cli" in _active:
+                        _sub_model = "gc/gemini-2.5-flash"
+                        _small_model = "gc/gemini-2.5-flash"
+                    elif "codex" in _active:
+                        _sub_model = "cx/gpt-5.4-mini"
+                        _small_model = "cx/gpt-5.4-mini"
+                    if _sub_model:
+                        env["CLAUDE_CODE_SUBAGENT_MODEL"] = _sub_model
+                    if _small_model:
+                        env["ANTHROPIC_SMALL_FAST_MODEL"] = _small_model
+                        env["ANTHROPIC_DEFAULT_HAIKU_MODEL"] = _small_model
+                    logger.info(
+                        f"[MCP-DEBUG] 9Router direct — subagent_model={_sub_model}, small_fast={_small_model}"
+                    )
                 # ENABLE_TOOL_SEARCH=auto is Claude-specific. It keeps the
                 # deferred-tool pool (WebSearch, NotebookEdit, TodoWrite,
                 # EnterPlanMode, Cron*, Task*, etc.) reachable via the

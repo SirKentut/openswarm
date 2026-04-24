@@ -10,6 +10,16 @@ const { contextBridge, ipcRenderer } = require('electron');
     getBackendPort: () => port,
     getWebviewPreloadPath: () => webviewPreloadPath,
 
+    // Per-install auth token required for WS + HTTP calls to the
+    // localhost backend. Returns a Promise<string>. The renderer should
+    // await this on startup and include the token on every WS URL
+    // (`?token=...`) and HTTP request (`Authorization: Bearer ...`).
+    // We deliberately do NOT expose the token as a plain window global
+    // or a sync getter — contextBridge + IPC keeps it off the
+    // renderer's global object so third-party scripts (including any
+    // code that leaks through <webview>) can't scrape it.
+    getAuthToken: () => ipcRenderer.invoke('get-auth-token'),
+
     getAppVersion: () => ipcRenderer.invoke('get-app-version'),
     openExternal: (url) => ipcRenderer.invoke('open-external', url),
     connectSlack: () => ipcRenderer.invoke('connect-slack'),

@@ -122,6 +122,15 @@ async def proxy(rest: str, request: Request):
     for k, v in request.headers.items():
         if k.lower() in _HOP_HEADERS:
             continue
+        # The CLI we spawn carries our per-install auth token via
+        # `x-api-key` (we set `ANTHROPIC_API_KEY=<our_token>` on the
+        # spawn env, and the CLI forwards that value as x-api-key). We
+        # must NOT forward that header to the real upstream — it would
+        # leak our local token to api.openswarm.com / 9Router, AND it
+        # would shadow the real upstream auth (bearer or `9router`
+        # literal) that `_pick_upstream` wants to set. Strip it here.
+        if k.lower() == "x-api-key":
+            continue
         forward_headers[k] = v
     forward_headers.update(auth_headers)
 

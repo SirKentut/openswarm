@@ -17,6 +17,15 @@ import {
   trackAgentNotification,
 } from '../state/agentsSlice';
 import { addBrowserCardFromBackend, removeBrowserCard, setBrowserCardPosition, setGlowingBrowserCards, GRID_GAP } from '../state/dashboardLayoutSlice';
+import { getAuthToken } from '../config';
+
+// Thin wrapper around getAuthToken so the connect() call site stays
+// synchronous. If the token isn't cached yet, returns '' and the WS
+// handshake will 4401 — onclose catches that and refreshes the token
+// before the next reconnect.
+const _getAuthTokenSafe = (): string => {
+  try { return getAuthToken() || ''; } catch { return ''; }
+};
 
 type WSEvent = {
   event: string;
@@ -104,7 +113,19 @@ class WebSocketManager {
   connect() {
     if (this.ws?.readyState === WebSocket.OPEN) return;
 
-    this.ws = new WebSocket(this.url);
+    // Append our per-install auth token to the URL. The backend's WS
+    // handshake validates this before accepting; without it, any
+    // webpage loaded on the same machine could open a WS and read
+    // agent traffic. See backend/auth.py + main.py:_ws_auth_ok.
+    // Token is fetched async from Electron's preload, but we cache it
+    // after first resolution. If it isn't cached yet, `getAuthToken()`
+    // returns '' and the connection will be rejected — the
+    // onclose handler below retries, by which time the token is
+    // usually loaded.
+    const token = _getAuthTokenSafe();
+    const sep = this.url.includes('?') ? '&' : '?';
+    const urlWithToken = token ? `${this.url}${sep}token=${encodeURIComponent(token)}` : this.url;
+    this.ws = new WebSocket(urlWithToken);
 
     this.ws.onopen = () => {
       this.reconnectDelay = 1000;
@@ -119,7 +140,13 @@ class WebSocketManager {
       }
     };
 
-    this.ws.onclose = () => {
+    this.ws.onclose = (ev) => {
+      // 4401 = our backend's auth-failure code. Happens on stale token
+      // after backend restart (dev hot-reload). Re-fetch from Electron
+      // IPC before retrying.
+      if (ev && ev.code === 4401) {
+        import('@/shared/config').then(mod => mod.refreshAuthToken().catch(() => {}));
+      }
       this.scheduleReconnect();
     };
 

@@ -28,6 +28,7 @@ import urllib.error
 import urllib.request
 
 BACKEND_PORT = os.environ.get("OPENSWARM_PORT", "8324")
+BACKEND_AUTH = os.environ.get("OPENSWARM_AUTH_TOKEN", "")
 SEARCH_URL = f"http://127.0.0.1:{BACKEND_PORT}/api/web/search"
 FETCH_URL = f"http://127.0.0.1:{BACKEND_PORT}/api/web/fetch"
 
@@ -100,10 +101,13 @@ def send_response(id_, result=None, error=None):
 
 def _post(url: str, body: dict, timeout: float = 60.0) -> dict:
     payload = json.dumps(body).encode()
+    headers = {"Content-Type": "application/json"}
+    if BACKEND_AUTH:
+        headers["Authorization"] = f"Bearer {BACKEND_AUTH}"
     req = urllib.request.Request(
         url,
         data=payload,
-        headers={"Content-Type": "application/json"},
+        headers=headers,
         method="POST",
     )
     try:

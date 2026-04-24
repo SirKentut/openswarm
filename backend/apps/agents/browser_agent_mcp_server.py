@@ -21,6 +21,7 @@ except ImportError:
     HAS_PIL = False
 
 BACKEND_PORT = os.environ.get("OPENSWARM_PORT", "8324")
+BACKEND_AUTH = os.environ.get("OPENSWARM_AUTH_TOKEN", "")
 BACKEND_URL = f"http://127.0.0.1:{BACKEND_PORT}/api/browser-agent/run"
 MODEL = os.environ.get("OPENSWARM_AGENT_MODEL", "sonnet")
 DASHBOARD_ID = os.environ.get("OPENSWARM_DASHBOARD_ID", "")
@@ -138,10 +139,13 @@ def call_backend(tasks: list[dict]) -> dict:
         "pre_selected_browser_ids": pre_selected,
         "parent_session_id": PARENT_SESSION_ID,
     }).encode()
+    headers = {"Content-Type": "application/json"}
+    if BACKEND_AUTH:
+        headers["Authorization"] = f"Bearer {BACKEND_AUTH}"
     req = urllib.request.Request(
         BACKEND_URL,
         data=payload,
-        headers={"Content-Type": "application/json"},
+        headers=headers,
         method="POST",
     )
     try:

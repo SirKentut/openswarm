@@ -14,6 +14,7 @@ import urllib.request
 import urllib.error
 
 BACKEND_PORT = os.environ.get("OPENSWARM_PORT", "8324")
+BACKEND_AUTH = os.environ.get("OPENSWARM_AUTH_TOKEN", "")
 BACKEND_URL = f"http://127.0.0.1:{BACKEND_PORT}/api/invoke-agent/run"
 PARENT_SESSION_ID = os.environ.get("OPENSWARM_PARENT_SESSION_ID", "")
 DASHBOARD_ID = os.environ.get("OPENSWARM_DASHBOARD_ID", "")
@@ -69,10 +70,13 @@ def call_backend(session_id: str, message: str) -> dict:
         "parent_session_id": PARENT_SESSION_ID,
         "dashboard_id": DASHBOARD_ID,
     }).encode()
+    headers = {"Content-Type": "application/json"}
+    if BACKEND_AUTH:
+        headers["Authorization"] = f"Bearer {BACKEND_AUTH}"
     req = urllib.request.Request(
         BACKEND_URL,
         data=payload,
-        headers={"Content-Type": "application/json"},
+        headers=headers,
         method="POST",
     )
     try:

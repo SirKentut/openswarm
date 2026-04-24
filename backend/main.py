@@ -48,28 +48,90 @@ import json
 main_app = MainApp([health, agents, skills, tools_lib, modes, settings, mcp_registry, skill_registry, outputs, dashboards, analytics, subscription, web, anthropic_proxy])
 app = main_app.app
 
+# Generate per-install auth token BEFORE we bind the HTTP port. By the
+# time any request lands, the token file exists. See backend/auth.py.
+from backend.auth import (
+    init_auth_token,
+    is_path_exempt,
+    request_matches_token,
+    is_origin_allowed,
+)
+init_auth_token()
+
+
+# CORS: previously wide open (`allow_origins=["*"]`), which combined with
+# `allow_credentials=True` was a security footgun — any external origin
+# could CORS-preflight us. Now restricted to Electron renderer origins +
+# localhost dev servers. The token middleware below provides the
+# *primary* defense; CORS is defense-in-depth so a misconfigured page
+# can't even reach us.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+    ],
+    allow_origin_regex=r"^(file://.*|http://localhost:\d+|http://127\.0\.0\.1:\d+)$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 
-# Chrome's Private Network Access check: a page on https://api.openswarm.com
-# POSTing to http://127.0.0.1:8324 triggers a preflight that requires this
-# header. Without it the request is blocked and the post-checkout activation
-# flow silently fails. Harmless on every other request — it's only read when
-# the browser is crossing from a public origin into a private network.
 @app.middleware("http")
-async def _allow_private_network(request, call_next):
-    response = await call_next(request)
-    response.headers["Access-Control-Allow-Private-Network"] = "true"
+async def _auth_middleware(request: Request, call_next):
+    """Reject HTTP requests without our per-install bearer token.
+
+    Exemptions (see `auth.is_path_exempt`):
+      - `/api/subscriptions/callback` — external OAuth redirects
+      - `/api/health`, `/api/version` — Electron boot handshake
+      - `OPTIONS` preflights — browsers don't send Authorization on them
+
+    Anything else requires `Authorization: Bearer <token>` OR
+    `x-openswarm-token: <token>`. Failure responds with 401 and a short
+    JSON error — no upstream handler sees the request.
+
+    The anthropic-proxy route (`/api/anthropic-proxy/v1/*`) is NOT
+    exempt. Its caller (the Claude Code CLI we spawn) is configured
+    with `ANTHROPIC_API_KEY=<our_token>` so the CLI's `x-api-key`
+    header carries our token — which `request_matches_token` accepts
+    via its auth-header branches.
+    """
+    # Preflights never carry Authorization.
+    if request.method == "OPTIONS":
+        response = await call_next(request)
+    elif is_path_exempt(request.url.path):
+        response = await call_next(request)
+    else:
+        # Accept Authorization Bearer, x-openswarm-token, OR x-api-key
+        # (CLI path — CLI sends x-api-key with our token as value).
+        headers = dict(request.headers)
+        x_api_key = headers.get("x-api-key") or headers.get("X-API-Key")
+        auth_ok = request_matches_token(headers)
+        if not auth_ok and x_api_key:
+            import secrets as _s
+            from backend.auth import get_auth_token as _gt
+            auth_ok = _s.compare_digest(x_api_key, _gt() or "\x00")
+        if not auth_ok:
+            logger.warning(
+                f"auth: rejecting {request.method} {request.url.path} "
+                f"(origin={headers.get('origin', '-')}, no valid token)"
+            )
+            return JSONResponse(
+                {"error": "unauthorized", "detail": "missing or invalid token"},
+                status_code=401,
+            )
+        response = await call_next(request)
+
+    # Private-Network-Access header for the one remaining public-origin
+    # path (OAuth callback). Harmless on other requests.
+    response.headers.setdefault("Access-Control-Allow-Private-Network", "true")
     return response
 
 @app.websocket("/ws/agents/{session_id}")
 async def websocket_session(websocket: WebSocket, session_id: str):
+    if not _ws_auth_ok(websocket):
+        return
     await ws_manager.connect_session(session_id, websocket)
     try:
         while True:
@@ -108,8 +170,32 @@ async def websocket_session(websocket: WebSocket, session_id: str):
     except WebSocketDisconnect:
         ws_manager.disconnect_session(session_id, websocket)
 
+def _ws_auth_ok(websocket: WebSocket) -> bool:
+    """Validate token + origin before accepting a WS. Returns True if OK.
+
+    On failure closes with 4401 (custom app-level code) and returns False
+    — the caller must NOT call `websocket.accept()` or read any data.
+    """
+    headers = dict(websocket.headers)
+    qp = dict(websocket.query_params)
+    origin = headers.get("origin") or headers.get("Origin")
+    token_ok = request_matches_token(headers, query_params=qp)
+    origin_ok = is_origin_allowed(origin)
+    if not (token_ok and origin_ok):
+        reason = "bad token" if not token_ok else f"bad origin ({origin})"
+        logger.warning(f"ws: rejecting connection to {websocket.url.path} — {reason}")
+        # Can't `await websocket.close()` before accept(), so schedule the
+        # close in a task. The client receives a 403 on handshake.
+        import asyncio as _asyncio
+        _asyncio.create_task(websocket.close(code=4401))
+        return False
+    return True
+
+
 @app.websocket("/ws/dashboard")
 async def websocket_dashboard(websocket: WebSocket):
+    if not _ws_auth_ok(websocket):
+        return
     await ws_manager.connect_global(websocket)
     try:
         while True:

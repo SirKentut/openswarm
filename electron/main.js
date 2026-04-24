@@ -271,6 +271,58 @@ async function startBackend() {
 
   await waitForBackend(backendPort);
   console.log(`Backend ready on port ${backendPort}`);
+
+  // Backend writes a per-install auth token file at startup. Read it
+  // here so the renderer can include it in WS URLs (`?token=...`) and
+  // HTTP Authorization headers. Without this, any webpage loaded in
+  // any browser on the machine could hit our localhost API and
+  // impersonate the user. See backend/auth.py.
+  await loadAuthToken();
+}
+
+// Per-install auth token read from <data-root>/auth.token (backend
+// generates this at startup). Cached here so `get-auth-token` IPC
+// calls are fast. If reads fail initially (race with backend) we
+// retry a few times.
+let authToken = '';
+
+function getAuthTokenFilePath() {
+  // Mirrors backend/config/paths.py. On macOS the file lives at
+  // ~/Library/Application Support/OpenSwarm/data/auth.token; on
+  // Windows under %APPDATA%/OpenSwarm/data/; on Linux under
+  // ~/.local/share/OpenSwarm/data/. In dev the backend writes it to
+  // backend/data/auth.token instead.
+  if (isPackaged) {
+    if (process.platform === 'darwin') {
+      return path.join(os.homedir(), 'Library', 'Application Support', 'OpenSwarm', 'data', 'auth.token');
+    } else if (process.platform === 'win32') {
+      return path.join(process.env.APPDATA || os.homedir(), 'OpenSwarm', 'data', 'auth.token');
+    } else {
+      const xdg = process.env.XDG_DATA_HOME || path.join(os.homedir(), '.local', 'share');
+      return path.join(xdg, 'OpenSwarm', 'data', 'auth.token');
+    }
+  }
+  // Dev: backend/data/auth.token relative to repo root.
+  return path.join(__dirname, '..', 'backend', 'data', 'auth.token');
+}
+
+async function loadAuthToken() {
+  const tokenPath = getAuthTokenFilePath();
+  // Retry up to 20 × 100ms = 2s in case backend is still writing the
+  // file. Backend writes BEFORE binding HTTP port though, so this
+  // usually returns on the first attempt.
+  for (let attempt = 0; attempt < 20; attempt++) {
+    try {
+      const contents = fs.readFileSync(tokenPath, 'utf8').trim();
+      if (contents) {
+        authToken = contents;
+        console.log(`[auth] loaded token from ${tokenPath}`);
+        return;
+      }
+    } catch (_) {}
+    await new Promise(r => setTimeout(r, 100));
+  }
+  console.warn(`[auth] FAILED to load auth token from ${tokenPath} after 2s — WS/HTTP will be rejected`);
 }
 
 function createWindow() {
@@ -754,6 +806,18 @@ app.on('activate', () => {
 });
 
 ipcMain.handle('get-backend-port', () => backendPort);
+ipcMain.handle('get-auth-token', () => {
+  // Re-read the file every time. The backend rotates the token on each
+  // start, and during dev hot-reload the cached value could go stale
+  // while the renderer stays alive. Re-reading is cheap (small file,
+  // OS caches it) and guarantees the renderer never holds a dead token.
+  try {
+    const p = getAuthTokenFilePath();
+    const current = fs.readFileSync(p, 'utf8').trim();
+    if (current) authToken = current;
+  } catch (_) {}
+  return authToken;
+});
 ipcMain.handle('get-app-version', () => app.getVersion());
 ipcMain.handle('get-webview-preload-path', () => {
   return `file://${path.join(__dirname, 'webview-preload.js')}`;
