@@ -26,6 +26,19 @@ elif [[ "${1:-}" == "--sign" ]]; then
     SIGN_MODE=true
 fi
 
+# Defensive: detach any leftover OpenSwarm DMG volumes from prior failed builds.
+# hdiutil's "Resource busy" / volume-name-collision errors almost always trace
+# back to a stale mount in /Volumes (e.g. after a build crash or a still-open
+# Finder window from the last run).
+shopt -s nullglob
+for vol in /Volumes/OpenSwarm*; do
+    if [[ -d "$vol" ]]; then
+        echo "Detaching leftover DMG mount: $vol"
+        hdiutil detach -force "$vol" 2>/dev/null || hdiutil detach "$vol" 2>/dev/null || true
+    fi
+done
+shopt -u nullglob
+
 echo "========================================"
 echo "  OpenSwarm Desktop App Builder"
 if $PUBLISH_MODE; then

@@ -1,6 +1,7 @@
 {
   "name": "softeria-ms-365-mcp-server",
   "version": "1.0.0",
+  "description": "",
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
@@ -10,6 +11,6 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
-    "@softeria/ms-365-mcp-server": "^0.85.0"
+    "@softeria/ms-365-mcp-server": "^0.85.1"
   }
 }

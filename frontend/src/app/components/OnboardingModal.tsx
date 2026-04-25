@@ -49,7 +49,7 @@ function isValidEmail(email: string): boolean {
 const SUBSCRIPTION_PROVIDERS = [
   { id: 'openswarm-pro', name: 'OpenSwarm Pro', desc: 'One subscription — no setup, no Claude account needed', color: '#6366F1', preview: false, recommended: true },
   { id: 'claude', name: 'Claude', desc: 'Use your own Claude Pro/Max subscription', color: '#E8927A', preview: false },
-  { id: 'antigravity', name: 'Gemini', desc: 'Gemini 3 Pro, 3 Flash, 2.5 Pro & Flash', color: '#4285F4', preview: false },
+  { id: 'antigravity', name: 'Gemini Advanced', desc: 'Gemini 3 Pro, 3 Flash, 2.5 Pro, 2.5 Flash', color: '#4285F4', preview: false },
   { id: 'codex', name: 'ChatGPT', desc: 'GPT-5.4, GPT-5.4 Mini, GPT-5.3 Codex', color: '#74AA9C', preview: false },
 ];
 
@@ -373,7 +373,16 @@ const OnboardingModal: React.FC = () => {
     trackEvent('onboarding.email_suggestion_applied');
   };
 
-  // Same connect logic as Settings/SubscriptionCards
+  // Mirrors Settings/SubscriptionCards `handleConnect` so the Gemini
+  // (and every other provider) connect popup behaves identically in
+  // onboarding and settings. The only onboarding-specific differences:
+  //   - OpenSwarm Pro routes to the pricing step instead of OAuth.
+  //   - On success we `dismiss()` the modal to advance the flow.
+  // Anything else — popup vs. system-browser dispatch, dual
+  // device-code+status polling, postMessage / Electron IPC code
+  // delivery, focus-based "user closed the popup" reset, 5-minute
+  // hard timeout — must stay byte-for-byte aligned with Settings or
+  // Gemini's anti-embedded-browser policy will break it again.
   const handleConnect = async (providerId: string) => {
     // Cancel any previous attempt
     if (pollTimerRef.current) { clearInterval(pollTimerRef.current); pollTimerRef.current = null; }
@@ -391,58 +400,111 @@ const OnboardingModal: React.FC = () => {
       return;
     }
 
-    // Delay before calling connect — avoids Claude OAuth rate limit on retries
-    await new Promise(r => setTimeout(r, 1000));
+    // Small delay if retrying — avoids hitting Claude's rate limit
+    await new Promise(r => setTimeout(r, 500));
 
     try {
       const r = await fetch(`${API_BASE}/agents/subscriptions/connect`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ provider: providerId }),
       });
-      if (!r.ok) {
-        setConnecting(null);
-        return;
-      }
+      if (!r.ok) { setConnecting(null); return; }
       const data = await r.json();
 
       if (data.flow === 'device_code') {
-        if (data.verification_uri) window.open(data.verification_uri, '_blank');
+        // Use a named window with features so Electron's
+        // setWindowOpenHandler routes it as a `new-window` popup, not a
+        // dashboard webview tab. Keep the reference so we can auto-close
+        // it once the backend poll detects success.
+        let devicePopup: Window | null = null;
+        if (data.verification_uri) {
+          devicePopup = window.open(data.verification_uri, 'oauth_connect', 'width=600,height=720');
+        }
 
-        const timer = setInterval(async () => {
+        let stopped = false;
+        const onDeviceSuccess = () => {
+          if (stopped) return;
+          stopped = true;
+          clearInterval(devicePollTimer);
+          clearInterval(statusPollTimer);
+          pollTimerRef.current = null;
+          trackEvent('onboarding.provider_connected', { provider: providerId });
+          // Auto-close the popup 2s after success so the user briefly
+          // sees the "Connected!" page then it goes away on its own.
+          setTimeout(() => {
+            if (devicePopup && !devicePopup.closed) {
+              try { devicePopup.close(); } catch {}
+            }
+          }, 2000);
+          dismiss();
+        };
+
+        // Path 1: device-code poll — primary path when 9Router is happy.
+        const pollOnce = async () => {
+          if (stopped) return;
           try {
             const pr = await fetch(`${API_BASE}/agents/subscriptions/poll`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                provider: providerId,
-                device_code: data.device_code,
-                code_verifier: data.code_verifier,
-                extra_data: data.extra_data,
-              }),
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ provider: providerId, device_code: data.device_code, code_verifier: data.code_verifier, extra_data: data.extra_data }),
             });
+            if (!pr.ok) return;
             const pd = await pr.json();
-            if (pd.success) {
-              clearInterval(timer);
-              pollTimerRef.current = null;
-              trackEvent('onboarding.provider_connected', { provider: providerId });
-              dismiss();
+            if (pd.success) onDeviceSuccess();
+          } catch {}
+        };
+        pollOnce();
+        const devicePollTimer = setInterval(pollOnce, 5000);
+
+        // Path 2: status poller — checks 9Router's connection list every
+        // 2s. Catches the connection even if the device-code poll silently
+        // errors (e.g. 9Router 500 from postExchange).
+        const statusPollTimer = setInterval(async () => {
+          if (stopped) return;
+          try {
+            const sr = await fetch(`${API_BASE}/agents/subscriptions/status`);
+            const sd = await sr.json();
+            const connections = sd.providers?.connections || [];
+            if (connections.some((p: any) => p.provider === providerId && (p.isActive || p.testStatus === 'active'))) {
+              onDeviceSuccess();
             }
           } catch {}
-        }, 5000);
-        pollTimerRef.current = timer;
-        // 3-minute popup timeout (was 30s). OAuth with 2FA on Windows can
-        // easily take >30s; the connectedProviders poller above still picks
-        // up the connection after timeout, but a longer in-flow window
-        // keeps the "Connecting…" indicator accurate instead of flipping
-        // back to "Connect →" mid-auth.
-        setTimeout(() => { clearInterval(timer); pollTimerRef.current = null; setConnecting(null); }, 180000);
+        }, 2000);
+
+        pollTimerRef.current = devicePollTimer;
+
+        // 5-minute hard timeout — clean up everything if the user
+        // walks away mid-flow.
+        setTimeout(() => {
+          if (stopped) return;
+          stopped = true;
+          clearInterval(devicePollTimer);
+          clearInterval(statusPollTimer);
+          pollTimerRef.current = null;
+          setConnecting(null);
+          if (devicePopup && !devicePopup.closed) {
+            try { devicePopup.close(); } catch {}
+          }
+        }, 300000);
 
       } else if (data.flow === 'authorization_code') {
-        const popup = window.open(data.auth_url, 'oauth_connect', 'width=600,height=700');
+        // Some providers (currently Gemini/Google) enforce an
+        // anti-embedded-browser policy on their OAuth consent page that
+        // no amount of user-agent spoofing defeats. For those, the
+        // backend sets `use_external_browser: true` and we open the
+        // auth URL in the user's default browser via shell.openExternal.
+        // The callback then lands on the backend's own
+        // /api/subscriptions/callback endpoint, which performs the
+        // exchange itself. Detection happens via the status poller —
+        // no postMessage handoff is possible because the system browser
+        // has no window.opener relationship back to us.
+        const useExternal = !!data.use_external_browser;
+        let popup: Window | null = null;
+        if (useExternal && (window as any).openswarm?.openExternal) {
+          (window as any).openswarm.openExternal(data.auth_url);
+        } else {
+          popup = window.open(data.auth_url, 'oauth_connect', 'width=600,height=700');
+        }
 
-        // Centralized exchange + cleanup so all three detection paths
-        // (postMessage, Electron IPC, status polling) can trigger it.
         let exchanged = false;
         const runExchange = async (code: string, state?: string) => {
           if (exchanged) return;
@@ -451,41 +513,33 @@ const OnboardingModal: React.FC = () => {
             window.removeEventListener('message', msgHandlerRef.current);
             msgHandlerRef.current = null;
           }
-          if (ipcUnsub) { ipcUnsub(); ipcUnsub = null; }
-          if (pollTimerRef.current) { clearInterval(pollTimerRef.current); pollTimerRef.current = null; }
+          if (ipcUnsub) ipcUnsub();
+          clearInterval(statusPoller);
+          pollTimerRef.current = null;
           if (popup && !popup.closed) popup.close();
           try {
             await fetch(`${API_BASE}/agents/subscriptions/exchange`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                provider: providerId,
-                code,
-                redirect_uri: data.redirect_uri,
-                code_verifier: data.code_verifier,
-                state: state || data.state,
-              }),
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ provider: providerId, code, redirect_uri: data.redirect_uri, code_verifier: data.code_verifier, state: state || data.state }),
             });
           } catch {}
           trackEvent('onboarding.provider_connected', { provider: providerId });
           dismiss();
         };
 
-        // Poll status as one detection path (works when the connection
-        // gets created server-side without a client-side callback).
         const statusPoller = setInterval(async () => {
           try {
             const sr = await fetch(`${API_BASE}/agents/subscriptions/status`);
             const sd = await sr.json();
             const connections = sd.providers?.connections || [];
-            if (connections.some((p: any) => p.provider === providerId && p.isActive)) {
+            if (connections.some((p: any) => p.provider === providerId && (p.isActive || p.testStatus === 'active'))) {
               if (!exchanged) {
                 exchanged = true;
                 if (msgHandlerRef.current) {
                   window.removeEventListener('message', msgHandlerRef.current);
                   msgHandlerRef.current = null;
                 }
-                if (ipcUnsub) { ipcUnsub(); ipcUnsub = null; }
+                if (ipcUnsub) ipcUnsub();
                 clearInterval(statusPoller);
                 pollTimerRef.current = null;
                 trackEvent('onboarding.provider_connected', { provider: providerId });
@@ -496,24 +550,23 @@ const OnboardingModal: React.FC = () => {
         }, 2000);
         pollTimerRef.current = statusPoller;
 
-        // postMessage from the popup's /callback page (faster when the
-        // popup isn't cross-origin).
+        // postMessage listener — only meaningful for the in-app popup
+        // path. The system-browser path can't reach window.opener.
         const msgHandler = async (event: MessageEvent) => {
           const d = event.data;
           const callbackData = d?.type === 'oauth_callback' ? d.data : d;
           if (callbackData?.code) await runExchange(callbackData.code, callbackData.state);
         };
-        window.addEventListener('message', msgHandler);
-        msgHandlerRef.current = msgHandler;
+        if (!useExternal) {
+          window.addEventListener('message', msgHandler);
+          msgHandlerRef.current = msgHandler;
+        }
 
-        // Electron IPC fallback — main.js captures child webContents
+        // Electron IPC fallback — main.js captures any child webContents
         // navigating to localhost:20128/callback?code=... and forwards
-        // the parsed params here. This is the REQUIRED path for Claude
-        // OAuth in Electron (cross-origin redirects sever opener chain,
-        // so postMessage can't fire). Without this listener, the
-        // onboarding flow would only see the connection via the
-        // 2-second status poll — but the code never gets exchanged
-        // because the CLI callback page in the popup never reaches us.
+        // the parsed params here. Required for Claude OAuth in Electron
+        // (cross-origin redirects sever the opener chain, so
+        // postMessage can't fire).
         let ipcUnsub: (() => void) | null = null;
         const ow = (window as any).openswarm;
         if (ow && typeof ow.onOauthCallback === 'function') {
@@ -522,19 +575,26 @@ const OnboardingModal: React.FC = () => {
           });
         }
 
+        // Timeout: 3 min for popup flow (was 30s — too short for 2FA /
+        // slow Windows OAuth where postMessage can silently fail), 5
+        // minutes for external-browser flow (user has to tab-switch,
+        // log in, consent — takes much longer in practice).
+        const timeoutMs = useExternal ? 300_000 : 180_000;
         setTimeout(() => {
-          if (pollTimerRef.current) { clearInterval(pollTimerRef.current); pollTimerRef.current = null; }
-          if (msgHandlerRef.current) { window.removeEventListener('message', msgHandlerRef.current); msgHandlerRef.current = null; }
-          if (ipcUnsub) { ipcUnsub(); ipcUnsub = null; }
+          clearInterval(statusPoller);
+          pollTimerRef.current = null;
+          if (!useExternal && msgHandlerRef.current) {
+            window.removeEventListener('message', msgHandlerRef.current);
+            msgHandlerRef.current = null;
+          }
+          if (ipcUnsub) ipcUnsub();
           setConnecting(null);
-        }, 180000);
+        }, timeoutMs);
 
       } else {
         setConnecting(null);
       }
-    } catch {
-      setConnecting(null);
-    }
+    } catch { setConnecting(null); }
   };
 
   const handleApiKey = () => { trackEvent('onboarding.api_key_chosen'); dismiss(); };

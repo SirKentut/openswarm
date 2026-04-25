@@ -88,15 +88,17 @@ _AUTH_EXEMPT_EXACT = {
     # Google/Anthropic/etc). The `state` query param is already a
     # one-time nonce validated against `_pending_oauth`.
     "/api/subscriptions/callback",
-    # Electron's boot handshake pings these before it has a token —
-    # the HTTP port is up before the token file is readable in some
-    # races. Safe to expose since they don't return any session data.
-    "/api/health",
     "/api/version",
 }
 
 # Path prefixes that never require auth. Trailing slash optional.
 _AUTH_EXEMPT_PREFIX = (
+    # Electron's boot handshake polls /api/health/check before it has a
+    # token (the HTTP port is up before main.js calls loadAuthToken()).
+    # Use a prefix so /api/health/check — and any future sub-route — is
+    # covered without re-introducing the bootstrap deadlock that an
+    # exact "/api/health" match caused.
+    "/api/health",
     # FastAPI's default health/docs/schema surface (packaged app never
     # ships /docs, but be defensive).
     "/docs",
