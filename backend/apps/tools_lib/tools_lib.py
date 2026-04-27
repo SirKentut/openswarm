@@ -87,7 +87,23 @@ def _load(tool_id: str) -> ToolDefinition:
     if not os.path.exists(path):
         raise HTTPException(status_code=404, detail="Tool not found")
     with open(path) as f:
-        return ToolDefinition(**json.load(f))
+        tool = ToolDefinition(**json.load(f))
+    # Migrate Discord tool configs from the old npx-based spawn (which
+    # broke whenever the npx cache was partially populated) to the local
+    # Python shim. Idempotent — if it's already on the shim, no-op.
+    if (
+        tool.name.lower() == "discord"
+        and tool.mcp_config
+        and tool.mcp_config.get("command") == "npx"
+        and any("mcp-discord" in str(a) for a in (tool.mcp_config.get("args") or []))
+    ):
+        tool.mcp_config = {
+            "type": "stdio",
+            "command": "python",
+            "args": ["-m", "backend.apps.discord_mcp_shim"],
+        }
+        _save(tool)
+    return tool
 
 
 @tools_lib.router.get("/builtin")
@@ -1300,6 +1316,14 @@ async def refresh_google_token(tool: ToolDefinition) -> Optional[str]:
             })
         if resp.status_code != 200:
             logger.warning("Google token refresh failed: HTTP %d %s", resp.status_code, resp.text[:200])
+            # 400/401 → refresh_token is invalid for this client (expected
+            # for users upgrading across a client_id change, or after the
+            # user revoked access at myaccount.google.com). Mark the tool
+            # as expired so the UI surfaces a Reconnect prompt instead of
+            # silently failing every Google MCP call.
+            if resp.status_code in (400, 401):
+                tool.auth_status = "expired"
+                _save(tool)
             return None
         data = resp.json()
         new_token = data.get("access_token", "")
