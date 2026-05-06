@@ -19,6 +19,10 @@ name: Release (Windows)
 #   AZURE_SIGNING_CERT_PROFILE      Mist-Windows-Signing
 #   GOOGLE_OAUTH_CLIENT_ID          shipped in production .env (Google OAuth)
 #   GOOGLE_OAUTH_CLIENT_SECRET      shipped in production .env (Google OAuth)
+#                                   v1.0.29 cloud-proxied the OAuth flow itself,
+#                                   but the bundled google_workspace_mcp still
+#                                   requires CLIENT_SECRET at startup. v1.0.30
+#                                   plans to remove this dependency.
 
 on:
   push:

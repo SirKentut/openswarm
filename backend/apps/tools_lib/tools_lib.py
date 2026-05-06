@@ -4,7 +4,6 @@ import json
 import os
 import re
 import logging
-import secrets
 import shutil
 import sys
 import time
@@ -42,28 +41,10 @@ async def tools_lib_lifespan():
 
 tools_lib = SubApp("tools", tools_lib_lifespan)
 
-# Most providers go through a small HTTP claim handoff. Google uses a direct
-# local callback. Both flows return an auto-closing HTML page when done.
-
-# Google OAuth (local callback flow).
-GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
-GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
+# All providers go through the Fly cloud-proxy claim handoff. The
+# v1.0.28 local Google callback was retired in v1.0.29 once the prod
+# Google OAuth client added the cloud's redirect URI.
 GOOGLE_USERINFO_URL = "https://www.googleapis.com/oauth2/v2/userinfo"
-GOOGLE_SCOPES = [
-    "openid",
-    "email",
-    "profile",
-    "https://www.googleapis.com/auth/gmail.modify",
-    "https://www.googleapis.com/auth/calendar",
-    "https://www.googleapis.com/auth/drive",
-    "https://www.googleapis.com/auth/documents",
-    "https://www.googleapis.com/auth/spreadsheets",
-    "https://www.googleapis.com/auth/presentations",
-]
-
-# Per-flow state for the local Google OAuth callback. Keyed by the OAuth
-# `state` param; value is {tool_id} (PKCE verifier not used for Google).
-_pending_oauth: dict[str, dict] = {}
 
 
 def _load_all() -> list[ToolDefinition]:
@@ -144,77 +125,6 @@ async def update_builtin_permissions(body: dict):
 @tools_lib.router.get("/list")
 async def list_tools():
     return {"tools": [t.model_dump() for t in _load_all()]}
-
-
-@tools_lib.router.get("/oauth/callback")
-async def oauth_callback(code: str = Query(...), state: str = Query("")):
-    """Local Google OAuth callback (v1.0.25 flow, Google-only in v1.0.26).
-
-    Notion / Airtable / HubSpot / Discord all flow through the cloud and
-    land at /oauth/cloud-claim instead. This endpoint stays Google-only
-    because the production Google OAuth client has localhost registered
-    and the user doesn't control the console to add a cloud URL.
-    """
-    pending = _pending_oauth.pop(state, None)
-    if not pending:
-        return HTMLResponse(
-            "<html><body><h2>Invalid OAuth state</h2></body></html>",
-            status_code=400,
-        )
-
-    tool_id = pending["tool_id"] if isinstance(pending, dict) else pending
-    tool = _load(tool_id)
-
-    client_id = os.environ.get("GOOGLE_OAUTH_CLIENT_ID", "")
-    client_secret = os.environ.get("GOOGLE_OAUTH_CLIENT_SECRET", "")
-    if not client_id or not client_secret:
-        return HTMLResponse(
-            "<html><body><h2>Google OAuth not configured</h2><p>"
-            "GOOGLE_OAUTH_CLIENT_ID/SECRET missing from .env</p></body></html>",
-            status_code=500,
-        )
-    _port = os.environ.get("OPENSWARM_PORT", "8324")
-    redirect_uri = f"http://localhost:{_port}/api/tools/oauth/callback"
-
-    async with httpx.AsyncClient(timeout=15.0) as client:
-        resp = await client.post(GOOGLE_TOKEN_URL, data={
-            "code": code,
-            "client_id": client_id,
-            "client_secret": client_secret,
-            "redirect_uri": redirect_uri,
-            "grant_type": "authorization_code",
-        })
-    if resp.status_code != 200:
-        logger.warning("Google OAuth token exchange failed: %s", resp.text[:240])
-        return HTMLResponse(
-            f"<html><body><h2>Token exchange failed</h2><pre>{resp.text}</pre></body></html>",
-            status_code=400,
-        )
-
-    tokens = resp.json()
-    access_token = tokens.get("access_token", "")
-    tool.oauth_tokens = {
-        "access_token": access_token,
-        "refresh_token": tokens.get("refresh_token", ""),
-        "token_expiry": time.time() + tokens.get("expires_in", 3600),
-    }
-    tool.auth_type = "oauth2"
-    tool.auth_status = "connected"
-
-    if access_token:
-        try:
-            async with httpx.AsyncClient(timeout=10.0) as info_client:
-                info_resp = await info_client.get(
-                    GOOGLE_USERINFO_URL,
-                    headers={"Authorization": f"Bearer {access_token}"},
-                )
-            if info_resp.status_code == 200:
-                tool.connected_account_email = info_resp.json().get("email")
-        except Exception as e:
-            logger.warning("Failed to fetch Google userinfo: %s", e)
-
-    _save(tool)
-    return _connected_html()
 
 
 def _connected_html() -> HTMLResponse:
@@ -381,6 +291,15 @@ def derive_mcp_config(tool: ToolDefinition) -> Optional[dict]:
                 env["PRIVATE_APP_ACCESS_TOKEN"] = tool.oauth_tokens["access_token"]
             if tool.oauth_tokens.get("refresh_token"):
                 env["GOOGLE_WORKSPACE_REFRESH_TOKEN"] = tool.oauth_tokens["refresh_token"]
+            # google_workspace_mcp's auth/gauth.py requires all three of
+            # CLIENT_ID / CLIENT_SECRET / REFRESH_TOKEN at startup and does
+            # its own token refresh per API call; it ignores any
+            # pre-refreshed access_token. v1.0.29's cloud-proxy migration
+            # closes the OAuth-flow secret exposure, but the MCP still
+            # needs the local secret here. v1.0.30 should either fork the
+            # MCP to point token_uri at our cloud refresh proxy, or replace
+            # it with a thin in-house Gmail/Drive/Calendar wrapper that
+            # consumes a pre-refreshed access_token.
             client_id = os.environ.get("GOOGLE_OAUTH_CLIENT_ID", "")
             client_secret = os.environ.get("GOOGLE_OAUTH_CLIENT_SECRET", "")
             if client_id:
@@ -1099,14 +1018,19 @@ async def oauth_disconnect(tool_id: str):
     return {"ok": True, "tool": tool.model_dump()}
 
 
-# Tool name → provider key for the OAuth helper service. Google is not in
-# this map (it uses the direct local callback); anything else falls back to
-# the local Google flow.
+# Tool name → provider key for the OAuth helper service. All providers go
+# through the Fly cloud-proxy so client_secret values never ship inside the
+# desktop binary. v1.0.28 was the last release that used a local Google
+# callback with the client_secret in backend/.env.
 _TOOL_NAME_TO_PROVIDER = {
     "airtable": "airtable",
     "hubspot": "hubspot",
     "discord": "discord",
     "notion": "notion",
+    # Built-in Google tool's name is "Google Workspace"; accept the bare
+    # "google" alias too for forward compatibility.
+    "google workspace": "google",
+    "google": "google",
 }
 
 
@@ -1116,45 +1040,27 @@ def _proxied_provider_for(tool: ToolDefinition) -> Optional[str]:
 
 @tools_lib.router.post("/{tool_id}/oauth/start")
 async def oauth_start(tool_id: str):
-    """Return the OAuth start URL for this tool."""
+    """Return the OAuth start URL for this tool. All built-in providers
+    proxy through Fly so client_secret values stay server-side."""
     tool = _load(tool_id)
     proxied = _proxied_provider_for(tool)
-    _port = os.environ.get("OPENSWARM_PORT", "8324")
-
-    if proxied:
-        from backend.config.install_id import get_install_id
-        install_id = get_install_id()
-        params = {
-            "install_id": install_id,
-            "tool_id": tool_id,
-            "local_port": _port,
-        }
-        auth_url = (
-            f"{OPENSWARM_OAUTH_BASE_URL}/api/oauth/{proxied}/start?"
-            f"{urlencode(params)}"
-        )
-        return {"auth_url": auth_url}
-
-    # Local Google flow. State is a one-shot CSRF nonce keyed to the tool.
-    client_id = os.environ.get("GOOGLE_OAUTH_CLIENT_ID", "")
-    if not client_id:
+    if not proxied:
         raise HTTPException(
             status_code=400,
-            detail="GOOGLE_OAUTH_CLIENT_ID not set in backend .env",
+            detail=f"No OAuth flow registered for tool '{tool.name}'.",
         )
-    state = secrets.token_urlsafe(24)
-    _pending_oauth[state] = {"tool_id": tool_id}
-    redirect_uri = f"http://localhost:{_port}/api/tools/oauth/callback"
+    from backend.config.install_id import get_install_id
+    install_id = get_install_id()
+    _port = os.environ.get("OPENSWARM_PORT", "8324")
     params = {
-        "client_id": client_id,
-        "redirect_uri": redirect_uri,
-        "response_type": "code",
-        "scope": " ".join(GOOGLE_SCOPES),
-        "access_type": "offline",
-        "prompt": "consent",
-        "state": state,
+        "install_id": install_id,
+        "tool_id": tool_id,
+        "local_port": _port,
     }
-    auth_url = f"{GOOGLE_AUTH_URL}?{urlencode(params)}"
+    auth_url = (
+        f"{OPENSWARM_OAUTH_BASE_URL}/api/oauth/{proxied}/start?"
+        f"{urlencode(params)}"
+    )
     return {"auth_url": auth_url}
 
 
@@ -1207,6 +1113,20 @@ async def oauth_cloud_claim(
     data = resp.json()
     tokens = data.get("tokens", {}) or {}
     tool = _load(tool_id)
+    # Google's token endpoint doesn't include the user's email — fetch it
+    # from userinfo so the UI can show "you connected ericzeng@gmail.com"
+    # rather than the generic "Google account" placeholder.
+    if tool.name.lower() == "google" and tokens.get("access_token") and not tokens.get("email"):
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as info_client:
+                info_resp = await info_client.get(
+                    GOOGLE_USERINFO_URL,
+                    headers={"Authorization": f"Bearer {tokens['access_token']}"},
+                )
+            if info_resp.status_code == 200:
+                tokens["email"] = info_resp.json().get("email") or ""
+        except Exception as e:
+            logger.warning("Google userinfo lookup post-claim failed: %s", e)
     _persist_cloud_tokens(tool, tokens)
     _save(tool)
     return _connected_html()
@@ -1242,7 +1162,8 @@ def _persist_cloud_tokens(tool: ToolDefinition, tokens: dict) -> None:
             "token_expiry": time.time() + (tokens.get("expires_in") or 3600),
         }
         tool.connected_account_email = (
-            tokens.get("hub_domain")       # HubSpot
+            tokens.get("email")            # Google (post-userinfo enrichment)
+            or tokens.get("hub_domain")    # HubSpot
             or tokens.get("workspace_name")
             or f"{tool.name} account"
         )
@@ -1302,68 +1223,13 @@ async def _refresh_via_proxy(provider: str, tool: ToolDefinition, default_expiry
 
 
 async def refresh_google_token(tool: ToolDefinition) -> Optional[str]:
-    """Refresh an expired Google OAuth token using the local client_secret.
+    """Refresh an expired Google access_token via the Fly cloud-proxy.
 
-    Google stays on the v1.0.25 local flow because we don't control the
-    Google Cloud Console for the production OAuth client and can't add the
-    cloud's redirect URI. The client_secret ships in the production .env —
-    standard "public OAuth app" pattern.
+    The client_secret never leaves Fly — desktop only POSTs the
+    refresh_token. Same pattern as Airtable/HubSpot. Pre-v1.0.29 builds
+    held the secret in their bundled .env; v1.0.29 removed it.
     """
-    if tool.auth_type != "oauth2":
-        return None
-    refresh_token = tool.oauth_tokens.get("refresh_token")
-    if not refresh_token:
-        return None
-    expiry = tool.oauth_tokens.get("token_expiry", 0)
-    if time.time() < expiry - 60:
-        return tool.oauth_tokens.get("access_token")
-
-    client_id = os.environ.get("GOOGLE_OAUTH_CLIENT_ID", "")
-    client_secret = os.environ.get("GOOGLE_OAUTH_CLIENT_SECRET", "")
-    if not client_id or not client_secret:
-        return None
-
-    try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            resp = await client.post(GOOGLE_TOKEN_URL, data={
-                "client_id": client_id,
-                "client_secret": client_secret,
-                "refresh_token": refresh_token,
-                "grant_type": "refresh_token",
-            })
-        if resp.status_code != 200:
-            logger.warning("Google token refresh failed: HTTP %d %s", resp.status_code, resp.text[:200])
-            # 400/401 → refresh_token is invalid for this client (expected
-            # for users upgrading across a client_id change, or after the
-            # user revoked access at myaccount.google.com). Mark the tool
-            # as expired so the UI surfaces a Reconnect prompt instead of
-            # silently failing every Google MCP call.
-            if resp.status_code in (400, 401):
-                tool.auth_status = "expired"
-                _save(tool)
-            return None
-        data = resp.json()
-        new_token = data.get("access_token", "")
-        if not new_token:
-            return None
-        tool.oauth_tokens["access_token"] = new_token
-        tool.oauth_tokens["token_expiry"] = time.time() + data.get("expires_in", 3600)
-        if not tool.connected_account_email:
-            try:
-                async with httpx.AsyncClient(timeout=10.0) as info_client:
-                    info_resp = await info_client.get(
-                        GOOGLE_USERINFO_URL,
-                        headers={"Authorization": f"Bearer {new_token}"},
-                    )
-                if info_resp.status_code == 200:
-                    tool.connected_account_email = info_resp.json().get("email")
-            except Exception:
-                pass
-        _save(tool)
-        return new_token
-    except Exception as e:
-        logger.warning("Google token refresh exception for tool %s: %s", tool.id, e)
-        return None
+    return await _refresh_via_proxy("google", tool, default_expiry=3600)
 
 
 async def refresh_airtable_token(tool: ToolDefinition) -> Optional[str]:

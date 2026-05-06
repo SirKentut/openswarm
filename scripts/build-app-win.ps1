@@ -330,7 +330,10 @@ Copy-Excluded `
     (Join-Path $ProjectRoot 'backend') (Join-Path $Staging 'backend') `
     @{ Dirs = @('__pycache__','.venv','tools','tests'); Files = @('*.pyc','.env','.env.*') }
 
-# Production .env: only the OAuth helper base URL + local Google credentials.
+# Production .env: OAuth helper base URL + Google credentials. See
+# scripts/build-app.sh for the rationale; v1.0.29 cloud-proxied the OAuth flow,
+# but the bundled google_workspace_mcp still needs CLIENT_SECRET at startup.
+# v1.0.30 plans to fork or replace that MCP and drop the secret here.
 $ShipOauthBaseUrl = if ($env:OPENSWARM_OAUTH_BASE_URL_OVERRIDE) {
     $env:OPENSWARM_OAUTH_BASE_URL_OVERRIDE
 } else {
@@ -345,12 +348,12 @@ if (-not $GoogleClientIdShip -or -not $GoogleClientSecretShip) {
 $ShipEnvPath = Join-Path $Staging 'backend\.env'
 New-Item -ItemType Directory -Force -Path (Split-Path $ShipEnvPath -Parent) | Out-Null
 @(
-    "# OAuth helper base URL + local Google OAuth credentials.",
+    "# OAuth helper base URL + Google OAuth credentials.",
     "OPENSWARM_OAUTH_BASE_URL=$ShipOauthBaseUrl",
     "GOOGLE_OAUTH_CLIENT_ID=$GoogleClientIdShip",
     "GOOGLE_OAUTH_CLIENT_SECRET=$GoogleClientSecretShip"
 ) | Set-Content -Path $ShipEnvPath
-Write-Host "Staged production .env: OPENSWARM_OAUTH_BASE_URL + Google client_id/secret"
+Write-Host "Staged production .env"
 New-Item -ItemType Directory -Force -Path (Join-Path $Staging 'backend\data\tools') | Out-Null
 
 Copy-Excluded `

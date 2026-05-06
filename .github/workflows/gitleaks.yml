@@ -1,0 +1,35 @@
+name: gitleaks
+
+# Block PRs that introduce hardcoded credentials. Runs the upstream gitleaks
+# action against the diff (PR) or full history (push to main). False
+# positives in the working tree are caught by the gitleaks-action's own
+# allowlist mechanism — extend .gitleaks.toml at repo root rather than
+# editing this workflow.
+
+on:
+  pull_request:
+    branches: ['**']
+  push:
+    branches: [main, 'eric/**', 'haik/**', 'arnav/**']
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Full history needed so gitleaks can scan all new commits in a PR.
+          fetch-depth: 0
+
+      - name: Run gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Treat any high-confidence finding as a hard fail.
+          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: 'true'
+          GITLEAKS_ENABLE_SUMMARY: 'true'
