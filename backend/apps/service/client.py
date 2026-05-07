@@ -95,7 +95,7 @@ def _get_user_id() -> Optional[str]:
         # via Google OAuth, magic link, or Stripe checkout — that's the
         # authoritative identity. Falls back to user_email for installs
         # that haven't completed sign-in yet (so existing onboarding-only
-        # installs don't lose their Person history during the v1.0.30
+        # installs don't lose their Person history during the v1.0.29
         # rollout). After every install signs in, this fallback drops out.
         return (
             getattr(s, "user_id", None)

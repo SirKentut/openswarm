@@ -3,7 +3,12 @@ const host = window.location.hostname || 'localhost';
 
 export const API_BASE = `http://${host}:${port}/api`;
 export const WS_BASE = `ws://${host}:${port}`;
-export const OPENSWARM_DEFAULT_PROXY_URL = 'https://api.openswarm.ai';
+// Must match openswarm-cloud's PUBLIC_BASE_URL (fly.toml) and the redirect
+// URI registered on the Google OAuth client. The historical `.ai` value
+// resolved to NXDOMAIN — fine while no frontend caller used it directly,
+// but the v1.0.29 sign-in gate is the first frontend caller that
+// constructs URLs from this constant, so the typo had to go.
+export const OPENSWARM_DEFAULT_PROXY_URL = 'https://api.openswarm.com';
 
 // Per-install auth token. Fetched from Electron's main process via the
 // preload contextBridge. We cache it after first resolution so every

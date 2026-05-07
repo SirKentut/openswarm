@@ -209,7 +209,7 @@ const SettingsLoader: React.FC<{ children: React.ReactNode }> = ({ children }) =
 // Already-signed-in users (settings.user_id != null) skip the gate. Existing
 // paid Stripe users without explicit sign-in also skip — their bearer is
 // valid even though user_id might not have been backfilled yet (deferred
-// to a one-time /api/me hit on the v1.0.30 first-launch). For the simple
+// to a one-time /api/me hit on the v1.0.29 first-launch). For the simple
 // case we treat openswarm_bearer_token alone as "signed in" so paying
 // customers never see the gate.
 interface IdentityStatus {

@@ -62,7 +62,7 @@ export interface AppSettings {
   openswarm_subscription_plan?: string | null;
   openswarm_subscription_expires?: string | null;
   openswarm_usage_cached?: SubscriptionUsage | null;
-  // Identity (v1.0.30+). Populated after a successful Google OAuth or
+  // Identity (v1.0.29+). Populated after a successful Google OAuth or
   // magic-link sign-in via /api/auth/signin-activate. Stripe checkout also
   // populates these because the cloud's bearer-mint always returns user info.
   user_id?: string | null;

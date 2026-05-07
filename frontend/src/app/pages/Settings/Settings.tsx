@@ -41,7 +41,8 @@ import LinearProgress from '@mui/material/LinearProgress';
 import Collapse from '@mui/material/Collapse';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import { useAppDispatch, useAppSelector } from '@/shared/hooks';
-import { updateSettings, closeSettingsModal, resetSystemPrompt, disconnectSubscription, AppSettings, DEFAULT_SYSTEM_PROMPT } from '@/shared/state/settingsSlice';
+import { updateSettings, closeSettingsModal, resetSystemPrompt, disconnectSubscription, signOut, AppSettings, DEFAULT_SYSTEM_PROMPT } from '@/shared/state/settingsSlice';
+import { OPENSWARM_DEFAULT_PROXY_URL } from '@/shared/config';
 import { fetchModels } from '@/shared/state/modelsSlice';
 import { setChecking, setUpdateError, setInstalling } from '@/shared/state/updateSlice';
 import { fetchModes } from '@/shared/state/modesSlice';
@@ -191,6 +192,134 @@ interface OpenSwarmProStatus {
 const clampPickerPlan = (plan: string | null | undefined): OpenSwarmPlan => {
   if (plan === 'pro' || plan === 'pro_plus' || plan === 'ultra') return plan;
   return 'pro_plus';
+};
+
+// ── Account card ──
+//
+// Shown at the top of the General tab. Three states:
+//   - Signed in (settings.user_id present): show email + signin method
+//     + Sign out button.
+//   - Paid user with no signed-in identity yet (bearer set, user_id null):
+//     same email shown, with a one-click "Link your account" CTA that
+//     fires a Google sign-in so analytics finally has a Person row.
+//   - Not signed in: small "Sign in to OpenSwarm" CTA that opens the gate.
+const AccountCard: React.FC = () => {
+  const c = useClaudeTokens();
+  const dispatch = useAppDispatch();
+  const settings = useAppSelector((s) => s.settings.data);
+  const [signingOut, setSigningOut] = useState(false);
+
+  const userEmail = settings.user_email ?? null;
+  const userId = settings.user_id ?? null;
+  const signinMethod = settings.signin_method ?? null;
+  const hasBearer = Boolean(settings.openswarm_bearer_token);
+  const installId = settings.installation_id ?? '';
+  const proxyUrl = settings.openswarm_proxy_url || OPENSWARM_DEFAULT_PROXY_URL;
+
+  const methodLabel = (() => {
+    switch (signinMethod) {
+      case 'google': return 'Signed in with Google';
+      case 'magic_link': return 'Signed in via email link';
+      case 'stripe': return 'Signed in via Stripe checkout';
+      default: return null;
+    }
+  })();
+
+  const onSignOut = async () => {
+    setSigningOut(true);
+    try {
+      await dispatch(signOut()).unwrap();
+    } catch (e) {
+      console.error('Sign out failed:', e);
+    } finally {
+      setSigningOut(false);
+    }
+  };
+
+  const onSignIn = () => {
+    const startUrl = proxyUrl.replace(/\/$/, '') + '/api/auth/google/start?install_id=' + encodeURIComponent(installId);
+    const api = (window as any).openswarm;
+    if (api?.openExternal) api.openExternal(startUrl);
+    else window.open(startUrl, '_blank');
+  };
+
+  // Not signed in at all (no bearer, no user_id) — small inline CTA.
+  if (!userId && !hasBearer) {
+    return (
+      <Box sx={{ p: 2, mb: 2, borderRadius: `${c.radius.lg}px`, border: `1px solid ${c.border.subtle}`, bgcolor: c.bg.surface }}>
+        <Typography sx={{ fontSize: '0.85rem', color: c.text.primary, mb: 0.5 }}>Not signed in</Typography>
+        <Typography sx={{ fontSize: '0.78rem', color: c.text.muted, mb: 1.25 }}>
+          Sign in to sync settings across devices and back up your data.
+        </Typography>
+        <Button
+          variant="outlined"
+          size="small"
+          onClick={onSignIn}
+          sx={{
+            textTransform: 'none',
+            fontSize: '0.8rem',
+            borderColor: c.border.medium,
+            color: c.text.primary,
+            '&:hover': { borderColor: c.accent.primary, color: c.accent.primary, bgcolor: 'transparent' },
+          }}
+        >
+          Sign in to OpenSwarm
+        </Button>
+      </Box>
+    );
+  }
+
+  return (
+    <Box sx={{ p: 2, mb: 2, borderRadius: `${c.radius.lg}px`, border: `1px solid ${c.border.subtle}`, bgcolor: c.bg.surface }}>
+      <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 2 }}>
+        <Box sx={{ minWidth: 0, flex: 1 }}>
+          <Typography sx={{ fontSize: '0.9rem', fontWeight: 600, color: c.text.primary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {userEmail || 'Signed in'}
+          </Typography>
+          {methodLabel && (
+            <Typography sx={{ fontSize: '0.72rem', color: c.text.muted, mt: 0.25 }}>{methodLabel}</Typography>
+          )}
+          {!userId && hasBearer && (
+            <Typography sx={{ fontSize: '0.72rem', color: c.text.muted, mt: 0.25 }}>
+              Subscription connected. Sign in to also link this device to your account.
+            </Typography>
+          )}
+        </Box>
+        <Box sx={{ display: 'flex', gap: 1, flexShrink: 0 }}>
+          {!userId && hasBearer && (
+            <Button
+              variant="outlined"
+              size="small"
+              onClick={onSignIn}
+              sx={{
+                textTransform: 'none',
+                fontSize: '0.75rem',
+                borderColor: c.border.medium,
+                color: c.text.primary,
+                '&:hover': { borderColor: c.accent.primary, color: c.accent.primary, bgcolor: 'transparent' },
+              }}
+            >
+              Link account
+            </Button>
+          )}
+          <Button
+            variant="text"
+            size="small"
+            onClick={onSignOut}
+            disabled={signingOut}
+            sx={{
+              textTransform: 'none',
+              fontSize: '0.75rem',
+              color: c.text.muted,
+              '&:hover': { color: c.status.error, bgcolor: 'transparent' },
+            }}
+          >
+            {signingOut ? <CircularProgress size={14} sx={{ color: c.text.muted }} /> : 'Sign out'}
+          </Button>
+        </Box>
+      </Box>
+    </Box>
+  );
 };
 
 const OpenSwarmProCard: React.FC = () => {
@@ -1441,6 +1570,10 @@ const Settings: React.FC = () => {
       }}>
       {activeTab === 'general' ? (
       <Box sx={{ display: 'flex', flexDirection: 'column', pt: 2.5, pb: 1, animation: 'fadeIn 0.2s ease', '@keyframes fadeIn': { from: { opacity: 0 }, to: { opacity: 1 } } }}>
+
+        {/* ── Account ── */}
+        <Typography sx={sectionSx}>Account</Typography>
+        <AccountCard />
 
         {/* ── Agent Defaults ── */}
         <Typography sx={sectionSx}>Agent Defaults</Typography>
