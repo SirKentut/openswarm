@@ -168,7 +168,14 @@ async def signin_activate(body: SigninActivateRequest):
 
 @auth.router.post("/signout")
 async def signout():
-    """Revoke the cloud-side bearer + clear local identity state."""
+    """Revoke the cloud-side bearer + clear local identity state.
+
+    Also stops every in-flight agent session so any 9Router subprocess
+    that captured the now-revoked bearer at spawn time can't keep using
+    it. Without this, a signed-out user's old chat tabs would keep
+    making /v1/messages calls with a token the cloud has revoked,
+    surfacing as 401s in the agent UI ("Invalid bearer token").
+    """
     settings_obj = load_settings()
     bearer = getattr(settings_obj, "openswarm_bearer_token", None)
     proxy = _proxy_url()
@@ -183,6 +190,25 @@ async def signout():
             # Network failure shouldn't strand the user signed-in locally;
             # the cloud token is invalidated lazily on next use anyway.
             logger.warning("cloud signout failed (clearing local anyway): %s", e)
+
+    # Stop every running agent session BEFORE clearing local state. The
+    # next message in any tab will then re-launch the session, which
+    # re-reads settings (now empty) and re-spawns 9Router subprocesses
+    # with whatever the user re-signs-in with — or with own_key mode
+    # if they don't sign back in. Best-effort: failures here shouldn't
+    # block the sign-out itself.
+    try:
+        from backend.apps.agents.agent_manager import agent_manager
+        running = list(agent_manager.tasks.keys())
+        for session_id in running:
+            try:
+                await agent_manager.stop_agent(session_id)
+            except Exception as e:
+                logger.warning("signout: stop_agent(%s) failed: %s", session_id, e)
+        if running:
+            logger.info("signout: stopped %d in-flight agent session(s)", len(running))
+    except Exception as e:
+        logger.warning("signout: agent shutdown skipped: %s", e)
 
     settings_obj.user_id = None
     settings_obj.user_email = None

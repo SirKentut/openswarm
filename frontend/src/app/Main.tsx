@@ -191,6 +191,19 @@ const SettingsLoader: React.FC<{ children: React.ReactNode }> = ({ children }) =
       })
       .catch(() => { /* offline — next launch will reconcile */ });
   }, [dispatch]);
+
+  // Refetch settings when the window regains focus. Catches every out-of-
+  // band settings mutation that doesn't come through a renderer-dispatched
+  // thunk: Stripe checkout's bearer-handoff page POSTing /api/subscription/
+  // activate, the new sign-in flow's bearer-handoff POSTing /api/auth/
+  // signin-activate, manual ~/.openswarm/settings.json edits, etc. Throttled
+  // by the browser's natural focus cadence (one refetch per Cmd-Tab back).
+  useEffect(() => {
+    const onFocus = () => { dispatch(fetchSettings()); };
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }, [dispatch]);
+
   useEffect(() => {
     if (loaded) setThemeMode(theme as 'light' | 'dark');
   }, [loaded, theme, setThemeMode]);
@@ -220,6 +233,7 @@ interface IdentityStatus {
 }
 
 const SignInGateLoader: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const dispatch = useAppDispatch();
   const settings = useAppSelector((s) => s.settings.data);
   const settingsLoaded = useAppSelector((s) => s.settings.loaded);
   const [status, setStatus] = useState<IdentityStatus | null>(null);
@@ -248,6 +262,19 @@ const SignInGateLoader: React.FC<{ children: React.ReactNode }> = ({ children })
       });
     return () => { cancelled = true; };
   }, [settingsLoaded, alreadySignedIn]);
+
+  // While the gate is showing, poll settings every 2s so the moment the
+  // sign-in flow completes (browser POSTs /api/auth/signin-activate, local
+  // backend persists user_id to settings.json), we re-read settings and
+  // the gate auto-dismisses without the user clicking anything. Cheap —
+  // /api/settings is a static file read on the local backend. Stops as
+  // soon as the user is authed or the user has skipped.
+  useEffect(() => {
+    if (!settingsLoaded || alreadySignedIn) return;
+    if (status?.authed) return;
+    const id = setInterval(() => { dispatch(fetchSettings()); }, 2000);
+    return () => clearInterval(id);
+  }, [dispatch, settingsLoaded, alreadySignedIn, status?.authed]);
 
   // Read the persisted "remind me later" timestamp from localStorage so
   // soft-gate skip survives reloads but doesn't bloat AppSettings.

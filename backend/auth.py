@@ -99,6 +99,14 @@ _AUTH_EXEMPT_EXACT = {
     # has no way to inject our bearer token; the install_id check inside
     # the handler is what binds the request to this user.
     "/api/tools/oauth/cloud-claim",
+    # Bearer-handoff endpoints called by api.openswarm.com's success page
+    # AFTER Stripe checkout / Google sign-in / magic-link sign-in. The
+    # request POSTs the just-minted cloud bearer; the handler then re-
+    # validates it against the cloud (/api/me or /api/auth/signin-activate).
+    # The browser has no way to attach our per-install token here — the
+    # cloud-validated bearer in the body is the actual auth mechanism.
+    "/api/subscription/activate",
+    "/api/auth/signin-activate",
     "/api/version",
 }
 
