@@ -94,6 +94,29 @@ def _find_9router_dir() -> str | None:
     return None
 
 
+def _gpt5_patch_path() -> str | None:
+    """Absolute path to backend/apps/agents/9router_gpt5_patch.js, used as
+    `node --require <path>` when spawning 9router.
+
+    The patch intercepts outbound HTTPS to api.openai.com and renames
+    `max_tokens` → `max_completion_tokens` for GPT-5 models. Without it,
+    every gpt-5* own-key session 400's because OpenAI rejects the legacy
+    field name and 9router (every version including 0.4.20) emits it.
+
+    Returns None if the file is missing — `subprocess.Popen` would fail
+    on `node --require <missing-path>`, so the caller drops the flag and
+    spawns 9router unpatched (failure mode = identical to pre-patch
+    baseline; GPT-5 still 400's but everything else works).
+
+    Path resolution: walks up from this module to backend/apps/agents/.
+    Works identically in dev (`bash run.sh`) and packaged builds (Mac dmg
+    + Windows exe both ship this file under Resources/backend/...).
+    """
+    here = os.path.dirname(os.path.abspath(__file__))
+    candidate = os.path.join(here, "agents", "9router_gpt5_patch.js")
+    return candidate if os.path.exists(candidate) else None
+
+
 def _find_node() -> str | None:
     """Find a Node.js binary (works in both dev and packaged mode).
 
@@ -234,7 +257,11 @@ async def ensure_running():
             return
 
         logger.info("Starting 9Router (production) on port %d...", NINE_ROUTER_PORT)
-        cmd = [node, standalone_server]
+        cmd = [node]
+        _patch = _gpt5_patch_path()
+        if _patch:
+            cmd += ["--require", _patch]
+        cmd.append(standalone_server)
         cwd = os.path.dirname(standalone_server)
         env = {**os.environ, "PORT": str(NINE_ROUTER_PORT), "NODE_ENV": "production"}
         if node == os.environ.get("OPENSWARM_ELECTRON_PATH"):
@@ -260,7 +287,11 @@ async def ensure_running():
             "Starting 9Router (dev cache, 9router@%s) on port %d...",
             NINE_ROUTER_NPM_VERSION, NINE_ROUTER_PORT,
         )
-        cmd = [node, cached_server]
+        cmd = [node]
+        _patch = _gpt5_patch_path()
+        if _patch:
+            cmd += ["--require", _patch]
+        cmd.append(cached_server)
         cwd = os.path.dirname(cached_server)
         env = {**os.environ, "PORT": str(NINE_ROUTER_PORT), "NODE_ENV": "production"}
 
