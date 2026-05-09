@@ -325,25 +325,6 @@ async function runOp(op: ACOp, ctx: RunContext): Promise<void> {
     case 'popup': {
       if (ctx.silent) return;
       ac.showPopup(op.text);
-      // Hold the popup long enough to actually read it before the next
-      // op runs (which usually clears transients). Heuristic: typing
-      // takes ~32ms/char; reading at average human speed (~250 wpm,
-      // ~5 chars/word) is ~48ms/char. Total budget = stream time +
-      // read time, capped 1500..6000ms so single-word popups still
-      // breathe and long ones don't bore the user.
-      const STREAM = 32;
-      const READ = 55;
-      const total = op.text.length * (STREAM + READ);
-      const hold = Math.max(1500, Math.min(6000, total));
-      await new Promise<void>((resolve, reject) => {
-        const timer = window.setTimeout(resolve, hold);
-        const onAbort = () => {
-          window.clearTimeout(timer);
-          signal.removeEventListener('abort', onAbort);
-          reject(new DOMException('aborted', 'AbortError'));
-        };
-        signal.addEventListener('abort', onAbort);
-      });
       return;
     }
     case 'multi_choice': {
