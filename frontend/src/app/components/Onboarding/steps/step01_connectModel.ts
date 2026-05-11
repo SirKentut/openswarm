@@ -8,7 +8,7 @@ export const step01: OnboardingStep = {
   index: 1,
   title: 'Connect an AI model',
   description: 'This is the brain behind your agents.',
-  videoSrc: '/onboarding-videos/v2/01.mp4',
+  videoSrc: './onboarding-videos/v2/01.mp4',
   videoDurationLabel: '0:24',
   skipIf: hasModelConnected,
   ops: [

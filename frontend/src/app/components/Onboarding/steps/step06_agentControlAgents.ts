@@ -7,7 +7,7 @@ export const step06: OnboardingStep = {
   index: 6,
   title: 'Have an agent control other agents',
   description: 'Let an agent orchestrate other agents.',
-  videoSrc: '/onboarding-videos/v2/06.mp4',
+  videoSrc: './onboarding-videos/v2/06.mp4',
   videoDurationLabel: '0:34',
   requiresDashboard: true,
   ops: [

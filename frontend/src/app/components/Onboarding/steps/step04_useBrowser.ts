@@ -8,7 +8,7 @@ export const step04: OnboardingStep = {
   title: 'Use the built-in browser',
   description:
     'No more jumping between apps. You and your agents work in one place.',
-  videoSrc: '/onboarding-videos/v2/04.mp4',
+  videoSrc: './onboarding-videos/v2/04.mp4',
   videoDurationLabel: '0:18',
   // Runtime auto-prepends a "click into a dashboard" hop when the user
   // isn't already on a #/dashboards/:id route. No need to repeat that in

@@ -8,7 +8,7 @@ export const step03: OnboardingStep = {
   index: 3,
   title: 'Launch your first Agent',
   description: 'Click + to fire up a new Agent in a dashboard.',
-  videoSrc: '/onboarding-videos/v2/03.mp4',
+  videoSrc: './onboarding-videos/v2/03.mp4',
   videoDurationLabel: '0:24',
   skipIf: hasAnyAgentLaunched,
   requiresDashboard: true,

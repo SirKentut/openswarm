@@ -8,7 +8,7 @@ export const step02: OnboardingStep = {
   index: 2,
   title: 'Enable agentic actions',
   description: 'Allow agents to work across your apps.',
-  videoSrc: '/onboarding-videos/v2/02.mp4',
+  videoSrc: './onboarding-videos/v2/02.mp4',
   videoDurationLabel: '0:24',
   skipIf: hasAnyToolEnabled,
   ops: [

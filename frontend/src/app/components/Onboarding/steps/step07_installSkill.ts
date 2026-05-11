@@ -8,7 +8,7 @@ export const step07: OnboardingStep = {
   index: 7,
   title: 'Install a skill',
   description: 'Teach agents how to handle specific tasks.',
-  videoSrc: '/onboarding-videos/v2/07.mp4',
+  videoSrc: './onboarding-videos/v2/07.mp4',
   videoDurationLabel: '0:24',
   skipIf: hasAnySkillInstalled,
   ops: [
