@@ -992,6 +992,15 @@ async def run_browser_agent(
         return task.result()
 
     text_parts = []  # initialized before loop so post-loop summary (line ~1294) has a default
+    # Circuit breaker for ReportProgress violations. Some models get stuck
+    # in a loop where they keep calling action tools without the brain-
+    # state preamble. Each iteration of this loop pumps websocket events
+    # to the frontend, which fans out to every useSelector subscriber and
+    # tanks UI responsiveness. After N consecutive violations the agent
+    # gives up and surfaces an error instead of churning through all
+    # MAX_TURNS doing the same broken thing.
+    consecutive_violations = 0
+    MAX_CONSECUTIVE_VIOLATIONS = 3
     try:
         for turn in range(MAX_TURNS):
             if cancel_event.is_set():
@@ -1075,10 +1084,39 @@ async def run_browser_agent(
             # The model MUST articulate its evaluation/memory/goal before acting.
             report_progress_violation = has_action_tools and not has_report_progress
             if report_progress_violation:
+                consecutive_violations += 1
                 logger.warning(
-                    f"[browser-agent {session_id}] ReportProgress violation: "
+                    f"[browser-agent {session_id}] ReportProgress violation "
+                    f"({consecutive_violations}/{MAX_CONSECUTIVE_VIOLATIONS}): "
                     f"action tools called without brain state"
                 )
+                if consecutive_violations >= MAX_CONSECUTIVE_VIOLATIONS:
+                    logger.error(
+                        f"[browser-agent {session_id}] hit "
+                        f"{MAX_CONSECUTIVE_VIOLATIONS} consecutive ReportProgress "
+                        f"violations — aborting to prevent runaway loop"
+                    )
+                    # Surface a user-visible error message so the frontend
+                    # shows something coherent instead of just stopping.
+                    err_msg = Message(
+                        role="assistant",
+                        content=(
+                            "I got stuck repeating the same action without "
+                            "thinking it through. Stopping here so I don't "
+                            "loop. Feel free to ask me to try again."
+                        ),
+                    )
+                    session.messages.append(err_msg)
+                    await ws_manager.send_to_session(session_id, "agent:message", {
+                        "session_id": session_id,
+                        "message": err_msg.model_dump(mode="json"),
+                    })
+                    break
+            else:
+                # Reset on a clean turn — only CONSECUTIVE violations
+                # count toward the limit. A single bad turn followed by
+                # a good one shouldn't kill the agent.
+                consecutive_violations = 0
             # Stable sort: ReportProgress first, then everything else in order.
             tool_uses_sorted = sorted(
                 tool_uses,

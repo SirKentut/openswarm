@@ -717,6 +717,14 @@ async def sync_custom_providers(providers: list) -> None:
         api_key = getattr(cp, "api_key", None) or (cp.get("api_key") if isinstance(cp, dict) else None) or ""
         if not name.strip() or not base_url.strip():
             continue
+        # Local OpenAI-compatible servers (LM Studio, Ollama, vLLM, llama.cpp,
+        # text-generation-webui, etc.) ship with auth disabled by default —
+        # they ignore the Authorization header entirely. But 9Router still
+        # creates the connection with `authType: "apikey"` and would send a
+        # blank Bearer if api_key is "", which some servers reject as a
+        # malformed header. Substitute a harmless placeholder when blank;
+        # servers that DO require auth always have api_key set anyway.
+        api_key = api_key.strip() or "no-auth-required"
         slug = _custom_provider_slug(name)
         prefix = f"cp-{slug}"
         seen_prefixes.add(prefix)

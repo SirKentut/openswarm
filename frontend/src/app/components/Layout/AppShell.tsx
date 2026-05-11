@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, startTransition, useMemo } from 'react';
 import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { openSettingsModal } from '@/shared/state/settingsSlice';
 import Box from '@mui/material/Box';
@@ -65,7 +65,22 @@ const CUSTOMIZATION_PATHS = new Set(CUSTOMIZATION_ITEMS.map((i) => i.path));
 const AppShell: React.FC = () => {
   const c = useClaudeTokens();
   const dispatch = useAppDispatch();
-  const navigate = useNavigate();
+  const navigateRaw = useNavigate();
+  // Wrap navigation in startTransition so React treats the route swap
+  // as non-urgent: the click handler returns immediately and paint
+  // happens before the heavy unmount-old-page / mount-new-page work
+  // runs. Eliminates the "click → wait → page appears" gap on slow
+  // routes (Actions, Apps, Skills) when the main thread is busy with
+  // agent streaming dispatches. Same call signature as useNavigate's
+  // return so existing call sites stay untouched.
+  const navigate = useMemo(() => {
+    const fn = (...args: Parameters<typeof navigateRaw>) => {
+      startTransition(() => {
+        (navigateRaw as any)(...args);
+      });
+    };
+    return fn as typeof navigateRaw;
+  }, [navigateRaw]);
   const location = useLocation();
   const [dashboardsExpanded, setDashboardsExpanded] = useState(true);
   const [appsExpanded, setAppsExpanded] = useState(true);
@@ -828,48 +843,51 @@ const AppShell: React.FC = () => {
 
             <Collapse in={customizationExpanded} timeout={200}>
               <Box sx={{ ml: 2, mt: 0.25, mb: 0.5, borderLeft: `1px solid ${c.border.medium}` }}>
-                {CUSTOMIZATION_ITEMS.map((item) => (
-                  <NavLink
-                    key={item.path}
-                    to={item.path}
-                    style={{ textDecoration: 'none', color: 'inherit' }}
-                  >
-                    {({ isActive }) => (
-                      <Box
-                        data-onboarding={item.onboarding}
+                {CUSTOMIZATION_ITEMS.map((item) => {
+                  // Replaced NavLink with a manual click handler so the
+                  // wrapped (startTransition-aware) navigate runs.
+                  // react-router's NavLink calls its own internal
+                  // navigate which doesn't go through our wrapper,
+                  // bypassing the transition optimization that makes
+                  // Actions/Skills/Modes feel instant.
+                  const isActive = location.pathname === item.path;
+                  return (
+                    <Box
+                      key={item.path}
+                      data-onboarding={item.onboarding}
+                      onClick={() => navigate(item.path)}
+                      sx={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 0.75,
+                        pl: 1.25,
+                        pr: 1,
+                        py: 0.5,
+                        ml: '-0.5px',
+                        cursor: 'pointer',
+                        borderLeft: isActive ? `1.5px solid ${c.accent.primary}` : '1.5px solid transparent',
+                        bgcolor: isActive ? `${c.accent.primary}0C` : 'transparent',
+                        '&:hover': { bgcolor: `${c.text.tertiary}0A` },
+                        transition: 'background-color 0.12s, border-color 0.12s',
+                      }}
+                    >
+                      <Typography
                         sx={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 0.75,
-                          pl: 1.25,
-                          pr: 1,
-                          py: 0.5,
-                          ml: '-0.5px',
-                          cursor: 'pointer',
-                          borderLeft: isActive ? `1.5px solid ${c.accent.primary}` : '1.5px solid transparent',
-                          bgcolor: isActive ? `${c.accent.primary}0C` : 'transparent',
-                          '&:hover': { bgcolor: `${c.text.tertiary}0A` },
-                          transition: 'background-color 0.12s, border-color 0.12s',
+                          color: isActive ? c.text.secondary : c.text.ghost,
+                          fontSize: '0.78rem',
+                          fontWeight: isActive ? 500 : 400,
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                          flex: 1,
+                          minWidth: 0,
                         }}
                       >
-                        <Typography
-                          sx={{
-                            color: isActive ? c.text.secondary : c.text.ghost,
-                            fontSize: '0.78rem',
-                            fontWeight: isActive ? 500 : 400,
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            whiteSpace: 'nowrap',
-                            flex: 1,
-                            minWidth: 0,
-                          }}
-                        >
-                          {item.label}
-                        </Typography>
-                      </Box>
-                    )}
-                  </NavLink>
-                ))}
+                        {item.label}
+                      </Typography>
+                    </Box>
+                  );
+                })}
               </Box>
             </Collapse>
           </Box>

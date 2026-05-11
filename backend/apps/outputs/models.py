@@ -154,9 +154,14 @@ class OutputExecuteResult(BaseModel):
 
 
 class AutoRunRequest(BaseModel):
+    # extra="ignore" so callers that historically sent `backend_code` (the
+    # field was removed for security — see auto_run_output endpoint) don't
+    # 422 on the way in. The endpoint silently drops it now; backend code
+    # only runs via the persisted-Output flow at /api/outputs/execute.
+    model_config = {"extra": "ignore"}
+
     prompt: str
     input_schema: dict[str, Any] = Field(default_factory=dict)
-    backend_code: Optional[str] = None
     context_paths: list[dict[str, str]] = Field(default_factory=list)
     forced_tools: list[str] = Field(default_factory=list)
     model: str = "sonnet"

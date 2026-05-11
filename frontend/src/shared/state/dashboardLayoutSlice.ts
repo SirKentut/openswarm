@@ -231,6 +231,74 @@ export function findOpenGridCell(
   }
 }
 
+// Like findOpenGridCell but biased to stay near a proposed (x,y) anchor.
+// Used when the backend hands us a card with a position that's already
+// occupied (sub-agent or sub-browser spawning on top of its parent or a
+// sibling). Spirals outward from the anchor on a grid, snapping to
+// cell-aligned positions so the result still looks intentional, not
+// dropped from orbit. Caps the spiral search at ~1000 cells to avoid
+// pathological work in adversarial layouts — falls back to
+// findOpenGridCell after that.
+//
+// Cost: O(rects × cells_scanned). Spawn events are rare (not per-frame),
+// so this only runs when a new card appears. Typical scan resolves in
+// <10 cells, well below the cap. No perf impact on steady-state UI.
+export function findOpenSpotNear(
+  anchorX: number,
+  anchorY: number,
+  occupiedRects: Rect[],
+  newW: number,
+  newH: number,
+): { x: number; y: number } {
+  const cellW = DEFAULT_CARD_W + GRID_GAP;
+  const cellH = DEFAULT_CARD_H + GRID_GAP;
+  // Snap the anchor to the nearest grid cell so all cards align cleanly.
+  const baseCol = Math.round((anchorX - GRID_ORIGIN.x) / cellW);
+  const baseRow = Math.round((anchorY - GRID_ORIGIN.y) / cellH);
+
+  const cellFree = (col: number, row: number): boolean => {
+    const x = GRID_ORIGIN.x + col * cellW;
+    const y = GRID_ORIGIN.y + row * cellH;
+    const candidate: Rect = { x, y, w: newW, h: newH };
+    return !occupiedRects.some((r) => rectsOverlap(candidate, r));
+  };
+
+  // Try the anchor itself first.
+  if (cellFree(baseCol, baseRow)) {
+    return {
+      x: GRID_ORIGIN.x + baseCol * cellW,
+      y: GRID_ORIGIN.y + baseRow * cellH,
+    };
+  }
+
+  // Spiral search: expand rings around the anchor. Each ring r covers
+  // the perimeter of a (2r+1)×(2r+1) square. First free cell wins,
+  // preferring right/down (read order) within each ring for stability.
+  const MAX_RING = 32;
+  for (let r = 1; r <= MAX_RING; r++) {
+    for (let dy = -r; dy <= r; dy++) {
+      for (let dx = -r; dx <= r; dx++) {
+        // Only perimeter of this ring (interior was scanned in r-1).
+        if (Math.abs(dx) !== r && Math.abs(dy) !== r) continue;
+        const col = baseCol + dx;
+        const row = baseRow + dy;
+        // Don't place above the grid origin.
+        if (col < 0 || row < 0) continue;
+        if (cellFree(col, row)) {
+          return {
+            x: GRID_ORIGIN.x + col * cellW,
+            y: GRID_ORIGIN.y + row * cellH,
+          };
+        }
+      }
+    }
+  }
+
+  // Pathological — full canvas occupied near anchor. Fall back to the
+  // global first-empty scan so we never return an overlap.
+  return findOpenGridCell(occupiedRects, newW, newH);
+}
+
 const dashboardLayoutSlice = createSlice({
   name: 'dashboardLayout',
   initialState,
@@ -261,10 +329,34 @@ const dashboardLayoutSlice = createSlice({
 
     placeCard(
       state,
-      action: PayloadAction<{ sessionId: string; x: number; y: number; width: number; height: number }>
+      action: PayloadAction<{
+        sessionId: string;
+        x: number;
+        y: number;
+        width: number;
+        height: number;
+        // Optional: which existing sessions are currently expanded
+        // (showing their full chat history). Without this, the collision
+        // check uses each card's STORED height — which is the collapsed
+        // value — even when the card is currently rendering at the
+        // expanded ~620px. Result: new sub-agent cards spawn into the
+        // collapsed footprint but overlap the visually expanded one.
+        // Caller (Dashboard.tsx) passes the current expanded set so
+        // the collision math matches what the user actually sees.
+        expandedSessionIds?: string[];
+      }>
     ) {
-      const { sessionId, x, y, width, height } = action.payload;
-      state.cards[sessionId] = { session_id: sessionId, x, y, width, height, zOrder: state.nextZOrder++ };
+      const { sessionId, x, y, width, height, expandedSessionIds } = action.payload;
+      const rects = collectOccupiedRects(state, expandedSessionIds);
+      const pos = findOpenSpotNear(x, y, rects, width, height);
+      state.cards[sessionId] = {
+        session_id: sessionId,
+        x: pos.x,
+        y: pos.y,
+        width,
+        height,
+        zOrder: state.nextZOrder++,
+      };
     },
 
     bringToFront(
@@ -453,10 +545,23 @@ const dashboardLayoutSlice = createSlice({
     addBrowserCardFromBackend(state, action: PayloadAction<BrowserCardPosition>) {
       const card = action.payload;
       if (state.browserCards[card.browser_id]) return;
+      const w = card.width || DEFAULT_BROWSER_CARD_W;
+      const h = card.height || DEFAULT_BROWSER_CARD_H;
+      // Collision-resolve the backend-proposed position. Backend agents
+      // often spawn sub-browsers at the parent's coordinates or at a
+      // default (0,0) — without this guard, the new card lands on top
+      // of an existing one and the user sees a single card with
+      // multiple titles fighting for the z-index. Bias toward the
+      // proposed position so the spawn still LOOKS related to wherever
+      // the agent intended.
+      const rects = collectOccupiedRects(state);
+      const pos = findOpenSpotNear(card.x, card.y, rects, w, h);
       state.browserCards[card.browser_id] = {
         ...card,
-        width: card.width || DEFAULT_BROWSER_CARD_W,
-        height: card.height || DEFAULT_BROWSER_CARD_H,
+        x: pos.x,
+        y: pos.y,
+        width: w,
+        height: h,
         zOrder: card.zOrder || state.nextZOrder++,
       };
     },

@@ -563,20 +563,21 @@ async def auto_run_output(body: AutoRunRequest):
         if validation_err:
             return {"input_data": input_data, "backend_result": None, "error": validation_err}
 
-        backend_result = None
-        stdout_text = None
-        stderr_text = None
-        error = None
-        if body.backend_code:
-            try:
-                exec_result = await execute_backend_code(body.backend_code, input_data)
-                backend_result = exec_result.result
-                stdout_text = exec_result.stdout
-                stderr_text = exec_result.stderr
-            except Exception as e:
-                error = str(e)
-
-        return {"input_data": input_data, "backend_result": backend_result, "stdout": stdout_text, "stderr": stderr_text, "error": error}
+        # SECURITY: this endpoint used to accept arbitrary `backend_code` in
+        # the request body and pass it straight to execute_backend_code —
+        # which is an unsandboxed `python -c` subprocess. That gave anyone
+        # holding the install token (which is readable by every process
+        # running as the same OS user, and is also handed to every agent
+        # subprocess via OPENSWARM_AUTH_TOKEN) a one-shot RCE primitive.
+        # The field is now ignored at the model layer; backend code can
+        # only run via /api/outputs/execute against a persisted Output.
+        return {
+            "input_data": input_data,
+            "backend_result": None,
+            "stdout": None,
+            "stderr": None,
+            "error": None,
+        }
     except json.JSONDecodeError:
         return {"error": "Failed to parse generated data as JSON", "input_data": None, "backend_result": None}
     except Exception as e:

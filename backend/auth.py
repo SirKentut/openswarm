@@ -115,6 +115,126 @@ def get_auth_token() -> str:
     return _TOKEN
 
 
+class _TokenScrubFilter(logging.Filter):
+    """Logging filter that redacts the install token from any log record.
+
+    The token leaks into logs in a few mundane ways: subprocess env dicts
+    that get logged when an MCP server fails to spawn, urllib retry logs
+    that include `?token=...` query strings, exception tracebacks that
+    print the response body of a failed proxied request. None of those
+    are intentional but they all happen, and the file ends up in crash
+    dumps / shared bug reports / hosted log aggregators. This filter is
+    pure defense in depth — behavior is unchanged when the token is
+    absent from a record.
+    """
+
+    _PLACEHOLDER = "<REDACTED:openswarm-token>"
+
+    @staticmethod
+    def _args_might_contain_token(args) -> bool:
+        """Cheap pre-check: does any positional arg or dict-arg value mention
+        the token? Avoids the cost of `record.getMessage()` (which eagerly
+        does %-formatting) on the >99% of log lines that don't touch it."""
+        if not args:
+            return False
+        items = args if isinstance(args, (tuple, list)) else (args,)
+        for a in items:
+            if isinstance(a, str) and _TOKEN in a:
+                return True
+            if isinstance(a, dict):
+                for v in a.values():
+                    if isinstance(v, str) and _TOKEN in v:
+                        return True
+        return False
+
+    def filter(self, record: logging.LogRecord) -> bool:  # pragma: no cover (defensive)
+        if not _TOKEN:
+            return True
+        # Fast path: the overwhelming majority of log records don't mention
+        # the token at all. Two cheap string-in-string scans (raw msg + each
+        # arg) are far cheaper than forcing record.getMessage(), which would
+        # do eager %-formatting on every record in the process.
+        raw_msg = record.msg if isinstance(record.msg, str) else ""
+        if _TOKEN not in raw_msg and not self._args_might_contain_token(record.args):
+            return True
+        # Slow path: token might be present after substitution. Format,
+        # scrub, and clear args so the formatted msg is what handlers see.
+        try:
+            msg = record.getMessage()
+            if _TOKEN in msg:
+                record.msg = msg.replace(_TOKEN, self._PLACEHOLDER)
+                record.args = None
+        except Exception:
+            # Never let the scrubber suppress a log line — if formatting
+            # fails for any reason, fall through and let normal handling
+            # proceed (worst case the token leaks for that one record).
+            pass
+        return True
+
+
+_scrubber_installed = False
+
+
+def install_token_scrubber() -> None:
+    """Attach the token-scrubbing filter to every log handler in the process.
+
+    Why not just `root.addFilter(...)`: filters attached to a Logger only
+    fire on records emitted DIRECTLY on that logger. Records propagated up
+    from child loggers (uvicorn.access, uvicorn.error, websockets, etc.)
+    flow into root's HANDLERS without ever consulting root's logger-level
+    filters. So a logger-level install silently misses the access log —
+    which is exactly the line that contains `?token=...` query params.
+
+    This implementation:
+      1. Walks every currently-registered logger (root + everything in
+         `Logger.manager.loggerDict`) and attaches the scrubber to each
+         of their handlers.
+      2. Monkey-patches `Logger.addHandler` so any handler installed
+         AFTER this call (uvicorn configures its loggers during startup,
+         after main.py finishes importing) also gets the scrubber.
+      3. Keeps the root-logger filter as belt-and-suspenders for the
+         records that ARE emitted directly on root.
+
+    Idempotent — repeated calls are a no-op.
+    """
+    global _scrubber_installed
+    if _scrubber_installed:
+        return
+
+    scrubber = _TokenScrubFilter()
+
+    def _attach(handler: logging.Handler) -> None:
+        if not any(isinstance(f, _TokenScrubFilter) for f in handler.filters):
+            handler.addFilter(scrubber)
+
+    # 1. Existing handlers across every known logger.
+    loggers: list[logging.Logger] = [logging.getLogger()]
+    for logger in logging.root.manager.loggerDict.values():
+        if isinstance(logger, logging.Logger):
+            loggers.append(logger)
+    for logger in loggers:
+        for h in list(logger.handlers):
+            _attach(h)
+
+    # 2. Future handlers — patch Logger.addHandler so anything attached
+    #    after this point (uvicorn finishing its log config, plugins
+    #    that reconfigure logging on their own) also gets scrubbed.
+    _original_addHandler = logging.Logger.addHandler
+
+    def _patched_addHandler(self: logging.Logger, hdlr: logging.Handler) -> None:
+        _attach(hdlr)
+        return _original_addHandler(self, hdlr)
+
+    logging.Logger.addHandler = _patched_addHandler  # type: ignore[assignment]
+
+    # 3. Belt-and-suspenders on root logger itself.
+    root = logging.getLogger()
+    if not any(isinstance(f, _TokenScrubFilter) for f in root.filters):
+        root.addFilter(scrubber)
+
+    _scrubber_installed = True
+
+
 # Paths that never require auth. These are the public surface.
 _AUTH_EXEMPT_EXACT = {
     # External OAuth providers redirect the user's browser here. The

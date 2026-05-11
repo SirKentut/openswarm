@@ -18,11 +18,13 @@ export const step05: OnboardingStep = {
       kind: 'wait_user',
       condition: { kind: 'click_target', target: S.newAgentButton },
     },
-    // Offset nudge: cursor SVG is asymmetric (tip top-left, body down-right),
-    // so default rect-center pinning makes the body bleed over the
-    // paperclip "Attach file" button right next to this icon. Pulling
-    // the tip ~8px left keeps the body inside this icon's footprint.
-    { kind: 'move_to', target: S.elementSelectionToggle, offset: { x: -8, y: 0 } },
+    // Offset nudge: cursor SVG is asymmetric (tip top-left, body
+    // extends ~8px right and ~10px down). Default rect-center pinning
+    // puts the cursor BODY over the adjacent paperclip "Attach file"
+    // button instead of this icon. Shifting the tip up-and-left by
+    // (-10, -10) puts the body's visual center over this icon's
+    // center, where it belongs.
+    { kind: 'move_to', target: S.elementSelectionToggle, offset: { x: -10, y: -10 } },
     { kind: 'popup', text: 'Tap here to plug a browser into this chat.' },
     {
       kind: 'wait_user',

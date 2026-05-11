@@ -1,3 +1,4 @@
+import html
 import logging
 import os
 from uuid import uuid4
@@ -53,11 +54,16 @@ app = main_app.app
 # time any request lands, the token file exists. See backend/auth.py.
 from backend.auth import (
     init_auth_token,
+    install_token_scrubber,
     is_path_exempt,
     request_matches_token,
     is_origin_allowed,
 )
 init_auth_token()
+# Install the log scrubber AFTER the token exists so any log line that
+# accidentally embeds it (subprocess env dumps, urllib retry traces,
+# proxied-request error bodies) gets redacted before hitting handlers.
+install_token_scrubber()
 
 
 # CORS: previously wide open (`allow_origins=["*"]`), which combined with
@@ -335,7 +341,12 @@ async def subscriptions_callback(request: Request):
     error = request.query_params.get("error", "")
 
     if error:
-        desc = request.query_params.get("error_description", error)
+        # Escape both inputs — `error_description` and `error` are attacker-
+        # controllable query params and the endpoint is auth-exempt, so an
+        # unescaped interpolation here is a reflected XSS in the localhost
+        # origin (loadable inside the Electron app context, where same-origin
+        # JS has access to the install token).
+        desc = html.escape(request.query_params.get("error_description", error))
         return HTMLResponse(f'<html><body style="background:#1a1a1a;color:#fff;display:flex;align-items:center;justify-content:center;height:100vh;font-family:sans-serif"><div style="text-align:center"><h2>Authorization failed</h2><p style="color:#888">{desc}</p></div></body></html>')
 
     pending = _pending_oauth.pop(state, None)
@@ -354,7 +365,12 @@ async def subscriptions_callback(request: Request):
         await exchange_oauth(pending["provider"], code, pending["redirect_uri"], pending["code_verifier"], state)
     except Exception as e:
         logger.warning(f"OAuth exchange failed for provider={pending.get('provider')}: {e}")
-        return HTMLResponse(f'<html><body style="background:#1a1a1a;color:#fff;display:flex;align-items:center;justify-content:center;height:100vh;font-family:sans-serif"><div style="text-align:center"><h2>Connection failed</h2><p style="color:#888">{e}</p></div></body></html>')
+        # Escape the exception message — upstream OAuth provider errors can
+        # echo back attacker-influenced strings (e.g. error_description from
+        # the original request URL), and this response is rendered in the
+        # localhost origin.
+        safe_e = html.escape(str(e))
+        return HTMLResponse(f'<html><body style="background:#1a1a1a;color:#fff;display:flex;align-items:center;justify-content:center;height:100vh;font-family:sans-serif"><div style="text-align:center"><h2>Connection failed</h2><p style="color:#888">{safe_e}</p></div></body></html>')
 
     _mark_oauth_completed(state)
     logger.info(f"OAuth exchange succeeded for provider={pending.get('provider')}")

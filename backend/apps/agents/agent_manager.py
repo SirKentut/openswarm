@@ -1161,6 +1161,20 @@ class AgentManager:
 
         _builtin_perms = load_builtin_permissions()
 
+        # Per-tool DEFAULT policy (overridden by anything the user has set
+        # explicitly in builtin_permissions.json). Bash defaults to "ask"
+        # because every other builtin is sandboxed by domain (Read/Write
+        # touch files but not the shell, browser tools touch a webview),
+        # whereas Bash is a full local shell — and the agent receives
+        # untrusted text from MCP tools (Gmail, WebFetch, browsing) that
+        # can carry prompt injection. Without this, a poisoned email
+        # could silently `rm -rf` the user. Users who want the old
+        # behavior can flip Bash back to always_allow in the UI.
+        _DEFAULTS = {"Bash": "ask"}
+
+        def _default_for(tool_name: str) -> str:
+            return _DEFAULTS.get(tool_name, "always_allow")
+
         def _get_effective_policy(tool_name: str) -> str:
             """Return 'always_allow', 'deny', or 'ask' for any tool."""
             if tool_name in _builtin_perms:
@@ -1170,11 +1184,11 @@ class AgentManager:
 
             bm = _re.match(r"mcp__openswarm-browser-agent__(.+)", tool_name)
             if bm:
-                return _builtin_perms.get(bm.group(1), "always_allow")
+                return _builtin_perms.get(bm.group(1), _default_for(bm.group(1)))
 
             im = _re.match(r"mcp__openswarm-invoke-agent__(.+)", tool_name)
             if im:
-                return _builtin_perms.get(im.group(1), "always_allow")
+                return _builtin_perms.get(im.group(1), _default_for(im.group(1)))
 
             m = _re.match(r"mcp__([^_]+(?:-[^_]+)*)__(.+)", tool_name)
             if m:
@@ -1184,7 +1198,7 @@ class AgentManager:
                         continue
                     if _sanitize_server_name(t.name) == server_slug:
                         return t.tool_permissions.get(mcp_tool_name, "ask")
-            return "always_allow"
+            return _default_for(tool_name)
 
         async def _request_user_approval(tool_name: str, tool_input) -> dict:
             """Send an approval request via WebSocket and wait for the user's decision."""
@@ -1914,7 +1928,13 @@ class AgentManager:
                     "ENABLE_TOOL_SEARCH": "auto",
                 }
                 if cp:
-                    env["OPENAI_API_KEY"] = (cp.api_key or "")
+                    # Local OpenAI-compatible servers (LM Studio, Ollama, ...)
+                    # often run with auth disabled — the user leaves api_key
+                    # blank in Settings. The OpenAI-style SDK insists on a
+                    # non-empty key; substitute a harmless placeholder so the
+                    # CLI can issue requests. Servers that DO check auth always
+                    # have a real key configured.
+                    env["OPENAI_API_KEY"] = (cp.api_key or "").strip() or "no-auth-required"
                     env["OPENAI_BASE_URL"] = (cp.base_url or "")
                 # Pin subagent ids — without these, CLI's default Haiku 4.5
                 # gets sent to the custom provider and 404s.

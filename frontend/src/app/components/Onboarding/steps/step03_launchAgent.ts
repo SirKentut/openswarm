@@ -24,7 +24,12 @@ export const step03: OnboardingStep = {
     {
       kind: 'type_into',
       target: S.chatInput,
-      text: 'What is this youtube video about: https://youtu.be/_NKj8KQMY-k?si=rEk4KO2bOpa5Vo0z',
+      // Anti-browser-agent directive: the YouTube summary can be
+      // answered entirely from the youtube transcript MCP without
+      // spawning a browser-agent. Browser agents misbehave under
+      // load (ReportProgress violation loops, rate-limit retries)
+      // and tank dashboard responsiveness. The transcript is plenty.
+      text: 'What is this youtube video about: https://youtu.be/_NKj8KQMY-k?si=rEk4KO2bOpa5Vo0z. Do not use browser agents.',
       speedMs: 12,
     },
     // Auto-send the prompt — same pattern as steps 5/6/8. Without this,

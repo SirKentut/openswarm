@@ -717,7 +717,19 @@ const DashboardInner: React.FC<DashboardProps> = ({ dashboardId, isActive = true
         targetY = lowestBottom + GRID_GAP;
       }
 
-      dispatch(placeCard({ sessionId: sub.id, x: targetX, y: targetY, width: DEFAULT_CARD_W, height: DEFAULT_CARD_H }));
+      dispatch(placeCard({
+        sessionId: sub.id,
+        x: targetX,
+        y: targetY,
+        width: DEFAULT_CARD_W,
+        height: DEFAULT_CARD_H,
+        // Pass the current expanded-session set so placeCard's
+        // collision check uses real visual heights (expanded cards
+        // render ~620px tall instead of their stored collapsed
+        // height). Without this, sub-agents spawn into space the
+        // parent card visually occupies.
+        expandedSessionIds,
+      }));
       dispatch(expandSession(sub.id));
       const label = sub.mode === 'sub-agent' ? 'Create Agent' : 'Invoke Agent';
       dispatch(setGlowingAgentCard({ sessionId: sub.id, sourceId: sub.parent_session_id!, label }));
@@ -955,7 +967,14 @@ const DashboardInner: React.FC<DashboardProps> = ({ dashboardId, isActive = true
           const action = await dispatch(duplicateSession({ sessionId: card.id, dashboardId }));
           if (duplicateSession.fulfilled.match(action)) {
             const newId = action.payload.id;
-            dispatch(placeCard({ sessionId: newId, x: px, y: py, width: card.width, height: card.height }));
+            dispatch(placeCard({
+              sessionId: newId,
+              x: px,
+              y: py,
+              width: card.width,
+              height: card.height,
+              expandedSessionIds,
+            }));
             if (card.expanded) {
               dispatch(expandSession(newId));
             }
@@ -1182,6 +1201,7 @@ const DashboardInner: React.FC<DashboardProps> = ({ dashboardId, isActive = true
         y: targetY,
         width: DEFAULT_CARD_W,
         height: DEFAULT_CARD_H,
+        expandedSessionIds,
       }));
 
       if (expandedSessionIds.includes(sourceSessionId)) {
@@ -1256,10 +1276,21 @@ const DashboardInner: React.FC<DashboardProps> = ({ dashboardId, isActive = true
             if (selectedBrowserIds.length === 1) {
               const bc = store.getState().dashboardLayout.browserCards[selectedBrowserIds[0]];
               if (bc) {
-                dispatch(setCardPosition({
+                // Use placeCard (collision-aware) instead of
+                // setCardPosition (blind setter). The "left of the
+                // browser" anchor is the IDEAL spot — but if it's
+                // already taken by an existing chat (e.g. step 3's
+                // YouTube agent that's still on canvas when step 5
+                // creates a new chat for the same browser), placeCard
+                // cascades to the nearest free cell instead of
+                // stacking on top.
+                dispatch(placeCard({
                   sessionId: realId,
                   x: bc.x - DEFAULT_CARD_W - GRID_GAP * 12,
                   y: bc.y,
+                  width: DEFAULT_CARD_W,
+                  height: DEFAULT_CARD_H,
+                  expandedSessionIds,
                 }));
               }
             }

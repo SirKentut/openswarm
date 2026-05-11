@@ -176,9 +176,14 @@ export function resolveSelector(target: string): HTMLElement | null {
 // Wait for a selector to appear in the DOM. Resolves with the element, or
 // rejects after timeoutMs. Used by acRuntime when a target is expected to
 // mount asynchronously (e.g. settings modal, just-spawned card).
+//
+// Default bumped to 15s because under heavy main-thread load (many agents
+// streaming, App Builder /apps/new mounting AgentChat with its own model
+// probe + fetches), 8s was sometimes not enough and AC would abort into
+// the recovery popup just before the target finally rendered.
 export function waitForSelector(
   target: string,
-  timeoutMs = 8000,
+  timeoutMs = 15000,
 ): Promise<HTMLElement> {
   const existing = resolveSelector(target);
   if (existing) return Promise.resolve(existing);

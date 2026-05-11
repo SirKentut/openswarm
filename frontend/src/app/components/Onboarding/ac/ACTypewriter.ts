@@ -82,6 +82,14 @@ export interface TypeIntoOptions {
   onTick?: () => void;
 }
 
+function readEffectiveText(el: HTMLElement): string {
+  if (el.isContentEditable) return (el.textContent ?? '').trim();
+  if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
+    return (el.value ?? '').trim();
+  }
+  return (el.textContent ?? '').trim();
+}
+
 export async function typeInto(
   el: HTMLElement,
   text: string,
@@ -102,18 +110,79 @@ export async function typeInto(
       opts.onTick?.();
       await new Promise((r) => window.setTimeout(r, speed));
     }
-    return;
+  } else {
+    let acc = '';
+    if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
+      acc = el.value ?? '';
+    }
+    for (const ch of text) {
+      acc += ch;
+      nativeSetValue(el, acc);
+      dispatchInput(el);
+      opts.onTick?.();
+      await new Promise((r) => window.setTimeout(r, speed));
+    }
   }
 
-  let acc = '';
-  if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
-    acc = el.value ?? '';
+  // Post-type verification. Under heavy main-thread load (many agents
+  // streaming concurrently), execCommand('insertText') can silently
+  // no-op while React's reconciler is starved — AC "types" but the
+  // characters never land in the controlled input. Without this check,
+  // step 8 (App Builder) would "complete" with an empty draft and the
+  // user would see no app get built.
+  //
+  // After typing, give React up to 500ms to commit, then re-read the
+  // effective text. If it's missing most of what we typed, fall back
+  // to a single-shot insert that's much more reliable under load.
+  const target = text.trim();
+  if (!target) return;
+  for (let i = 0; i < 5; i++) {
+    await new Promise<void>((r) => window.setTimeout(r, 100));
+    const got = readEffectiveText(el);
+    if (got.length >= Math.floor(target.length * 0.8)) return;
   }
-  for (const ch of text) {
-    acc += ch;
-    nativeSetValue(el, acc);
-    dispatchInput(el);
-    opts.onTick?.();
-    await new Promise((r) => window.setTimeout(r, speed));
+
+  // Fallback: nuke contents and insert the full string in one shot.
+  // Loses the typing animation but preserves the user-visible outcome.
+  try {
+    if (el.isContentEditable) {
+      el.focus();
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      const sel = window.getSelection();
+      if (sel) {
+        sel.removeAllRanges();
+        sel.addRange(range);
+      }
+      try {
+        document.execCommand('delete', false);
+      } catch {
+        /* fall through */
+      }
+      try {
+        const ok = document.execCommand('insertText', false, text);
+        if (!ok) {
+          el.textContent = text;
+          el.dispatchEvent(
+            new InputEvent('input', {
+              bubbles: true,
+              data: text,
+              inputType: 'insertText',
+            }),
+          );
+        }
+      } catch {
+        el.textContent = text;
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+    } else if (
+      el instanceof HTMLInputElement ||
+      el instanceof HTMLTextAreaElement
+    ) {
+      nativeSetValue(el, text);
+      dispatchInput(el);
+    }
+  } catch {
+    /* best-effort — runtime's wait_user will time out and recover */
   }
 }

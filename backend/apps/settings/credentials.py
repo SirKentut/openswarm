@@ -100,7 +100,12 @@ def get_provider_credentials(settings: AppSettings, provider: str) -> dict[str, 
     # Custom provider
     for cp in getattr(settings, "custom_providers", []):
         if cp.name.lower() == p:
-            return {"api_key": cp.api_key, "base_url": cp.base_url}
+            # Substitute a placeholder when the user left api_key blank
+            # — local OpenAI-compatible servers (LM Studio, Ollama, etc.)
+            # ignore the Bearer header but downstream callers may insist
+            # on non-empty values.
+            key = (cp.api_key or "").strip() or "no-auth-required"
+            return {"api_key": key, "base_url": cp.base_url}
 
     raise ValueError(f"No credentials for provider: {provider}")
 

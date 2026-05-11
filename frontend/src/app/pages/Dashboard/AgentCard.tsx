@@ -639,6 +639,9 @@ const AgentCard: React.FC<Props> = ({
       sx={{
         position: 'relative',
         // contain: streaming chat updates inside don't reflow the dashboard.
+        // Skipping `paint` here because the highlighted/selected/glow
+        // boxShadows legitimately extend past the card border — `paint`
+        // containment would clip those visuals.
         contain: 'layout style',
         width: localResize ? activeW : Math.max(cardWidth, MIN_W),
         height: localResize ? activeH : (expanded ? Math.max(EXPANDED_OVERLAY_H, cardHeight) : 'auto'),

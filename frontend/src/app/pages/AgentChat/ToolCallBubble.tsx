@@ -1348,6 +1348,7 @@ const ToolCallBubble: React.FC<ToolCallBubbleProps> = React.memo(
     const revealTargetSessionId = invokedSessionId || createAgentSessionId;
 
     const sessions = useAppSelector((s) => s.agents.sessions);
+    const expandedSessionIds = useAppSelector((s) => s.agents.expandedSessionIds);
 
     const handleRevealAgent = useCallback(
       (e: React.MouseEvent) => {
@@ -1399,6 +1400,7 @@ const ToolCallBubble: React.FC<ToolCallBubbleProps> = React.memo(
             y: targetY,
             width: DEFAULT_CARD_W,
             height: DEFAULT_CARD_H,
+            expandedSessionIds,
           }));
           dispatch(expandSession(revealTargetSessionId));
           const label = isCreateAgent ? 'Create Agent' : isInvokeAgent ? 'Invoke Agent' : 'Agent';

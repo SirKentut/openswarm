@@ -323,7 +323,52 @@ async function runOp(op: ACOp, ctx: RunContext): Promise<void> {
       if (isBroken(r, cy)) {
         throw new Error(`waitForSelector: "${op.target}" rect did not settle`);
       }
+      // Rect-stability check: when the user clicks "+" to open the
+      // dock chat, the chat input mounts then nudges into final
+      // position over a couple frames as siblings render. If we read
+      // the rect during that window and start the spring immediately,
+      // the cursor lands on a stale-target location and then the
+      // tracker has to drag it the remaining ~10-30px — visible as
+      // a "jump" right after the spring lands. Polling the rect for
+      // 2 stable consecutive frames (within 1.5px) guarantees we
+      // start the spring against the FINAL position. Capped at 200ms
+      // so we never block visibly. Most paths break out in 0-2 frames.
+      const STABILITY_MAX_MS = 200;
+      const STABILITY_THRESHOLD_PX = 1.5;
+      const stabilityStart = performance.now();
+      let prevCx = cx;
+      let prevCy = cy;
+      let stableFrames = 0;
+      while (
+        stableFrames < 2 &&
+        performance.now() - stabilityStart < STABILITY_MAX_MS
+      ) {
+        await new Promise<void>((res) => requestAnimationFrame(() => res()));
+        r = el.getBoundingClientRect();
+        cx = r.left + r.width / 2 + offX;
+        cy = r.top + r.height / 2 + offY;
+        if (
+          Math.abs(cx - prevCx) <= STABILITY_THRESHOLD_PX &&
+          Math.abs(cy - prevCy) <= STABILITY_THRESHOLD_PX
+        ) {
+          stableFrames += 1;
+        } else {
+          stableFrames = 0;
+        }
+        prevCx = cx;
+        prevCy = cy;
+      }
       await ac.moveTo(cx, cy);
+      // One-frame yield before handing transform control to the
+      // sticky-tracker rAF. Without this, the tracker's first tick
+      // can fire while Framer's spring is still settling the final
+      // ~10px of the move, and the tracker's controls.set() cancels
+      // the spring mid-overshoot — visible as the cursor "teleporting"
+      // or disappearing into the destination. A single rAF lets the
+      // spring resolve before the tracker starts re-pinning every
+      // frame, which is when the cursor needs to start tracking
+      // anyway.
+      await new Promise<void>((r) => requestAnimationFrame(() => r()));
       ac.startTracking(op.target, op.offset);
       return;
     }
@@ -383,6 +428,45 @@ async function runOp(op: ACOp, ctx: RunContext): Promise<void> {
       await ac.moveTo(Math.min(r.right - 14, r.left + r.width / 2), r.top + r.height / 2);
       ac.startTracking(op.target, { x: 0, y: 0 });
       await typeInto(el, op.text, { speedMs: op.speedMs });
+      // Anti-revert guard: some controlled contentEditable libraries
+      // re-render on their own schedule and wipe AC's typed text in
+      // the next React commit. Re-check the input value after a brief
+      // beat and re-insert if it got wiped. Without this, the next
+      // op (typically click send) hits a disabled send button because
+      // the input "thinks" it's empty.
+      await sleep(80);
+      const readText = (e: HTMLElement): string => {
+        if (e.isContentEditable) return (e.textContent ?? '').trim();
+        if (e instanceof HTMLInputElement || e instanceof HTMLTextAreaElement)
+          return (e.value ?? '').trim();
+        return (e.textContent ?? '').trim();
+      };
+      const target = op.text.trim();
+      if (target && readText(el).length < Math.floor(target.length * 0.8)) {
+        // Single-shot re-insert. Same path the typewriter's own
+        // fallback uses for under-load typing drops.
+        if (el.isContentEditable) {
+          el.focus();
+          const range = document.createRange();
+          range.selectNodeContents(el);
+          const sel = window.getSelection();
+          if (sel) {
+            sel.removeAllRanges();
+            sel.addRange(range);
+          }
+          try {
+            document.execCommand('delete', false);
+            const ok = document.execCommand('insertText', false, op.text);
+            if (!ok) {
+              el.textContent = op.text;
+              el.dispatchEvent(new Event('input', { bubbles: true }));
+            }
+          } catch {
+            el.textContent = op.text;
+            el.dispatchEvent(new Event('input', { bubbles: true }));
+          }
+        }
+      }
       return;
     }
     case 'click': {
@@ -397,6 +481,29 @@ async function runOp(op: ACOp, ctx: RunContext): Promise<void> {
       await ac.pressClick();
       clickRipple(x, y, accentColor);
       if (op.simulate !== false) {
+        // Disabled-button guard. If the resolved element (or any
+        // ancestor IconButton/Button wrapper) is in a disabled state
+        // when we go to fire the synthetic click, the click is a
+        // no-op AND we silently move on — which is the "AC clicks
+        // send and nothing happens" bug for step 6 (the contentEditable
+        // chat input sometimes reverts AC's typed text under load,
+        // leaving the send button disabled at click time). Detect it
+        // and try a brief recovery: wait one frame and re-check, in
+        // case the button just-now-enabled because state landed late.
+        const isDisabled = (n: HTMLElement | null): boolean => {
+          while (n) {
+            if (n.hasAttribute('disabled')) return true;
+            if (n.getAttribute('aria-disabled') === 'true') return true;
+            n = n.parentElement;
+          }
+          return false;
+        };
+        if (isDisabled(el)) {
+          await new Promise<void>((res) =>
+            requestAnimationFrame(() => res()),
+          );
+          await sleep(120);
+        }
         try {
           el.click();
         } catch {
@@ -418,7 +525,29 @@ async function runOp(op: ACOp, ctx: RunContext): Promise<void> {
       if (scrollIntoViewIfNeeded(el)) {
         await sleep(180);
       }
-      const r = el.getBoundingClientRect();
+      // Rect-stability poll. Without this, the dashed selection box is
+      // drawn at coordinates read mid-animation — e.g. when step 6
+      // clicks fit-to-view right before this op, the camera is still
+      // panning and the target's viewport rect changes frame-to-frame.
+      // Result: a box that's the wrong size or offset from the actual
+      // card. Wait for 2 stable consecutive frames (within 1.5px) up
+      // to 500ms before reading the final rect.
+      let r = el.getBoundingClientRect();
+      const stableStart = performance.now();
+      let prevLeft = r.left;
+      let prevTop = r.top;
+      let stableFrames = 0;
+      while (stableFrames < 2 && performance.now() - stableStart < 500) {
+        await new Promise<void>((res) => requestAnimationFrame(() => res()));
+        r = el.getBoundingClientRect();
+        if (Math.abs(r.left - prevLeft) <= 1.5 && Math.abs(r.top - prevTop) <= 1.5) {
+          stableFrames += 1;
+        } else {
+          stableFrames = 0;
+        }
+        prevLeft = r.left;
+        prevTop = r.top;
+      }
       const fromX = r.left - 12;
       const fromY = r.top - 12;
       const toX = r.right + 12;

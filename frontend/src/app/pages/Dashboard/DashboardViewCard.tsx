@@ -266,14 +266,30 @@ const DashboardViewCard: React.FC<Props> = ({
         const res = await dispatch(autoRunOutput({
           prompt: config.prompt,
           input_schema: output.input_schema,
-          backend_code: getBackendCode(output) ?? undefined,
           context_paths: config.context_paths,
           forced_tools: forcedToolNames.length > 0 ? forcedToolNames : undefined,
           model: config.model,
         })).unwrap();
         if (res.input_data) {
           setInputData(res.input_data);
-          setBackendResult(res.backend_result);
+          // Auto-run no longer executes backend.py inline (the server-side
+          // endpoint dropped that field — it was a direct RCE primitive).
+          // Chain a separate executeOutput against the persisted Output so
+          // backend code still runs for dashboards that need backend_result.
+          if (getBackendCode(output)) {
+            try {
+              const execRes = await dispatch(executeOutput({
+                output_id: output.id,
+                input_data: res.input_data,
+              })).unwrap();
+              setBackendResult(execRes.backend_result);
+            } catch {
+              // Backend execution failure shouldn't break the input render.
+              setBackendResult(null);
+            }
+          } else {
+            setBackendResult(res.backend_result);
+          }
         }
       }
     } catch {

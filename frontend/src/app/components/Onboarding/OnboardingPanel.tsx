@@ -24,6 +24,7 @@ import { STEPS, findStepById } from './steps';
 import { STAGE_LABELS } from './steps/types';
 import { onboardingDirector } from './OnboardingDirector';
 import { report } from './telemetry';
+import { cursorStore } from './ac/cursorStore';
 import OnboardingRoadmapModal from './OnboardingRoadmapModal';
 
 const PANEL_WIDTH = 320;
@@ -67,6 +68,10 @@ const OnboardingPanel: React.FC = () => {
   // Cursor icon inside the "Show me" button — used to calculate the AC
   // spawn point so the cursor visually flies out of this exact icon.
   const cursorIconRef = useRef<HTMLSpanElement | null>(null);
+  // Cooldown for the Show me button so rapid double-clicks don't fire
+  // multiple parallel step starts (each one re-triggering backend
+  // seed/launch calls that already have an in-flight predecessor).
+  const lastShowMeClickRef = useRef<number>(0);
 
   // Resolve current step. Prefer explicit currentStepId; fall back to
   // first uncompleted step.
@@ -103,7 +108,31 @@ const OnboardingPanel: React.FC = () => {
 
   const handleShowMe = async () => {
     if (!currentStep) return;
-    if (progress.running) return;
+    // Click cooldown — without this, rapid double-clicks fire startStep
+    // twice. Each invocation calls cancelStep() then starts fresh, but
+    // any in-flight async ops (seed-orchestration-demo, agent launch,
+    // etc) keep running because cancelStep only aborts the controller,
+    // not pending backend fetches. Result: multiple stub agents
+    // created, multiple agents launched, panel state thrashing. 600ms
+    // is short enough not to feel laggy, long enough to absorb the
+    // user's "is it broken" reflex re-click.
+    const now = Date.now();
+    if (now - lastShowMeClickRef.current < 600) return;
+    lastShowMeClickRef.current = now;
+
+    // If running flag is stuck at true (a prior step's runStep ended
+    // without resetting it — possible after an unhandled error or HMR
+    // cycle), forcibly cancel and reset before starting fresh. This
+    // unsticks the "Show me does nothing" case without forcing the
+    // user to reload the app.
+    if (progress.running) {
+      onboardingDirector.cancelStep();
+      progress.setRunning(false);
+      // Yield a tick so the running=false dispatch lands before we
+      // start the new step (otherwise the runtime's first dispatch
+      // races with the reset).
+      await new Promise<void>((r) => window.setTimeout(r, 0));
+    }
     const iconEl = cursorIconRef.current;
     const rect = iconEl?.getBoundingClientRect();
     // Sanity-check the rect: if the panel is mid-transition (Framer's
@@ -117,6 +146,20 @@ const OnboardingPanel: React.FC = () => {
       ? { x: rect!.left + rect!.width / 2, y: rect!.top + rect!.height / 2 }
       : { x: window.innerWidth - 80, y: 110 };
     report('show_me_clicked', { step_id: currentStep.id });
+    // Watchdog: if AC fails to become visible within 2s of Show me
+    // (acRef.current was null after an HMR cycle, fadeIn silently
+    // rejected, etc), the panel stays hidden because nothing resets
+    // `running`. Check the cursorStore — if visible is still false,
+    // recover so the panel comes back instead of stranding the user.
+    const watchedStepId = currentStep.id;
+    window.setTimeout(() => {
+      const acVisible = cursorStore.get().visible;
+      if (!acVisible) {
+        onboardingDirector.cancelStep();
+        progress.setRunning(false);
+        report('show_me_watchdog_recovery', { step_id: watchedStepId });
+      }
+    }, 2000);
     await onboardingDirector.startStep(currentStep.id, spawnPoint);
   };
 
@@ -763,50 +806,50 @@ const InfoPopover: React.FC<InfoPopoverProps> = ({ stepId, anchorRef, onClose, t
 };
 
 const INFO_BY_STEP_ID: Record<string, string> = {
-  connect_model: `Open Swarm is designed to be model-agnostic so it works with any AI model.
+  connect_model: `Open Swarm works with any AI model.
 
-If you already have a subscription to ChatGPT, Claude, or Gemini, you can plug those directly into Open Swarm.
+If you already have a subscription to ChatGPT, Claude, or Gemini, plug it directly into Open Swarm.
 
-We also offer an Open Swarm subscription that gives you the same usage as these model providers.
+We also offer an Open Swarm subscription that gives you the same usage as those providers.
 
-Optionally you can choose to instead use API Keys directly.`,
+Or use your own API keys.`,
   enable_actions: `Actions are the capabilities available to your AI agents.
 
-Every tool call an agent makes — reading a file, sending an email, searching the web — is an action.
+Every tool an agent uses (reading a file, sending an email, searching the web) is an action.
 
-Every action in Open Swarm has a permission policy that decides if an agent can use it and whether it requires your permission.
+Every action has a permission policy. It decides whether an agent can use it on its own or whether it needs your approval first.
 
-The Actions page is where you configure which actions are available, how they're authenticated, and what permissions they require.`,
+The Actions page is where you turn integrations on, sign in, and tune those permissions.`,
   launch_agent: `An agent in Open Swarm can do anything you can do on your computer.
 
-They can read and write files, run commands, search the web, control a browser, send emails, manage your calendar — and handle long-running, multi-step tasks autonomously.
+It can read and write files, run commands, search the web, control a browser, send emails, manage your calendar, and handle long, multi step tasks on its own.
 
 Think of each agent as a teammate you can brief on a task and let loose, while you watch it work in real time.`,
-  use_browser: `Open Swarm has built-in browsers so you never have to jump between apps. Stay in one place, stay in the zone — just one seamless workspace for you and your agents.
+  use_browser: `Open Swarm has built in browsers so you never have to jump between apps. One place, one workspace, for you and your agents.
 
-The browsers aren't just for you though — your agents can use them too. By default an agent can create and use its own browsers as needed.
+The browsers aren't just for you. Your agents can use them too. By default an agent can spin up and use its own browser whenever it needs one.
 
-In the next step we'll see how you can have an agent take over a browser that you yourself were using.`,
-  agent_use_browser: `This video shows how you can have an agent control browsers that already exist in your canvas. In addition to this, agents can create and use their own browsers as needed.
+In the next step we'll see how to hand off a browser you're using to an agent.`,
+  agent_use_browser: `This shows how to give an agent control of a browser already on your canvas. Agents can also spin up their own browsers whenever they need one.
 
-Note: In this demo, we saw you select a single browser and send it to an agent. That said, you can also select multiple browsers.
+In this demo you handed off a single browser, but you can also hand off multiple browsers at once.
 
-Under the hood, each browser is controlled by its own specialized agent which communicates with the agent pointing to the browser.`,
-  agent_control_agents: `Similarly to browsers, while you have the ability to manually select which agents work together, an agent can choose to spawn its own employees as needed.
+Under the hood, each browser is run by its own specialized agent that talks back to the agent you handed it to.`,
+  agent_control_agents: `Just like browsers, you can pick which agents work together. Or an agent can spin up its own helpers whenever it needs to.
 
-When a task gets too complicated for a single agent, it has the ability to spawn its own sub-agents as it deems fit.
+When a task gets too big for one agent, it spins up sub agents to share the load.
 
-After a sub-agent has completed, it will collapse back into its parent agent. You can always re-expand a sub-agent from the parent chat by clicking "Reveal in dashboard".`,
-  install_skill: `An agent on its own is a capable general-purpose reasoner. It can handle a lot — but it doesn't know the specifics of your workflows, your output formats, your domain expertise.
+When a sub agent finishes, it collapses back into its parent. You can always reopen it from the parent chat by clicking "Reveal in dashboard".`,
+  install_skill: `An agent on its own is a strong general purpose reasoner. It can do a lot, but it doesn't know the specifics of your workflows, your output formats, or your domain.
 
 Skills fill that gap.
 
-A skill is a set of instructions that teach an agent how to approach a specific type of task. When a skill is active, the agent follows its guidance — producing better, more consistent results for that domain than it would on its own.`,
-  make_app: `Apps are interactive, AI-generated web applications that live inside OpenSwarm.
+A skill is a set of instructions that teach an agent how to handle a specific kind of task. When a skill is active, the agent follows its guidance and produces better, more consistent results in that area.`,
+  make_app: `Apps are interactive, AI generated web applications that live inside OpenSwarm.
 
-Instead of paying for software or spending weeks building UIs, you describe what you want and an agent writes it for you — a live, runnable app appears in seconds.
+Instead of paying for software or spending weeks building a UI, you describe what you want and an agent writes it for you. A live, runnable app appears in seconds.
 
-After making an App, you can open it in your canvas alongside agents and browsers.`,
+Once it's made, you can pop the App into your canvas alongside agents and browsers.`,
 };
 
 export default OnboardingPanel;

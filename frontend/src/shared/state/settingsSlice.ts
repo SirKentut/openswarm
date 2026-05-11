@@ -100,6 +100,16 @@ interface SettingsState {
   modalOpen: boolean;
   /** When non-null, Settings opens to this tab instead of 'general'. */
   initialTab: string | null;
+  /**
+   * In-flight form edits, preserved across modal close/reopen so the user
+   * can step away from Settings (browse the dashboard, open a doc, etc.)
+   * and come back to find their typing intact. `null` means the form is in
+   * sync with `data` — no unsaved edits. Cleared automatically on a
+   * successful save, or explicitly via clearDraft.
+   */
+  draft: AppSettings | null;
+  /** Tab the user was on when they closed the modal with unsaved edits. */
+  draftTab: string | null;
 }
 
 const initialState: SettingsState = {
@@ -124,6 +134,8 @@ const initialState: SettingsState = {
   loaded: false,
   modalOpen: false,
   initialTab: null,
+  draft: null,
+  draftTab: null,
 };
 
 export const fetchSettings = createAsyncThunk('settings/fetch', async () => {
@@ -242,6 +254,21 @@ const settingsSlice = createSlice({
       state.modalOpen = false;
       state.initialTab = null;
     },
+    /**
+     * Persist the user's in-flight form edits + active tab so they survive
+     * modal close. Settings.tsx calls this on every form mutation (React's
+     * batching keeps it cheap). When the form matches saved data, callers
+     * pass null/clearDraft to drop the marker — `hasChanges` then reads
+     * false correctly.
+     */
+    setDraft(state, action: PayloadAction<{ form: AppSettings; tab: string }>) {
+      state.draft = action.payload.form;
+      state.draftTab = action.payload.tab;
+    },
+    clearDraft(state) {
+      state.draft = null;
+      state.draftTab = null;
+    },
   },
   extraReducers: (builder) => {
     builder
@@ -270,12 +297,18 @@ const settingsSlice = createSlice({
       })
       .addCase(updateSettings.fulfilled, (state, action) => {
         state.data = action.payload;
+        // Save consumes the draft — clear it so the next modal-open
+        // doesn't restore stale edits over freshly-saved values.
+        state.draft = null;
+        state.draftTab = null;
       })
       .addCase(resetSystemPrompt.fulfilled, (state, action) => {
         state.data = action.payload;
+        state.draft = null;
+        state.draftTab = null;
       });
   },
 });
 
-export const { openSettingsModal, closeSettingsModal } = settingsSlice.actions;
+export const { openSettingsModal, closeSettingsModal, setDraft, clearDraft } = settingsSlice.actions;
 export default settingsSlice.reducer;

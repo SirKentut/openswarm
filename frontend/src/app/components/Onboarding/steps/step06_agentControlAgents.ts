@@ -24,8 +24,9 @@ export const step06: OnboardingStep = {
       kind: 'wait_user',
       condition: { kind: 'click_target', target: S.newAgentButton },
     },
-    // See step05 — same nudge to keep cursor body off the adjacent paperclip.
-    { kind: 'move_to', target: S.elementSelectionToggle, offset: { x: -8, y: 0 } },
+    // See step05 — same nudge so the cursor's visual body center sits
+    // over the select-mode icon, not the adjacent paperclip.
+    { kind: 'move_to', target: S.elementSelectionToggle, offset: { x: -10, y: -10 } },
     { kind: 'popup', text: 'Tap here to hook in the older chat.' },
     {
       kind: 'wait_user',
@@ -41,7 +42,7 @@ export const step06: OnboardingStep = {
     { kind: 'drag_select', target: 'agent-card' },
     {
       kind: 'popup',
-      text: 'Your turn! Lasso the chat to make it a helper.',
+      text: 'Now you try! Drag a box around the chat to make it a helper.',
     },
     {
       kind: 'wait_user',

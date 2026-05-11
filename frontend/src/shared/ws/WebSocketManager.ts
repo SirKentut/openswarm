@@ -1,4 +1,5 @@
 import { store } from '../state/store';
+import { unstable_batchedUpdates } from 'react-dom';
 import {
   updateSession,
   updateSessionName,
@@ -166,6 +167,43 @@ class WebSocketManager {
   // speed (~200 cps comfort threshold), still hides bursty upstream
   // cadence, just feels less frantic. Tuned for legibility at speed.
   private static TARGET_CHARS_PER_PAINT = 10;
+  // Frame-aligned message coalescer. Buffers incoming WS messages from
+  // all WebSocketManager instances and flushes them in ONE batched
+  // React render per animation frame. Without this, N concurrent agents
+  // each cause their own renders on every WS message — dozens of full
+  // app re-renders per second, fanning out to every useSelector. With
+  // it: max one render per frame regardless of message volume.
+  private static _messageQueue: Array<{ mgr: WebSocketManager; msg: WSEvent }> = [];
+  private static _flushScheduled = false;
+
+  private static _enqueueMessage(mgr: WebSocketManager, msg: WSEvent) {
+    WebSocketManager._messageQueue.push({ mgr, msg });
+    if (WebSocketManager._flushScheduled) return;
+    WebSocketManager._flushScheduled = true;
+    requestAnimationFrame(WebSocketManager._flushMessages);
+  }
+
+  private static _flushMessages = () => {
+    WebSocketManager._flushScheduled = false;
+    if (WebSocketManager._messageQueue.length === 0) return;
+    const batch = WebSocketManager._messageQueue;
+    WebSocketManager._messageQueue = [];
+    // unstable_batchedUpdates collapses all dispatches inside the
+    // callback into a single React render. Available in React 17;
+    // React 18's automatic batching covers this too, but explicit
+    // wrap remains correct in both and protects against future
+    // batching-context changes.
+    unstable_batchedUpdates(() => {
+      for (const { mgr, msg } of batch) {
+        try {
+          mgr.handleMessage(msg);
+        } catch (e) {
+          console.warn('[ws] message handler threw', e);
+        }
+      }
+    });
+  };
+
   // When a backlog accumulates, allow up to this many chars/paint to
   // drain it. ~1.6× the target keeps catch-up imperceptible — the
   // eye can't tell 10 from 16 in a fluid stream. Caps the worst-case
@@ -359,7 +397,16 @@ class WebSocketManager {
     this.ws.onmessage = (event) => {
       try {
         const msg: WSEvent = JSON.parse(event.data);
-        this.handleMessage(msg);
+        // Buffer incoming messages and flush them per animation frame
+        // in a single React batch. With N concurrent agents/browsers
+        // streaming, each WS instance used to trigger its own React
+        // render — dozens per frame, fanning out to every useSelector
+        // subscriber, starving the main thread. Coalescing flips that
+        // to ONE batched render per frame regardless of how many
+        // messages arrived. Stream-chunk dispatches are already paced
+        // by the interpolator, so this is purely additive throttling
+        // for non-stream events (status, tool_call, completion, etc).
+        WebSocketManager._enqueueMessage(this, msg);
       } catch {
         // ignore malformed messages
       }

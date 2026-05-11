@@ -145,7 +145,10 @@ export interface AutoRunResult {
 
 export const autoRunOutput = createAsyncThunk(
   'outputs/autoRun',
-  async (body: { prompt: string; input_schema: Record<string, any>; backend_code?: string | null; context_paths?: Array<{ path: string; type: string }>; forced_tools?: string[]; model?: string }) => {
+  // backend_code intentionally NOT in the request shape. The server endpoint
+  // ignores it now (it was an unsandboxed-RCE primitive); callers that want
+  // backend execution should chain executeOutput against a persisted Output.
+  async (body: { prompt: string; input_schema: Record<string, any>; context_paths?: Array<{ path: string; type: string }>; forced_tools?: string[]; model?: string }) => {
     const res = await fetch(`${OUTPUTS_API}/auto-run`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

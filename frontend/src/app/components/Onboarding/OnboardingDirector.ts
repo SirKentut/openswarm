@@ -115,15 +115,27 @@ class OnboardingDirector {
     window.addEventListener('hashchange', onRouteChange);
 
     try {
-      try {
-        await this.runPreStepHook(step);
-      } catch (err) {
+      // Fire the pre-step hook in the BACKGROUND instead of awaiting it.
+      // For step 6, the hook posts `seed-orchestration-demo` which can
+      // take 15-30s when Anthropic is rate-limiting (the meta-generation
+      // it triggers internally hits 429s and retries). Awaiting it
+      // blocked the entire AC flow — user sees no cursor, no popup,
+      // appears completely frozen.
+      //
+      // Now: hook fires in parallel with AC's intro animation + first
+      // popup + user clicks. By the time AC reaches the drag_select op
+      // that actually needs the stub agent (several user interactions
+      // in), the seed has long since completed. If the seed fails
+      // outright, drag_select's waitForSelector will time out into the
+      // normal recovery path — same as any other "target not found"
+      // case. Never blocks the user-visible startup.
+      this.runPreStepHook(step).catch((err) => {
         console.warn('[onboarding] preStepHook failed', step.id, err);
         report('pre_step_hook_failed', {
           step_id: step.id,
           error: String(err),
         });
-      }
+      });
 
       await runStep({
         step,
@@ -159,8 +171,17 @@ class OnboardingDirector {
    * "OpenSwarm research" (the seed endpoint uses that name) and only
    * call seed-orchestration-demo when nothing matches — so re-running
    * step 6 doesn't keep adding stub agents.
+   *
+   * In-flight dedup: rapid Show me clicks used to fire N parallel
+   * seed calls because Redux state didn't update until the FIRST one
+   * completed (and synced back via websocket). The promise cache
+   * collapses concurrent callers to a single backend POST.
    */
+  private seedInFlight: Promise<void> | null = null;
+
   private async ensureStubResearchAgent(): Promise<void> {
+    if (this.seedInFlight) return this.seedInFlight;
+
     const state = this.store!.getState();
     const sessions = (state as any).agents?.sessions ?? {};
     const alreadySeeded = Object.values(sessions).some(
@@ -174,16 +195,20 @@ class OnboardingDirector {
       null;
     if (!dashboardId) return;
 
-    try {
-      await fetch(
-        `${API_BASE}/dashboards/${dashboardId}/seed-orchestration-demo`,
-        { method: 'POST' },
-      );
-      report('stub_research_agent_seeded', { step_id: 'agent_control_agents' });
-    } catch (err) {
-      // Non-fatal; user just won't see the stub. Better than blocking.
-      console.warn('[onboarding] seed-orchestration-demo failed', err);
-    }
+    this.seedInFlight = (async () => {
+      try {
+        await fetch(
+          `${API_BASE}/dashboards/${dashboardId}/seed-orchestration-demo`,
+          { method: 'POST' },
+        );
+        report('stub_research_agent_seeded', { step_id: 'agent_control_agents' });
+      } catch (err) {
+        console.warn('[onboarding] seed-orchestration-demo failed', err);
+      } finally {
+        this.seedInFlight = null;
+      }
+    })();
+    return this.seedInFlight;
   }
 }
 

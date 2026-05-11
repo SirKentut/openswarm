@@ -41,7 +41,7 @@ import LinearProgress from '@mui/material/LinearProgress';
 import Collapse from '@mui/material/Collapse';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import { useAppDispatch, useAppSelector } from '@/shared/hooks';
-import { updateSettings, closeSettingsModal, resetSystemPrompt, disconnectSubscription, signOut, AppSettings, CustomProvider, DEFAULT_SYSTEM_PROMPT } from '@/shared/state/settingsSlice';
+import { updateSettings, closeSettingsModal, resetSystemPrompt, disconnectSubscription, signOut, setDraft, clearDraft, AppSettings, CustomProvider, DEFAULT_SYSTEM_PROMPT } from '@/shared/state/settingsSlice';
 import { onboardingBus } from '@/app/components/Onboarding/eventBus';
 import { resetTour } from '@/app/components/Onboarding/OnboardingProgressSlice';
 import { OPENSWARM_DEFAULT_PROXY_URL } from '@/shared/config';
@@ -1352,14 +1352,27 @@ const Settings: React.FC = () => {
   const installing = useAppSelector((s) => s.update.installing);
 
   const initialTab = useAppSelector((s) => s.settings.initialTab);
-  const [activeTab, setActiveTab] = useState<'general' | 'models' | 'usage' | 'commands'>('general');
-  const [form, setForm] = useState<AppSettings>({ ...settings });
+  // Persisted in-flight edits — survive modal close so the user can pop
+  // out to the dashboard / a doc / wherever and pick up where they left
+  // off without being prompted to "save or discard." Cleared on actual
+  // save (in the slice's updateSettings.fulfilled) or via the explicit
+  // "Discard changes" button.
+  const draft = useAppSelector((s) => s.settings.draft);
+  const draftTab = useAppSelector((s) => s.settings.draftTab);
+  const TAB_VALUES = ['general', 'models', 'usage', 'commands'] as const;
+  type SettingsTab = typeof TAB_VALUES[number];
+  const isValidTab = (t: string | null | undefined): t is SettingsTab =>
+    !!t && (TAB_VALUES as readonly string[]).includes(t);
+  const [activeTab, setActiveTab] = useState<SettingsTab>(
+    isValidTab(draftTab) ? draftTab : 'general',
+  );
+  const [form, setForm] = useState<AppSettings>({ ...settings, ...(draft || {}) });
 
   // When the modal opens with a requested tab (e.g., from the warning
   // banner's "Configure models" link), switch to it.
   useEffect(() => {
-    if (initialTab && ['general', 'models', 'usage', 'commands'].includes(initialTab)) {
-      setActiveTab(initialTab as typeof activeTab);
+    if (initialTab && (TAB_VALUES as readonly string[]).includes(initialTab)) {
+      setActiveTab(initialTab as SettingsTab);
     }
   }, [initialTab]);
   const [showApiKey, setShowApiKey] = useState(false);
@@ -1378,14 +1391,14 @@ const Settings: React.FC = () => {
   }, [open, dispatch]);
 
   useEffect(() => {
-    // Reset to the General tab on open, but NOT when the caller has
-    // explicitly requested a tab via openSettingsModal(<tab>) — e.g. the
-    // "Configure models" link in the warning banner dispatches
-    // openSettingsModal('models') and expects to land on Models. The
-    // separate `initialTab` effect above handles the targeted case;
-    // without this guard, that effect's write gets clobbered on the same
-    // render because React runs effects in declaration order.
-    if (open && !initialTab) setActiveTab('general');
+    // On open, restore the user's last tab if they had unsaved edits;
+    // otherwise default to General. The caller's explicit initialTab
+    // (e.g. openSettingsModal('models') from the warning banner) wins
+    // over both — the separate initialTab effect above handles that.
+    if (open && !initialTab) {
+      setActiveTab(isValidTab(draftTab) ? draftTab : 'general');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, initialTab]);
 
   // Sync form to Redux settings on modal open / first load only — NOT on
@@ -1394,13 +1407,29 @@ const Settings: React.FC = () => {
   // fetchSettings poll, the window-focus refetch in SettingsLoader, the
   // updateSettings response, etc.) to wipe the user's in-flight edits
   // mid-typing — that's the "save button flashes and the key disappears"
-  // report from issue #25.
+  // report from issue #25. Spreads any preserved draft over settings so
+  // unsaved edits resurface after a close → reopen cycle.
   useEffect(() => {
     if (open && loaded) {
-      setForm({ ...settings });
+      setForm({ ...settings, ...(draft || {}) });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, loaded]);
+
+  // Persist in-flight edits to Redux so they survive modal close. Compares
+  // against `settings` rather than the previous draft so closing+reopening
+  // a clean form doesn't keep a phantom draft alive. Runs after every
+  // commit where form/activeTab changed; React batches keystrokes so the
+  // overhead is one dispatch per render, not per character.
+  useEffect(() => {
+    if (!open || !loaded) return;
+    const dirty = JSON.stringify(form) !== JSON.stringify(settings);
+    if (dirty) {
+      dispatch(setDraft({ form, tab: activeTab }));
+    } else if (draft !== null) {
+      dispatch(clearDraft());
+    }
+  }, [form, activeTab, open, loaded, settings, draft, dispatch]);
 
   const handleCheckForUpdates = async () => {
     dispatch(setChecking());
@@ -1441,33 +1470,24 @@ const Settings: React.FC = () => {
     setSaved(true);
   };
 
+  // Closing Settings is now non-destructive — the draft persists in
+  // Redux so unsaved edits resurface on reopen. The old "Save or
+  // discard?" prompt was dropped because it interrupted the user every
+  // time they wanted to step out (e.g. to look up a value on the
+  // dashboard). Explicit discard lives on a button next to Save.
   const handleRequestClose = useCallback(() => {
-    if (hasChanges) {
-      setConfirmDiscard(true);
-    } else {
-      dispatch(closeSettingsModal());
-      onboardingBus.emit('settings:closed');
-    }
-  }, [hasChanges, dispatch]);
+    dispatch(closeSettingsModal());
+    onboardingBus.emit('settings:closed');
+  }, [dispatch]);
 
+  // Explicit discard — fires from the "Discard changes" button. Wipes
+  // the draft so the form snaps back to saved settings; modal stays
+  // open so the user can verify the reset before closing.
   const handleConfirmDiscard = useCallback(() => {
     setConfirmDiscard(false);
     setForm({ ...settings });
-    dispatch(closeSettingsModal());
-    onboardingBus.emit('settings:closed');
+    dispatch(clearDraft());
   }, [settings, dispatch]);
-
-  const handleSaveAndClose = useCallback(async () => {
-    await dispatch(updateSettings(form));
-    if (form.theme !== settings.theme) {
-      setThemeMode(form.theme);
-    }
-    dispatch(fetchModels());
-    setSaved(true);
-    setConfirmDiscard(false);
-    dispatch(closeSettingsModal());
-    onboardingBus.emit('settings:closed');
-  }, [dispatch, form, settings, setThemeMode]);
 
   const fieldSx = {
     '& .MuiOutlinedInput-root': {
@@ -2442,16 +2462,20 @@ const Settings: React.FC = () => {
                 const filledModelCount = (cp.models || []).filter(m => (m.value || '').trim()).length;
                 const nameMissing = !cp.name?.trim();
                 const urlMissing = !cp.base_url?.trim();
-                const keyMissing = !cp.api_key?.trim();
                 const modelsMissing = filledModelCount === 0;
-                const isReady = !nameMissing && !urlMissing && !keyMissing && !modelsMissing;
+                // api_key is optional — local OpenAI-compatible servers
+                // (LM Studio, Ollama, llama.cpp, vLLM, etc.) usually run
+                // without auth. Backend substitutes a placeholder when
+                // blank so 9Router still gets a valid connection. Only
+                // hosted providers (Together, Groq, OpenRouter via Custom)
+                // need a real key.
+                const isReady = !nameMissing && !urlMissing && !modelsMissing;
                 const dupeNameWithEarlier = list.findIndex((other, i) =>
                   i < idx && (other.name || '').trim().toLowerCase() === (cp.name || '').trim().toLowerCase() && (cp.name || '').trim() !== ''
                 ) !== -1;
                 const missingLabels: string[] = [];
                 if (nameMissing) missingLabels.push('name');
                 if (urlMissing) missingLabels.push('base URL');
-                if (keyMissing) missingLabels.push('API key');
                 if (modelsMissing) missingLabels.push('a model');
 
                 return (
@@ -2532,9 +2556,8 @@ const Settings: React.FC = () => {
                         onChange={(e) => updateProvider({ api_key: e.target.value })}
                         size="small"
                         fullWidth
-                        placeholder="API key"
-                        label="API Key"
-                        required
+                        placeholder="Leave blank for local servers (LM Studio, Ollama, ...)"
+                        label="API Key (optional)"
                         InputLabelProps={{ shrink: true, sx: { fontSize: '0.72rem', color: c.text.tertiary } }}
                         sx={{ ...fieldSx, '& .MuiOutlinedInput-root': { ...fieldSx['& .MuiOutlinedInput-root'], fontFamily: c.font.mono } }}
                         InputProps={{
@@ -2646,30 +2669,46 @@ const Settings: React.FC = () => {
       </DialogContent>
 
       {(activeTab === 'general' || activeTab === 'models') && (
-      <DialogActions sx={{ borderTop: `1px solid ${c.border.subtle}`, px: 3, py: 1.5, justifyContent: 'flex-end' }}>
-        <Button
-          onClick={handleRequestClose}
-          sx={{ color: c.text.muted, textTransform: 'none', fontSize: '0.85rem' }}
-        >
-          Cancel
-        </Button>
-        <Button
-          variant="contained"
-          startIcon={<SaveIcon sx={{ fontSize: 16 }} />}
-          onClick={handleSave}
-          disabled={!hasChanges}
-          sx={{
-            bgcolor: c.accent.primary,
-            '&:hover': { bgcolor: c.accent.pressed },
-            '&.Mui-disabled': { bgcolor: c.bg.secondary, color: c.text.ghost },
-            textTransform: 'none',
-            borderRadius: 1.5,
-            px: 2.5,
-            fontSize: '0.85rem',
-          }}
-        >
-          Save
-        </Button>
+      <DialogActions sx={{ borderTop: `1px solid ${c.border.subtle}`, px: 3, py: 1.5, justifyContent: 'space-between' }}>
+        {/* Left: explicit "Discard changes" — only surfaces when there
+            are unsaved edits. Closing the modal no longer prompts; the
+            draft persists in Redux. This button is the only way to
+            actively wipe the draft. */}
+        <Box>
+          {hasChanges && (
+            <Button
+              onClick={() => setConfirmDiscard(true)}
+              sx={{ color: c.status.error, textTransform: 'none', fontSize: '0.85rem' }}
+            >
+              Discard changes
+            </Button>
+          )}
+        </Box>
+        <Box sx={{ display: 'flex', gap: 1 }}>
+          <Button
+            onClick={handleRequestClose}
+            sx={{ color: c.text.muted, textTransform: 'none', fontSize: '0.85rem' }}
+          >
+            Close
+          </Button>
+          <Button
+            variant="contained"
+            startIcon={<SaveIcon sx={{ fontSize: 16 }} />}
+            onClick={handleSave}
+            disabled={!hasChanges}
+            sx={{
+              bgcolor: c.accent.primary,
+              '&:hover': { bgcolor: c.accent.pressed },
+              '&.Mui-disabled': { bgcolor: c.bg.secondary, color: c.text.ghost },
+              textTransform: 'none',
+              borderRadius: 1.5,
+              px: 2.5,
+              fontSize: '0.85rem',
+            }}
+          >
+            Save
+          </Button>
+        </Box>
       </DialogActions>
       )}
 
@@ -2706,38 +2745,33 @@ const Settings: React.FC = () => {
       }}
     >
       <DialogTitle sx={{ color: c.text.primary, fontWeight: 600, fontSize: '0.95rem', pb: 0.5, px: 3, pt: 2.5 }}>
-        Unsaved changes
+        Discard unsaved changes?
       </DialogTitle>
       <DialogContent sx={{ px: 3 }}>
         <Typography sx={{ color: c.text.muted, fontSize: '0.85rem' }}>
-          You have unsaved changes. Would you like to save them before closing?
+          Your in-progress edits will be cleared and the form will revert to your saved settings. This can&apos;t be undone.
         </Typography>
       </DialogContent>
       <DialogActions sx={{ px: 3, pb: 2, gap: 1 }}>
         <Button
-          onClick={handleConfirmDiscard}
-          sx={{ color: c.status.error, textTransform: 'none', fontSize: '0.85rem' }}
-        >
-          Discard
-        </Button>
-        <Button
           onClick={() => setConfirmDiscard(false)}
           sx={{ color: c.text.muted, textTransform: 'none', fontSize: '0.85rem' }}
         >
-          Cancel
+          Keep editing
         </Button>
         <Button
           variant="contained"
-          onClick={handleSaveAndClose}
+          onClick={handleConfirmDiscard}
           sx={{
-            bgcolor: c.accent.primary,
-            '&:hover': { bgcolor: c.accent.pressed },
+            bgcolor: c.status.error,
+            color: '#fff',
+            '&:hover': { bgcolor: c.status.error, filter: 'brightness(0.9)' },
             textTransform: 'none',
             borderRadius: 1.5,
             fontSize: '0.85rem',
           }}
         >
-          Save & Close
+          Discard
         </Button>
       </DialogActions>
     </Dialog>
