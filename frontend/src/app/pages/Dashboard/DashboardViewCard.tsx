@@ -3,12 +3,10 @@ import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 import IconButton from '@mui/material/IconButton';
 import Tooltip from '@mui/material/Tooltip';
-import CircularProgress from '@mui/material/CircularProgress';
 import RefreshIcon from '@mui/icons-material/Refresh';
-import BoltIcon from '@mui/icons-material/Bolt';
 import CloseIcon from '@mui/icons-material/Close';
 import GridViewRoundedIcon from '@mui/icons-material/GridViewRounded';
-import { Output, autoRunOutput, autoRunAgentOutput, executeOutput, OutputExecuteResult, getBackendCode, SERVE_BASE } from '@/shared/state/outputsSlice';
+import { Output, SERVE_BASE } from '@/shared/state/outputsSlice';
 import { setViewCardPosition, setViewCardSize, removeViewCard } from '@/shared/state/dashboardLayoutSlice';
 import { useAppDispatch } from '@/shared/hooks';
 import { useClaudeTokens } from '@/shared/styles/ThemeContext';
@@ -71,11 +69,8 @@ const DashboardViewCard: React.FC<Props> = ({
   const scrollOverlayRef = useOverlayScrollPassthrough(isSelected);
   const previewRef = useRef<ViewPreviewHandle>(null);
 
-  const [inputData, setInputData] = useState<Record<string, any>>(() => getDefault(output.input_schema));
-  const [backendResult, setBackendResult] = useState<Record<string, any> | null>(null);
-  const [autoRunning, setAutoRunning] = useState(false);
-
-  const hasAutoRun = !!(output.auto_run_config?.enabled && output.auto_run_config?.prompt);
+  const [inputData] = useState<Record<string, any>>(() => getDefault(output.input_schema));
+  const [backendResult] = useState<Record<string, any> | null>(null);
 
   // ---- Drag via header ----
   const DRAG_THRESHOLD = 3;
@@ -235,70 +230,6 @@ const DashboardViewCard: React.FC<Props> = ({
     previewRef.current?.reload();
   };
 
-  const handleAutoRun = async (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (!output.auto_run_config?.prompt) return;
-    setAutoRunning(true);
-
-    const config = output.auto_run_config;
-    const forcedToolNames = config.forced_tools?.flatMap((ft) => ft.tools) ?? [];
-
-    try {
-      if (forcedToolNames.length > 0) {
-        const res = await dispatch(autoRunAgentOutput({
-          prompt: config.prompt,
-          input_schema: output.input_schema,
-          output_id: output.id,
-          model: config.model,
-          forced_tools: forcedToolNames,
-          context_paths: config.context_paths,
-        })).unwrap();
-
-        // For agent-based auto-run, we execute with default input for now
-        // since the agent session result flow is complex for dashboard cards
-        const execRes = await dispatch(executeOutput({
-          output_id: output.id,
-          input_data: inputData,
-        })).unwrap();
-        setInputData(execRes.input_data);
-        setBackendResult(execRes.backend_result);
-      } else {
-        const res = await dispatch(autoRunOutput({
-          prompt: config.prompt,
-          input_schema: output.input_schema,
-          context_paths: config.context_paths,
-          forced_tools: forcedToolNames.length > 0 ? forcedToolNames : undefined,
-          model: config.model,
-        })).unwrap();
-        if (res.input_data) {
-          setInputData(res.input_data);
-          // Auto-run no longer executes backend.py inline (the server-side
-          // endpoint dropped that field — it was a direct RCE primitive).
-          // Chain a separate executeOutput against the persisted Output so
-          // backend code still runs for dashboards that need backend_result.
-          if (getBackendCode(output)) {
-            try {
-              const execRes = await dispatch(executeOutput({
-                output_id: output.id,
-                input_data: res.input_data,
-              })).unwrap();
-              setBackendResult(execRes.backend_result);
-            } catch {
-              // Backend execution failure shouldn't break the input render.
-              setBackendResult(null);
-            }
-          } else {
-            setBackendResult(res.backend_result);
-          }
-        }
-      }
-    } catch {
-      // Silently handle errors on dashboard
-    } finally {
-      setAutoRunning(false);
-    }
-  };
-
   const mdDx = (!isDragging && isSelected && multiDragDelta) ? multiDragDelta.dx : 0;
   const mdDy = (!isDragging && isSelected && multiDragDelta) ? multiDragDelta.dy : 0;
   const displayX = localResize?.x ?? localDragPos?.x ?? (cardX + mdDx);
@@ -436,22 +367,6 @@ const DashboardViewCard: React.FC<Props> = ({
             <RefreshIcon sx={{ fontSize: 16 }} />
           </IconButton>
         </Tooltip>
-
-        {hasAutoRun && (
-          <Tooltip title={autoRunning ? 'Running...' : 'Auto Run'} placement="top">
-            <span>
-              <IconButton
-                size="small"
-                onClick={handleAutoRun}
-                onPointerDown={(e) => e.stopPropagation()}
-                disabled={autoRunning}
-                sx={{ color: '#f59e0b', p: 0.5, '&:hover': { color: '#d97706' } }}
-              >
-                {autoRunning ? <CircularProgress size={14} sx={{ color: '#f59e0b' }} /> : <BoltIcon sx={{ fontSize: 16 }} />}
-              </IconButton>
-            </span>
-          </Tooltip>
-        )}
 
         <Tooltip title="Remove from dashboard" placement="top">
           <IconButton

@@ -653,11 +653,9 @@ def test_active_mcps_persistence_on_session():
     from backend.apps.agents.models import AgentSession
     s = AgentSession(id="x", name="t", model="sonnet", mode="agent")
     s.active_mcps = ["gmail", "slack"]
-    s.active_outputs = ["view-1"]
     dumped = json.dumps(s.model_dump(mode="json"))
     rehydrated = AgentSession.model_validate(json.loads(dumped))
     assert rehydrated.active_mcps == ["gmail", "slack"]
-    assert rehydrated.active_outputs == ["view-1"]
 
 
 # ===========================================================================

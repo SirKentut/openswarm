@@ -155,12 +155,6 @@ class AgentSession(BaseModel):
     # filter lives at the dispatch layer (mcp_servers passed to the SDK),
     # not the prompt layer.
     active_mcps: list[str] = Field(default_factory=list)
-    # Output ids the model has activated this session via the
-    # OutputActivate meta-tool. Empty by default — _build_outputs_context
-    # only emits the cheap one-line index for unactivated outputs; full
-    # input_schema is shipped only for the ids in this list. Same gate
-    # pattern as active_mcps but for the Outputs/Views surface.
-    active_outputs: list[str] = Field(default_factory=list)
     # Estimated framework preamble tokens (preset + tool defs + MCP descs +
     # composed prompt). Subtracted from displayed input for honest "this turn"
     # numbers. Heuristic; clamped >= 0.
@@ -177,9 +171,8 @@ class AgentSession(BaseModel):
     # Pre-send hard guard. Fires later than the compaction threshold —
     # 0.90 of 200K = 180K — to give the auto-compact path a chance to
     # bring the request back under the ceiling. If still over after
-    # compaction, LRU-trim the oldest active_outputs / active_mcps. Past
-    # this we surface the friendly context-overflow card instead of
-    # letting a 429 hit.
+    # compaction, LRU-trim the oldest active_mcps. Past this we surface
+    # the friendly context-overflow card instead of letting a 429 hit.
     context_soft_cap_pct: float = 0.90
     context_window: int = 200_000
     # How much the model should "think" before answering. Provider-agnostic

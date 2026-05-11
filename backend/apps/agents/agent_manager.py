@@ -14,7 +14,6 @@ from backend.apps.agents.models import (
 )
 from backend.apps.agents.ws_manager import ws_manager
 from backend.apps.modes.modes import load_mode
-from backend.apps.outputs.outputs import _load_all as load_all_outputs
 from backend.apps.settings.settings import load_settings
 from backend.apps.tools_lib.tools_lib import (
     _load_all as load_all_tools,
@@ -188,7 +187,6 @@ FULL_TOOLS = [
     "EnterPlanMode", "ExitPlanMode", "EnterWorktree",
     "TaskOutput", "TaskStop",
     "CronCreate", "CronList", "CronDelete",
-    "RenderOutput",
     "InvokeAgent",
     "Agent",
     # ToolSearch is the loader the CLI uses to expose deferred tool schemas
@@ -530,55 +528,6 @@ class AgentManager:
             + "\n</connected_mcp_tools>"
         )
 
-    def _build_outputs_context(self, active_outputs: list[str] | None = None) -> str | None:
-        """Outputs context for the system prompt.
-
-        Two-mode emission gated by session.active_outputs:
-          - Cheap one-line index for ALL Outputs (name + id + description)
-            so the model can OutputSearch / OutputActivate against them.
-          - FULL input_schema only for the ids in active_outputs. Defaults
-            to empty: nothing ships full-schema until the model has
-            explicitly activated the Output.
-
-        This drops typical 30-Output context from ~30KB to ~2KB at
-        steady state; an active Output adds ~1KB back per id.
-        """
-        import json as _json
-        all_outputs = load_all_outputs()
-        if not all_outputs:
-            return None
-
-        active_set = set(active_outputs or [])
-        index_lines = []
-        full_schemas: list[str] = []
-        for out in all_outputs:
-            desc = f" — {out.description}" if out.description else ""
-            marker = " [active]" if out.id in active_set else ""
-            index_lines.append(f"- `{out.id}` **{out.name}**{desc}{marker}")
-            if out.id in active_set:
-                schema_str = _json.dumps(out.input_schema, indent=2)
-                full_schemas.append(
-                    f"### `{out.id}` ({out.name})\n```json\n{schema_str}\n```"
-                )
-
-        sections = ["<available_views>"]
-        sections.append(
-            "The following reusable View artifacts are available. The model "
-            "must call OutputActivate(output_id) before RenderOutput so that "
-            "the schema is in context — otherwise RenderOutput input_data may "
-            "be malformed. Activated Outputs appear under <activated_view_schemas> "
-            "below."
-        )
-        sections.append("")
-        sections.extend(index_lines)
-        sections.append("</available_views>")
-        if full_schemas:
-            sections.append("")
-            sections.append("<activated_view_schemas>")
-            sections.extend(full_schemas)
-            sections.append("</activated_view_schemas>")
-        return "\n".join(sections)
-
     def _build_browser_context(self, dashboard_id: str | None, selected_browser_ids: list[str] | None = None) -> str | None:
         """Build a context block listing browser cards and delegation instructions.
 
@@ -736,8 +685,8 @@ class AgentManager:
         sections.append("</mcp_servers>")
         return "\n".join(sections)
 
-    def _compose_system_prompt(self, default_prompt: str | None, mode_prompt: str | None, session_prompt: str | None, connected_tools_ctx: str | None = None, outputs_ctx: str | None = None, browser_ctx: str | None = None, mcp_registry_ctx: str | None = None) -> str | None:
-        parts = [p for p in (default_prompt, mode_prompt, session_prompt, connected_tools_ctx, mcp_registry_ctx, outputs_ctx, browser_ctx) if p]
+    def _compose_system_prompt(self, default_prompt: str | None, mode_prompt: str | None, session_prompt: str | None, connected_tools_ctx: str | None = None, browser_ctx: str | None = None, mcp_registry_ctx: str | None = None) -> str | None:
+        parts = [p for p in (default_prompt, mode_prompt, session_prompt, connected_tools_ctx, mcp_registry_ctx, browser_ctx) if p]
         return "\n\n".join(parts) if parts else None
 
     async def launch_agent(self, config: AgentConfig) -> AgentSession:
@@ -963,7 +912,7 @@ class AgentManager:
     #   - compact_threshold_pct (default 0.65): summarize stale tool_results
     #     and old user/assistant pairs before the next query() call
     #   - context_soft_cap_pct (default 0.90): pre-send hard guard. After
-    #     compaction, if still over, LRU-trim active_outputs/active_mcps
+    #     compaction, if still over, LRU-trim active_mcps
     #   - >= 1.0 hits the proxy/Anthropic 200K ceiling — friendly card
     #     surfaces from the catch-all
     # ------------------------------------------------------------------
@@ -1411,9 +1360,9 @@ class AgentManager:
                 sub_session_id = uuid4().hex
                 sub_name = agent_prompt[:50] if agent_prompt else "Sub-agent"
                 # Subagent context isolation invariant (Phase 3, Layer P):
-                # children DO NOT inherit the parent's active_mcps,
-                # active_outputs, or compaction state. They start with the
-                # AgentSession defaults (empty lists). Reasoning:
+                # children DO NOT inherit the parent's active_mcps or
+                # compaction state. They start with the AgentSession
+                # defaults (empty lists). Reasoning:
                 #   - Security: a parent that activated Gmail shouldn't
                 #     leak Gmail tools to a subagent doing an unrelated
                 #     task. The user only approved Gmail for the parent.
@@ -1441,11 +1390,10 @@ class AgentManager:
                     ],
                     dashboard_id=session.dashboard_id,
                     parent_session_id=session_id,
-                    # Explicit empty lists (matches the model defaults) so
+                    # Explicit empty list (matches the model default) so
                     # the invariant is visible at the spawn site rather
                     # than relying on the field's default_factory.
                     active_mcps=[],
-                    active_outputs=[],
                 )
                 self.sessions[sub_session_id] = sub_session
                 await ws_manager.broadcast_global("agent:status", {
@@ -1496,7 +1444,6 @@ class AgentManager:
             #   tool-call layer instead — prompt rules are not a security
             #   boundary.
             connected_tools_ctx = None
-            outputs_ctx = self._build_outputs_context(session.active_outputs)
             browser_ctx = self._build_browser_context(session.dashboard_id, selected_browser_ids=selected_browser_ids)
 
             # Reconcile active_mcps against currently-enabled tools (Phase 3).
@@ -1530,7 +1477,6 @@ class AgentManager:
                 mode_sys_prompt,
                 session.system_prompt,
                 connected_tools_ctx,
-                outputs_ctx,
                 browser_ctx,
                 mcp_registry_ctx,
             )
@@ -1630,24 +1576,6 @@ class AgentManager:
                 "type": "stdio",
             }
 
-            # Outputs/Views activation gate (Phase 2). Same shape as the
-            # MCP meta-server but for Outputs. The model only sees a
-            # one-line index of available Outputs in the system prompt
-            # (see _build_outputs_context); to load any specific
-            # Output's full input_schema, it must call OutputActivate.
-            outputs_meta_server_path = os.path.join(
-                os.path.dirname(__file__), "outputs_meta_server.py"
-            )
-            mcp_servers["openswarm-outputs-meta"] = {
-                "command": sys.executable,
-                "args": [outputs_meta_server_path],
-                "env": {
-                    "OPENSWARM_PORT": os.environ.get("OPENSWARM_PORT", "8324"),
-                    "OPENSWARM_AUTH_TOKEN": _get_auth_token3(),
-                    "OPENSWARM_PARENT_SESSION_ID": session.id,
-                },
-                "type": "stdio",
-            }
 
             # The CLI's built-in WebSearch/WebFetch wraps Anthropic's
             # web_search_20250305. For non-Claude primaries the CLI
@@ -2260,8 +2188,8 @@ class AgentManager:
 
             # Pre-send hard guard (Phase 2). After compaction, if the
             # session is still over context_soft_cap_pct of the window,
-            # LRU-trim oldest active_outputs then active_mcps. Stops the
-            # 429 from ever firing on predictable overflow paths.
+            # LRU-trim oldest active_mcps. Stops the 429 from ever
+            # firing on predictable overflow paths.
             try:
                 # Use the most recent measurement (the prior turn's
                 # input_tokens) as the estimate. Conservative because the
@@ -2272,9 +2200,6 @@ class AgentManager:
                 _hard_cap = int(session.context_window * session.context_soft_cap_pct)
                 if _est_tokens >= _hard_cap:
                     trimmed: list[str] = []
-                    while _est_tokens >= _hard_cap and session.active_outputs:
-                        trimmed.append(f"output:{session.active_outputs.pop(0)}")
-                        _est_tokens -= 5_000  # rough per-Output schema cost
                     while _est_tokens >= _hard_cap and len(session.active_mcps) > 1:
                         # Keep at least one MCP active so the model can
                         # finish whatever it was doing; trim from oldest

@@ -33,7 +33,6 @@ BUILTIN_TOOLS: list[BuiltinTool] = [
     BuiltinTool(name="CronCreate", description="Create a scheduled or recurring task", category="scheduling", deferred=True),
     BuiltinTool(name="CronList", description="List all scheduled tasks", category="scheduling", deferred=True),
     BuiltinTool(name="CronDelete", description="Delete a scheduled task", category="scheduling", deferred=True),
-    BuiltinTool(name="RenderOutput", description="Render a reusable View artifact with structured input data", category="views", deferred=True),
     # Agent tools
     BuiltinTool(name="Agent", display_name="CreateAgent", description="Spawn a sub-agent to handle a complex subtask", category="agents"),
     BuiltinTool(name="InvokeAgent", description="Invoke a copy of an existing agent with a new message, preserving full conversation context", category="agents"),

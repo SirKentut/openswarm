@@ -83,12 +83,6 @@ export default function ContextDrawer() {
           ))}
         </Section>
 
-        <Section title="Active Outputs / Views" emptyText="None — model must OutputActivate before RenderOutput">
-          {((session as any).active_outputs || []).map((o: string) => (
-            <Pill key={o} label={o} color={c.text.primary} />
-          ))}
-        </Section>
-
         <Section title="Compaction" emptyText="">
           <Typography variant="caption" sx={{ color: c.text.secondary }}>
             {session.compacted_through_msg_id

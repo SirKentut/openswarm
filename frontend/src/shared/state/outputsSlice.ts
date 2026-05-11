@@ -6,15 +6,6 @@ const OUTPUTS_API = `${API_BASE}/outputs`;
 export const SERVE_BASE = `${API_BASE}/outputs`;
 
 
-export interface AutoRunConfig {
-  enabled: boolean;
-  prompt: string;
-  context_paths: Array<{ path: string; type: string }>;
-  forced_tools: Array<{ label: string; tools: string[]; iconKey?: string }>;
-  mode: string;
-  model: string;
-}
-
 export interface Output {
   id: string;
   name: string;
@@ -23,7 +14,6 @@ export interface Output {
   input_schema: Record<string, any>;
   files: Record<string, string>;
   permission: string;
-  auto_run_config?: AutoRunConfig | null;
   thumbnail?: string | null;
   // Linkage so reopening App Builder reattaches to the in-progress session
   // and reuses the on-disk workspace folder instead of seeding a fresh one.
@@ -134,57 +124,6 @@ export const executeOutput = createAsyncThunk(
     return (await res.json()) as OutputExecuteResult;
   }
 );
-
-export interface AutoRunResult {
-  input_data: Record<string, any> | null;
-  backend_result: Record<string, any> | null;
-  stdout: string | null;
-  stderr: string | null;
-  error: string | null;
-}
-
-export const autoRunOutput = createAsyncThunk(
-  'outputs/autoRun',
-  // backend_code intentionally NOT in the request shape. The server endpoint
-  // ignores it now (it was an unsandboxed-RCE primitive); callers that want
-  // backend execution should chain executeOutput against a persisted Output.
-  async (body: { prompt: string; input_schema: Record<string, any>; context_paths?: Array<{ path: string; type: string }>; forced_tools?: string[]; model?: string }) => {
-    const res = await fetch(`${OUTPUTS_API}/auto-run`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-    return (await res.json()) as AutoRunResult;
-  }
-);
-
-export interface AutoRunAgentResult {
-  session_id: string;
-}
-
-export const autoRunAgentOutput = createAsyncThunk(
-  'outputs/autoRunAgent',
-  async (body: {
-    prompt: string;
-    input_schema: Record<string, any>;
-    output_id: string;
-    model?: string;
-    forced_tools?: string[];
-    context_paths?: Array<{ path: string; type: string }>;
-  }) => {
-    const res = await fetch(`${OUTPUTS_API}/auto-run-agent`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-    if (!res.ok) throw new Error(`Auto-run agent launch failed: ${res.status}`);
-    return (await res.json()) as AutoRunAgentResult;
-  }
-);
-
-export async function cleanupAutoRunAgent(sessionId: string): Promise<void> {
-  await fetch(`${OUTPUTS_API}/auto-run-agent/${sessionId}`, { method: 'DELETE' });
-}
 
 const outputsSlice = createSlice({
   name: 'outputs',

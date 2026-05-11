@@ -7,7 +7,6 @@ import TextField from '@mui/material/TextField';
 import Tabs from '@mui/material/Tabs';
 import Tab from '@mui/material/Tab';
 import Tooltip from '@mui/material/Tooltip';
-import Switch from '@mui/material/Switch';
 import CircularProgress from '@mui/material/CircularProgress';
 import SaveIcon from '@mui/icons-material/Save';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
@@ -20,23 +19,18 @@ import InsertDriveFileIcon from '@mui/icons-material/InsertDriveFile';
 import FolderIcon from '@mui/icons-material/Folder';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
-import BoltIcon from '@mui/icons-material/Bolt';
 import Collapse from '@mui/material/Collapse';
 import Chip from '@mui/material/Chip';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
-import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
 import { useAppDispatch, useAppSelector } from '@/shared/hooks';
-import { createDraftSession, removeDraftSession, fetchSession, AgentMessage } from '@/shared/state/agentsSlice';
-import { createOutput, updateOutput, Output, executeOutput, OutputExecuteResult, autoRunOutput, autoRunAgentOutput, cleanupAutoRunAgent, AutoRunConfig, SERVE_BASE } from '@/shared/state/outputsSlice';
-import { createSessionWs } from '@/shared/ws/WebSocketManager';
+import { createDraftSession, removeDraftSession, fetchSession } from '@/shared/state/agentsSlice';
+import { createOutput, updateOutput, Output, executeOutput, OutputExecuteResult, SERVE_BASE } from '@/shared/state/outputsSlice';
 import { useClaudeTokens } from '@/shared/styles/ThemeContext';
 import AgentChat from '../AgentChat/AgentChat';
-import ChatInput, { ChatInputHandle } from '../AgentChat/ChatInput';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import ViewPreview, { ViewPreviewHandle } from './ViewPreview';
-import InputSchemaForm, { getDefault, getStubbed } from './InputSchemaForm';
-import AutoFixHighIcon from '@mui/icons-material/AutoFixHigh';
+import { getDefault } from './InputSchemaForm';
 import CodeEditor from './CodeEditor';
 import { ElementSelectionProvider } from '@/app/components/ElementSelectionContext';
 import { captureViewThumbnail } from './captureViewThumbnail';
@@ -106,160 +100,6 @@ function buildFileTree(filePaths: string[]): FileTreeNode[] {
 
   return root;
 }
-
-interface LogEntryProps {
-  msg: AgentMessage;
-  c: ReturnType<typeof useClaudeTokens>;
-}
-
-const LogEntry: React.FC<LogEntryProps> = ({ msg, c }) => {
-  const [open, setOpen] = useState(false);
-
-  if (msg.role === 'user') return null;
-
-  if (msg.role === 'assistant') {
-    const text = typeof msg.content === 'string'
-      ? msg.content
-      : Array.isArray(msg.content)
-        ? msg.content.filter((b: any) => b.type === 'text').map((b: any) => b.text).join('')
-        : JSON.stringify(msg.content);
-    if (!text.trim()) return null;
-    return (
-      <Box sx={{ mb: 0.5 }}>
-        <Box
-          onClick={() => setOpen(!open)}
-          sx={{ display: 'flex', alignItems: 'center', gap: 0.5, cursor: 'pointer', '&:hover': { opacity: 0.8 } }}
-        >
-          <ExpandMoreIcon sx={{ fontSize: 14, color: c.text.ghost, transform: open ? 'rotate(0deg)' : 'rotate(-90deg)', transition: '0.15s' }} />
-          <Typography sx={{ fontSize: '0.72rem', color: c.text.muted, fontStyle: 'italic', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {text.slice(0, 120)}{text.length > 120 ? '…' : ''}
-          </Typography>
-        </Box>
-        <Collapse in={open}>
-          <Typography sx={{ fontSize: '0.72rem', color: c.text.secondary, whiteSpace: 'pre-wrap', pl: 2.5, pt: 0.5, fontFamily: c.font.mono, lineHeight: 1.5 }}>
-            {text}
-          </Typography>
-        </Collapse>
-      </Box>
-    );
-  }
-
-  if (msg.role === 'tool_call') {
-    const tc = typeof msg.content === 'object' ? msg.content as Record<string, any> : {};
-    return (
-      <Box sx={{ mb: 0.5 }}>
-        <Box
-          onClick={() => setOpen(!open)}
-          sx={{ display: 'flex', alignItems: 'center', gap: 0.5, cursor: 'pointer', '&:hover': { opacity: 0.8 } }}
-        >
-          <ExpandMoreIcon sx={{ fontSize: 14, color: c.text.ghost, transform: open ? 'rotate(0deg)' : 'rotate(-90deg)', transition: '0.15s' }} />
-          <Chip
-            label={tc.tool || 'tool'}
-            size="small"
-            sx={{ height: 18, fontSize: '0.68rem', fontWeight: 600, fontFamily: c.font.mono, bgcolor: c.accent.primary + '20', color: c.accent.primary }}
-          />
-          {tc.input && (
-            <Typography sx={{ fontSize: '0.68rem', color: c.text.ghost, ml: 0.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {JSON.stringify(tc.input).slice(0, 80)}…
-            </Typography>
-          )}
-        </Box>
-        <Collapse in={open}>
-          <Box sx={{ pl: 2.5, pt: 0.5 }}>
-            <Typography component="pre" sx={{ fontSize: '0.68rem', color: c.text.secondary, fontFamily: c.font.mono, whiteSpace: 'pre-wrap', maxHeight: 200, overflow: 'auto' }}>
-              {JSON.stringify(tc.input, null, 2)}
-            </Typography>
-          </Box>
-        </Collapse>
-      </Box>
-    );
-  }
-
-  if (msg.role === 'tool_result') {
-    const content = typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content);
-    return (
-      <Box sx={{ mb: 0.5 }}>
-        <Box
-          onClick={() => setOpen(!open)}
-          sx={{ display: 'flex', alignItems: 'center', gap: 0.5, cursor: 'pointer', '&:hover': { opacity: 0.8 } }}
-        >
-          <ExpandMoreIcon sx={{ fontSize: 14, color: c.text.ghost, transform: open ? 'rotate(0deg)' : 'rotate(-90deg)', transition: '0.15s' }} />
-          <Typography sx={{ fontSize: '0.68rem', color: c.text.ghost }}>
-            result ({content.length > 60 ? `${content.length} chars` : content.slice(0, 60)})
-          </Typography>
-        </Box>
-        <Collapse in={open}>
-          <Typography component="pre" sx={{ fontSize: '0.68rem', color: c.text.secondary, fontFamily: c.font.mono, whiteSpace: 'pre-wrap', pl: 2.5, pt: 0.5, maxHeight: 200, overflow: 'auto' }}>
-            {content}
-          </Typography>
-        </Collapse>
-      </Box>
-    );
-  }
-
-  if (msg.role === 'system') {
-    const text = typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content);
-    return (
-      <Typography sx={{ fontSize: '0.68rem', color: c.text.ghost, fontStyle: 'italic', mb: 0.5 }}>
-        {text}
-      </Typography>
-    );
-  }
-
-  return null;
-};
-
-interface AutoRunLogProps {
-  messages: AgentMessage[];
-  status: string | null;
-  logEndRef: React.RefObject<HTMLDivElement>;
-  c: ReturnType<typeof useClaudeTokens>;
-}
-
-const AutoRunLog: React.FC<AutoRunLogProps> = ({ messages, status, logEndRef, c }) => {
-  const isRunning = status === 'running' || status === 'waiting_approval';
-  const isDone = status === 'completed' || status === 'stopped';
-  const isError = status === 'error';
-
-  return (
-    <Box sx={{
-      flex: 1,
-      minHeight: 0,
-      display: 'flex',
-      flexDirection: 'column',
-      border: `1px solid ${c.border.subtle}`,
-      borderRadius: 1,
-      overflow: 'hidden',
-    }}>
-      <Box sx={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 1,
-        px: 1.5,
-        py: 0.75,
-        bgcolor: c.bg.secondary,
-        borderBottom: `1px solid ${c.border.subtle}`,
-        flexShrink: 0,
-      }}>
-        {isRunning && <CircularProgress size={12} sx={{ color: '#f59e0b' }} />}
-        {isDone && <CheckCircleOutlineIcon sx={{ fontSize: 14, color: c.accent.primary }} />}
-        {isError && <ErrorOutlineIcon sx={{ fontSize: 14, color: '#ef4444' }} />}
-        <Typography sx={{ fontSize: '0.72rem', fontWeight: 600, color: c.text.muted }}>
-          {isRunning ? 'Agent running…' : isDone ? 'Agent completed' : isError ? 'Agent error' : 'Execution log'}
-        </Typography>
-        <Typography sx={{ fontSize: '0.68rem', color: c.text.ghost, ml: 'auto' }}>
-          {messages.length} messages
-        </Typography>
-      </Box>
-      <Box sx={{ flex: 1, overflow: 'auto', px: 1.5, py: 1 }}>
-        {messages.map((msg) => (
-          <LogEntry key={msg.id} msg={msg} c={c} />
-        ))}
-        <div ref={logEndRef} />
-      </Box>
-    </Box>
-  );
-};
 
 interface ConsoleEntry {
   timestamp: number;
@@ -495,8 +335,6 @@ const ViewEditor: React.FC<Props> = ({ output, onClose }) => {
 
   const TAB_PREVIEW = 0;
   const TAB_CODE = 1;
-  const TAB_TEST_INPUT = 2;
-  const TAB_AUTO_RUN = 3;
   const TAB_CONSOLE = 4;
 
   const [activeTab, setActiveTab] = useState(TAB_PREVIEW);
@@ -523,24 +361,7 @@ const ViewEditor: React.FC<Props> = ({ output, onClose }) => {
   const [consoleEntry, setConsoleEntry] = useState<ConsoleEntry | null>(null);
   const [hasNewConsoleOutput, setHasNewConsoleOutput] = useState(false);
 
-  const savedAutoRun = output?.auto_run_config;
-  const [autoRunEnabled, setAutoRunEnabled] = useState(savedAutoRun?.enabled ?? false);
-  const [autoRunMode, setAutoRunMode] = useState(savedAutoRun?.mode ?? 'agent');
-  const [autoRunModel, setAutoRunModel] = useState(savedAutoRun?.model ?? 'sonnet');
-  const [autoRunning, setAutoRunning] = useState(false);
-  const autoRunInputRef = useRef<ChatInputHandle>(null);
-  const autoRunInitialized = useRef(false);
   const previewRef = useRef<ViewPreviewHandle>(null);
-
-  const [autoRunSessionId, setAutoRunSessionId] = useState<string | null>(null);
-  const autoRunWsRef = useRef<ReturnType<typeof createSessionWs> | null>(null);
-  const autoRunLogEndRef = useRef<HTMLDivElement>(null);
-
-  const autoRunSession = useAppSelector((state) =>
-    autoRunSessionId ? state.agents.sessions[autoRunSessionId] : null
-  );
-  const autoRunMessages = autoRunSession?.messages ?? [];
-  const autoRunSessionStatus = autoRunSession?.status ?? null;
 
   const SIDEBAR_MIN = 280;
   const SIDEBAR_MAX = 800;
@@ -798,40 +619,9 @@ const ViewEditor: React.FC<Props> = ({ output, onClose }) => {
     try { return JSON.parse(schemaText); } catch { return { type: 'object', properties: {} }; }
   }, [schemaText]);
 
-  const testInputDefault = useMemo(() => getDefault(parsedSchema), [parsedSchema]);
-  const [testInput, setTestInput] = useState<Record<string, any>>(testInputDefault);
-
-  useEffect(() => {
-    setTestInput(getDefault(parsedSchema));
-  }, [schemaText]);
-
-  useEffect(() => {
-    if (autoRunInitialized.current || !savedAutoRun) return;
-    if (!autoRunEnabled) return;
-    autoRunInitialized.current = true;
-    const timer = setTimeout(() => {
-      autoRunInputRef.current?.setContent(
-        savedAutoRun.prompt || '',
-        savedAutoRun.context_paths?.map((cp) => ({ path: cp.path, type: (cp.type as 'file' | 'directory') || 'file' })),
-        savedAutoRun.forced_tools,
-      );
-    }, 100);
-    return () => clearTimeout(timer);
-  }, [savedAutoRun, autoRunEnabled]);
+  const testInput = useMemo<Record<string, any>>(() => getDefault(parsedSchema), [parsedSchema]);
 
   const savedRef = useRef(!!output);
-
-  const getAutoRunConfig = (): AutoRunConfig => {
-    const config = autoRunInputRef.current?.getConfig();
-    return {
-      enabled: autoRunEnabled,
-      prompt: config?.prompt ?? '',
-      context_paths: config?.contextPaths?.map((cp) => ({ path: cp.path, type: cp.type })) ?? [],
-      forced_tools: (config?.forcedTools ?? []).map(({ label, tools, iconKey }) => ({ label, tools, iconKey })),
-      mode: autoRunMode,
-      model: autoRunModel,
-    };
-  };
 
   const buildBody = () => {
     let schema: Record<string, any>;
@@ -848,7 +638,6 @@ const ViewEditor: React.FC<Props> = ({ output, onClose }) => {
       icon: 'view_quilt',
       input_schema: schema,
       files: outputFiles,
-      auto_run_config: getAutoRunConfig(),
     };
   };
 
@@ -944,137 +733,6 @@ const ViewEditor: React.FC<Props> = ({ output, onClose }) => {
     }
   };
 
-  const handleAutoRun = async () => {
-    const config = autoRunInputRef.current?.getConfig();
-    if (!config?.prompt?.trim()) return;
-    setAutoRunning(true);
-
-    let schema: Record<string, any>;
-    try { schema = JSON.parse(schemaText); } catch { schema = { type: 'object', properties: {} }; }
-    const forcedToolNames = config.forcedTools.flatMap((ft) => ft.tools);
-
-    const eid = output?.id ?? createdIdRef.current;
-    if (forcedToolNames.length > 0 && eid) {
-      try {
-        const res = await dispatch(autoRunAgentOutput({
-          prompt: config.prompt,
-          input_schema: schema,
-          output_id: eid,
-          model: autoRunModel,
-          forced_tools: forcedToolNames,
-          context_paths: config.contextPaths.map((cp) => ({ path: cp.path, type: cp.type })),
-        })).unwrap();
-        setAutoRunSessionId(res.session_id);
-        const ws = createSessionWs(res.session_id);
-        ws.connect();
-        autoRunWsRef.current = ws;
-      } catch {
-        setAutoRunning(false);
-      }
-    } else {
-      try {
-        const backendCode = files['backend.py'] ?? null;
-        const res = await dispatch(autoRunOutput({
-          prompt: config.prompt,
-          input_schema: schema,
-          backend_code: backendCode || undefined,
-          context_paths: config.contextPaths.map((cp) => ({ path: cp.path, type: cp.type })),
-          forced_tools: forcedToolNames.length > 0 ? forcedToolNames : undefined,
-          model: autoRunModel,
-        })).unwrap();
-        if (res.input_data) {
-          setTestInput(res.input_data);
-          setExecuteResult({
-            output_id: output?.id ?? createdIdRef.current ?? '',
-            output_name: name,
-            frontend_code: files['index.html'] ?? '',
-            input_data: res.input_data,
-            backend_result: res.backend_result,
-            stdout: res.stdout ?? null,
-            stderr: res.stderr ?? null,
-            error: res.error,
-          });
-          setConsoleEntry({ timestamp: Date.now(), inputData: res.input_data, stdout: res.stdout ?? null, stderr: res.stderr ?? null, backendResult: res.backend_result, error: res.error, source: 'auto-run' });
-          setHasNewConsoleOutput(true);
-          setActiveTab(TAB_PREVIEW);
-        }
-      } catch {}
-      setAutoRunning(false);
-    }
-  };
-
-  useEffect(() => {
-    if (!autoRunSessionId || !autoRunSessionStatus) return;
-    if (autoRunSessionStatus !== 'completed' && autoRunSessionStatus !== 'error' && autoRunSessionStatus !== 'stopped') return;
-
-    let extracted = false;
-    for (const msg of autoRunMessages) {
-      if (msg.role !== 'tool_call' || typeof msg.content !== 'object') continue;
-      const tc = msg.content as { tool?: string; input?: Record<string, any> };
-      if (tc.tool !== 'RenderOutput' || !tc.input?.input_data) continue;
-      setTestInput(tc.input.input_data);
-      setExecuteResult({
-        output_id: output?.id ?? createdIdRef.current ?? '',
-        output_name: name,
-        frontend_code: files['index.html'] ?? '',
-        input_data: tc.input.input_data,
-        backend_result: null,
-        stdout: null,
-        stderr: null,
-        error: null,
-      });
-      setConsoleEntry({ timestamp: Date.now(), inputData: tc.input.input_data, stdout: null, stderr: null, backendResult: null, error: null, source: 'agent' });
-      setHasNewConsoleOutput(true);
-      setActiveTab(TAB_PREVIEW);
-      extracted = true;
-      break;
-    }
-
-    if (!extracted && autoRunSessionStatus === 'error') {
-      const lastSys = [...autoRunMessages].reverse().find((m) => m.role === 'system');
-      if (lastSys) {
-        const errMsg = typeof lastSys.content === 'string' ? lastSys.content : JSON.stringify(lastSys.content);
-        setExecuteResult({
-          output_id: output?.id ?? createdIdRef.current ?? '',
-          output_name: name,
-          frontend_code: files['index.html'] ?? '',
-          input_data: {},
-          backend_result: null,
-          stdout: null,
-          stderr: null,
-          error: errMsg,
-        });
-        setConsoleEntry({ timestamp: Date.now(), inputData: {}, stdout: null, stderr: null, backendResult: null, error: errMsg, source: 'agent' });
-        setHasNewConsoleOutput(true);
-      }
-    }
-
-    setAutoRunning(false);
-
-    if (autoRunWsRef.current) {
-      autoRunWsRef.current.disconnect();
-      autoRunWsRef.current = null;
-    }
-    cleanupAutoRunAgent(autoRunSessionId).catch(() => {});
-    setTimeout(() => setAutoRunSessionId(null), 300);
-  }, [autoRunSessionId, autoRunSessionStatus]);
-
-  useEffect(() => {
-    autoRunLogEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [autoRunMessages.length]);
-
-  useEffect(() => {
-    return () => {
-      if (autoRunWsRef.current) {
-        autoRunWsRef.current.disconnect();
-        autoRunWsRef.current = null;
-      }
-      if (autoRunSessionId) {
-        cleanupAutoRunAgent(autoRunSessionId).catch(() => {});
-      }
-    };
-  }, [autoRunSessionId]);
-
   const workspaceServeUrl = workspaceId
     ? `${SERVE_BASE}/workspace/${workspaceId}/serve/index.html`
     : undefined;
@@ -1164,7 +822,7 @@ const ViewEditor: React.FC<Props> = ({ output, onClose }) => {
     return () => {
       if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
     };
-  }, [files, name, description, autoRunEnabled, autoRunMode, autoRunModel]);
+  }, [files, name, description]);
 
   useEffect(() => {
     return () => {
@@ -1280,26 +938,6 @@ const ViewEditor: React.FC<Props> = ({ output, onClose }) => {
             }}
           />
 
-          {autoRunEnabled && (
-            <Button
-              variant="outlined"
-              startIcon={autoRunning ? <CircularProgress size={14} /> : <BoltIcon sx={{ fontSize: 16 }} />}
-              onClick={handleAutoRun}
-              disabled={autoRunning}
-              size="small"
-              sx={{
-                borderColor: '#f59e0b40',
-                color: '#f59e0b',
-                textTransform: 'none',
-                fontWeight: 500,
-                fontSize: '0.8rem',
-                px: 1.5,
-                '&:hover': { borderColor: '#f59e0b', bgcolor: '#f59e0b10' },
-              }}
-            >
-              {autoRunning ? 'Running…' : 'Auto Run'}
-            </Button>
-          )}
           {saveStatus === 'unsaved' && (
             <Typography sx={{ fontSize: '0.72rem', color: c.text.ghost, fontStyle: 'italic', whiteSpace: 'nowrap' }}>
               Unsaved changes
@@ -1371,8 +1009,6 @@ const ViewEditor: React.FC<Props> = ({ output, onClose }) => {
           >
             <Tab label="Preview" value={TAB_PREVIEW} />
             <Tab label="Code" value={TAB_CODE} />
-            <Tab label="Test Input" value={TAB_TEST_INPUT} />
-            <Tab label="Auto Run" value={TAB_AUTO_RUN} />
             {showConsole && <Tab label="Console" value={TAB_CONSOLE} />}
           </Tabs>
           {activeTab === TAB_PREVIEW && (
@@ -1566,162 +1202,9 @@ const ViewEditor: React.FC<Props> = ({ output, onClose }) => {
               </Box>
             </Box>
           )}
-          {activeTab === TAB_TEST_INPUT && (
-            <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-              <Box
-                sx={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 1,
-                  px: 2,
-                  py: 1,
-                  borderBottom: `1px solid ${c.border.subtle}`,
-                  bgcolor: c.bg.secondary,
-                  flexShrink: 0,
-                }}
-              >
-                <Button
-                  size="small"
-                  startIcon={<AutoFixHighIcon sx={{ fontSize: 15 }} />}
-                  onClick={() => setTestInput(getStubbed(parsedSchema))}
-                  sx={{
-                    textTransform: 'none',
-                    fontSize: '0.78rem',
-                    color: c.accent.primary,
-                    fontWeight: 500,
-                    '&:hover': { bgcolor: c.bg.elevated },
-                  }}
-                >
-                  Fill sample data
-                </Button>
-                <Button
-                  size="small"
-                  onClick={() => setTestInput(getDefault(parsedSchema))}
-                  sx={{
-                    textTransform: 'none',
-                    fontSize: '0.78rem',
-                    color: c.text.muted,
-                    fontWeight: 400,
-                    '&:hover': { bgcolor: c.bg.elevated },
-                  }}
-                >
-                  Reset
-                </Button>
-              </Box>
-              <Box sx={{ p: 2, overflow: 'auto', flex: 1 }}>
-                <InputSchemaForm
-                  schema={parsedSchema}
-                  value={testInput}
-                  onChange={setTestInput}
-                />
-              </Box>
-            </Box>
-          )}
           {activeTab === TAB_CONSOLE && (
             <ConsolePanel entry={consoleEntry} c={c} />
           )}
-          <Box sx={{ display: activeTab === TAB_AUTO_RUN ? 'flex' : 'none', flexDirection: 'column', height: '100%' }}>
-              <Box
-                sx={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 1.5,
-                  px: 2,
-                  py: 1,
-                  borderBottom: `1px solid ${c.border.subtle}`,
-                  bgcolor: c.bg.secondary,
-                  flexShrink: 0,
-                }}
-              >
-                <Switch
-                  checked={autoRunEnabled}
-                  onChange={(_, v) => setAutoRunEnabled(v)}
-                  size="small"
-                  sx={{
-                    '& .MuiSwitch-switchBase.Mui-checked': { color: '#f59e0b' },
-                    '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { bgcolor: '#f59e0b' },
-                  }}
-                />
-                <Typography sx={{ fontSize: '0.82rem', fontWeight: 500, color: autoRunEnabled ? c.text.primary : c.text.muted }}>
-                  {autoRunEnabled ? 'Auto Run enabled' : 'Auto Run disabled'}
-                </Typography>
-                <Box sx={{ flex: 1 }} />
-                {autoRunEnabled && (
-                  <Button
-                    size="small"
-                    startIcon={autoRunning ? <CircularProgress size={12} /> : <BoltIcon sx={{ fontSize: 14 }} />}
-                    onClick={handleAutoRun}
-                    disabled={autoRunning}
-                    sx={{
-                      textTransform: 'none',
-                      fontSize: '0.78rem',
-                      color: '#f59e0b',
-                      fontWeight: 500,
-                      '&:hover': { bgcolor: '#f59e0b10' },
-                    }}
-                  >
-                    {autoRunning ? 'Running…' : 'Run Now'}
-                  </Button>
-                )}
-              </Box>
-              <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-                {autoRunEnabled ? (
-                  <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', p: 2, gap: 1.5, overflow: 'hidden' }}>
-                    <Typography sx={{ color: c.text.ghost, fontSize: '0.8rem', lineHeight: 1.6, flexShrink: 0 }}>
-                      Describe what data to generate for this app. When triggered, an LLM will produce input data matching your schema and populate the preview.
-                    </Typography>
-                    <Box data-onboarding="app-builder-input" sx={{ width: '100%' }}>
-                      <ChatInput
-                        ref={autoRunInputRef}
-                        autoRunMode
-                        onSend={() => {}}
-                        mode={autoRunMode}
-                        onModeChange={setAutoRunMode}
-                        model={autoRunModel}
-                        onModelChange={setAutoRunModel}
-                      />
-                    </Box>
-                    <Button
-                      variant="contained"
-                      startIcon={saving ? <CircularProgress size={14} color="inherit" /> : <SaveIcon sx={{ fontSize: 16 }} />}
-                      onClick={() => handleSave(false)}
-                      disabled={saving || !name.trim()}
-                      size="small"
-                      sx={{
-                        alignSelf: 'flex-start',
-                        flexShrink: 0,
-                        bgcolor: c.accent.primary,
-                        textTransform: 'none',
-                        fontWeight: 500,
-                        fontSize: '0.8rem',
-                        px: 2,
-                        '&:hover': { bgcolor: c.accent.hover },
-                      }}
-                    >
-                      {saving ? 'Saving…' : 'Save'}
-                    </Button>
-                    {(autoRunSessionId || autoRunMessages.length > 0) && (
-                      <AutoRunLog
-                        messages={autoRunMessages}
-                        status={autoRunSessionStatus}
-                        logEndRef={autoRunLogEndRef}
-                        c={c}
-                      />
-                    )}
-                  </Box>
-                ) : (
-                  <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 1.5 }}>
-                    <BoltIcon sx={{ fontSize: 40, color: c.text.ghost, opacity: 0.3 }} />
-                    <Typography sx={{ color: c.text.ghost, fontSize: '0.88rem' }}>
-                      Enable Auto Run to generate live data for this app
-                    </Typography>
-                    <Typography sx={{ color: c.text.ghost, fontSize: '0.78rem', maxWidth: 360, textAlign: 'center', lineHeight: 1.5 }}>
-                      Configure a prompt that describes what data to generate. An LLM will produce input matching your schema and populate the preview automatically.
-                    </Typography>
-                  </Box>
-                )}
-              </Box>
-          </Box>
         </Box>
       </Box>
     </Box>

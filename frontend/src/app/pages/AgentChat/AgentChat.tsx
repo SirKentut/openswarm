@@ -618,16 +618,6 @@ const AgentChat: React.FC<AgentChatProps> = ({ sessionId: sessionIdProp, onClose
   const sessionRunning = session?.status === 'running' || session?.status === 'waiting_approval';
 
   const renderItems: RenderItem[] = useMemo(() => {
-    const isOutputCall = (m: AgentMessage) =>
-      m.role === 'tool_call' && typeof m.content === 'object' && m.content.tool === 'RenderOutput';
-    const isOutputResult = (m: AgentMessage) => {
-      if (m.role !== 'tool_result') return false;
-      try {
-        const parsed = typeof m.content === 'string' ? JSON.parse(m.content) : m.content;
-        return !!(parsed?.output_id && parsed?.frontend_code);
-      } catch { return false; }
-    };
-
     const items: RenderItem[] = [];
     let i = 0;
     while (i < activeBranchMessages.length) {
@@ -643,15 +633,8 @@ const AgentChat: React.FC<AgentChatProps> = ({ sessionId: sessionIdProp, onClose
           i++;
         }
 
-        const regular: typeof activeBranchMessages = [];
-        const outputItems: typeof activeBranchMessages = [];
-        for (const m of group) {
-          if (isOutputCall(m) || isOutputResult(m)) { outputItems.push(m); continue; }
-          regular.push(m);
-        }
-
-        const calls = regular.filter((m) => m.role === 'tool_call');
-        const results = regular.filter((m) => m.role === 'tool_result');
+        const calls = group.filter((m) => m.role === 'tool_call');
+        const results = group.filter((m) => m.role === 'tool_result');
         const pairs: ToolPair[] = calls.map((call, idx) => ({
           type: 'tool_pair' as const,
           id: `pair-${call.id}`,
@@ -699,8 +682,6 @@ const AgentChat: React.FC<AgentChatProps> = ({ sessionId: sessionIdProp, onClose
             callCount: calls.length,
           } satisfies ToolGroup);
         }
-
-        items.push(...outputItems);
       } else {
         if (!msg.hidden) {
           items.push(msg);

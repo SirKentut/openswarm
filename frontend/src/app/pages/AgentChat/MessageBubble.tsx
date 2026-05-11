@@ -23,7 +23,6 @@ import { openSettingsModal } from '@/shared/state/settingsSlice';
 import { useAppDispatch } from '@/shared/hooks';
 import { useClaudeTokens } from '@/shared/styles/ThemeContext';
 import { SKILL_COLOR } from '@/app/components/richEditorUtils';
-import ViewBubble from './ViewBubble';
 import PlanPicker from '@/app/components/PlanPicker';
 import { ErrorSlime } from '@/app/components/ErrorSlime';
 
@@ -842,26 +841,7 @@ const MessageBubble: React.FC<Props> = React.memo(({ message, editing = false, o
     );
   }
 
-  if (role === 'tool_call') {
-    const toolData = typeof content === 'object' ? content : {};
-    const toolInput = toolData.input || {};
-    if (toolData.tool === 'RenderOutput') {
-      return <ViewBubble toolInput={toolInput} isStreaming={isStreaming} />;
-    }
-    return null;
-  }
-
-  if (role === 'tool_result') {
-    let parsedContent: any = null;
-    try { parsedContent = typeof content === 'string' ? JSON.parse(content) : content; } catch {}
-    if (parsedContent?.output_id && parsedContent?.frontend_code) {
-      return (
-        <ViewBubble
-          toolInput={{ output_id: parsedContent.output_id, input_data: parsedContent.input_data || {} }}
-          toolResult={parsedContent}
-        />
-      );
-    }
+  if (role === 'tool_call' || role === 'tool_result') {
     return null;
   }
 

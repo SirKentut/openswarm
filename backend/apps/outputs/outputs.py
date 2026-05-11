@@ -13,8 +13,7 @@ from jsonschema import validate as schema_validate, ValidationError as SchemaVal
 from backend.config.Apps import SubApp
 from backend.apps.outputs.models import (
     Output, OutputCreate, OutputUpdate, OutputExecute, OutputExecuteResult,
-    VibeCodeRequest, AutoRunRequest, AutoRunConfig, AutoRunAgentRequest,
-    WorkspaceSeedRequest,
+    VibeCodeRequest, WorkspaceSeedRequest,
 )
 from backend.apps.outputs.executor import execute_backend_code
 from backend.apps.outputs.view_builder_templates import VIEW_BUILDER_SKILL, VIEW_TEMPLATE_FILES
@@ -367,7 +366,6 @@ async def create_output(body: OutputCreate):
         icon=body.icon,
         input_schema=body.input_schema,
         files=body.files,
-        auto_run_config=body.auto_run_config,
         thumbnail=body.thumbnail,
         created_at=now,
         updated_at=now,
@@ -381,8 +379,6 @@ async def create_output(body: OutputCreate):
 async def update_output(output_id: str, body: OutputUpdate):
     output = _load(output_id)
     for k, v in body.model_dump(exclude_none=True).items():
-        if k == "auto_run_config" and isinstance(v, dict):
-            v = AutoRunConfig(**v)
         setattr(output, k, v)
     output.updated_at = datetime.now().isoformat()
     _save(output)
@@ -503,88 +499,6 @@ async def vibe_code(body: VibeCodeRequest):
         }
 
 
-AUTO_RUN_SYSTEM_PROMPT = """\
-You generate structured JSON data matching a given schema.
-The user provides a prompt describing what data to generate and a JSON Schema.
-Return ONLY valid JSON that conforms to the schema. No markdown fences, no extra text, no explanation.
-Every required field must be present. Use realistic, meaningful data.\
-"""
-
-
-@outputs.router.post("/auto-run")
-async def auto_run_output(body: AutoRunRequest):
-    """Use an LLM to generate input data matching the schema, then optionally execute backend code."""
-    try:
-        import anthropic
-    except ImportError:
-        return {"error": "anthropic SDK not installed", "input_data": None, "backend_result": None}
-
-    schema_str = json.dumps(body.input_schema, indent=2)
-    user_message = f"Schema:\n```json\n{schema_str}\n```\n\nGenerate data for: {body.prompt}"
-
-    # Resolve body.model via the registry so non-Anthropic selections are
-    # routed through 9Router with the correct prefix (cx/, gc/).
-    # If body.model is unset or unknown, fall back to whichever aux model
-    # is available (prefers Claude, else any connected subscription).
-    from backend.apps.agents.providers.registry import (
-        _find_builtin_model,
-        resolve_model_id_for_sdk,
-        resolve_aux_model,
-    )
-    settings = load_settings()
-    if body.model and _find_builtin_model(body.model) is not None:
-        api_model = resolve_model_id_for_sdk(body.model, settings)
-    else:
-        try:
-            api_model, _ = await resolve_aux_model(settings, preferred_tier="haiku")
-        except ValueError as e:
-            return {"error": str(e), "input_data": None, "backend_result": None}
-
-    client = _get_anthropic_client(api_model)
-    try:
-        resp = await client.messages.create(
-            model=api_model,
-            max_tokens=4000,
-            system=AUTO_RUN_SYSTEM_PROMPT,
-            messages=[{"role": "user", "content": user_message}],
-        )
-        from backend.apps.agents.agent_manager import _safe_resp_text
-        raw = _safe_resp_text(resp).strip()
-        if not raw:
-            return {"error": "Aux model returned no content.", "input_data": None, "backend_result": None}
-        if raw.startswith("```"):
-            raw = raw.split("\n", 1)[1] if "\n" in raw else raw[3:]
-            if raw.endswith("```"):
-                raw = raw[:-3]
-
-        input_data = json.loads(raw)
-
-        validation_err = _validate_against_schema(input_data, body.input_schema)
-        if validation_err:
-            return {"input_data": input_data, "backend_result": None, "error": validation_err}
-
-        # SECURITY: this endpoint used to accept arbitrary `backend_code` in
-        # the request body and pass it straight to execute_backend_code —
-        # which is an unsandboxed `python -c` subprocess. That gave anyone
-        # holding the install token (which is readable by every process
-        # running as the same OS user, and is also handed to every agent
-        # subprocess via OPENSWARM_AUTH_TOKEN) a one-shot RCE primitive.
-        # The field is now ignored at the model layer; backend code can
-        # only run via /api/outputs/execute against a persisted Output.
-        return {
-            "input_data": input_data,
-            "backend_result": None,
-            "stdout": None,
-            "stderr": None,
-            "error": None,
-        }
-    except json.JSONDecodeError:
-        return {"error": "Failed to parse generated data as JSON", "input_data": None, "backend_result": None}
-    except Exception as e:
-        logger.exception("Auto-run failed")
-        return {"error": str(e), "input_data": None, "backend_result": None}
-
-
 @outputs.router.post("/execute")
 async def execute_output(body: OutputExecute):
     output = _load(body.output_id)
@@ -627,72 +541,3 @@ async def execute_output(body: OutputExecute):
     ).model_dump()
 
 
-AUTO_RUN_AGENT_SYSTEM_PROMPT = """\
-You are a data-gathering agent. Your job is to use the available tools to collect \
-real data, then render it into a structured View.
-
-You have access to MCP tools (e.g. Gmail, calendar, etc.) that let you fetch live data. \
-Use them as needed to fulfil the user's request.
-
-When you have gathered enough data, call the **RenderOutput** tool with:
-- `output_id`: `{output_id}`
-- `input_data`: a JSON object conforming to this schema:
-```json
-{schema}
-```
-
-Do NOT fabricate data. Use the tools to get real information, then structure it to match \
-the schema above. If a tool call fails, report the error clearly.\
-"""
-
-
-@outputs.router.post("/auto-run-agent")
-async def auto_run_agent(body: AutoRunAgentRequest):
-    """Launch a temporary agent session that uses MCP tools to gather data for a view."""
-    from backend.apps.agents.agent_manager import agent_manager, FULL_TOOLS
-    from backend.apps.agents.models import AgentConfig
-
-    output = _load(body.output_id)
-    schema_str = json.dumps(body.input_schema or output.input_schema, indent=2)
-
-    system_prompt = AUTO_RUN_AGENT_SYSTEM_PROMPT.format(
-        output_id=body.output_id,
-        schema=schema_str,
-    )
-
-    allowed_tools = list(FULL_TOOLS)
-    for tool_name in body.forced_tools:
-        if tool_name not in allowed_tools:
-            allowed_tools.append(tool_name)
-
-    config = AgentConfig(
-        name=f"AutoRun: {output.name}",
-        model=body.model,
-        mode="agent",
-        system_prompt=system_prompt,
-        allowed_tools=allowed_tools,
-        max_turns=20,
-    )
-
-    session = await agent_manager.launch_agent(config)
-
-    await agent_manager.send_message(
-        session.id,
-        body.prompt,
-        context_paths=body.context_paths if body.context_paths else None,
-        forced_tools=body.forced_tools if body.forced_tools else None,
-    )
-
-    return {"session_id": session.id}
-
-
-@outputs.router.delete("/auto-run-agent/{session_id}")
-async def cleanup_auto_run_agent(session_id: str):
-    """Delete a temporary auto-run agent session."""
-    from backend.apps.agents.agent_manager import agent_manager
-
-    try:
-        await agent_manager.delete_session(session_id)
-    except Exception as e:
-        logger.warning(f"Auto-run agent cleanup failed for {session_id}: {e}")
-    return {"ok": True}

@@ -103,7 +103,6 @@ export interface AgentSession {
   context_overflow?: { reason: string; message: string; at: string } | null;
   mcp_suggestions?: Array<{ id: string; title: string; description: string; reason?: string }>;
   mcp_suggestions_is_vague?: boolean;
-  active_outputs?: string[];
   compacted_through_msg_id?: string | null;
   // Transient frontend-only WS connection state. Independent of
   // `status` (which describes the agent run itself). When the WS

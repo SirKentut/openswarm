@@ -16,7 +16,6 @@ import ViewQuiltOutlinedIcon from '@mui/icons-material/ViewQuiltOutlined';
 import { useAppSelector, useAppDispatch } from '@/shared/hooks';
 import { useClaudeTokens } from '@/shared/styles/ThemeContext';
 import { fetchBuiltinTools, fetchTools } from '@/shared/state/toolsSlice';
-import { fetchOutputs } from '@/shared/state/outputsSlice';
 import { fetchSkills } from '@/shared/state/skillsSlice';
 
 const GoogleIcon: React.FC<{ sx?: object }> = ({ sx }) => (
@@ -95,21 +94,18 @@ const CommandPicker: React.FC<Props> = ({ trigger, filter, onSelect, onClose, vi
   const modesMap = useAppSelector((s) => s.modes.items);
   const builtinTools = useAppSelector((s) => s.tools.builtinTools);
   const customTools = useAppSelector((s) => s.tools.items);
-  const outputItems = useAppSelector((s) => s.outputs.items);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
 
   const toolsLoaded = useAppSelector((s) => s.tools.loaded);
   const builtinLoaded = useAppSelector((s) => s.tools.builtinLoaded);
-  const outputsLoaded = useAppSelector((s) => s.outputs.loaded);
   const skillsLoaded = useAppSelector((s) => s.skills.loaded);
 
   useEffect(() => {
     if (!builtinLoaded) dispatch(fetchBuiltinTools());
     if (!toolsLoaded) dispatch(fetchTools());
-    if (!outputsLoaded) dispatch(fetchOutputs());
     if (!skillsLoaded) dispatch(fetchSkills());
-  }, [dispatch, builtinLoaded, toolsLoaded, outputsLoaded, skillsLoaded]);
+  }, [dispatch, builtinLoaded, toolsLoaded, skillsLoaded]);
 
   const items: CommandPickerItem[] = useMemo(() => {
     let all: CommandPickerItem[] = [];
@@ -252,22 +248,6 @@ const CommandPicker: React.FC<Props> = ({ trigger, filter, onSelect, onClose, vi
         }
       }
 
-      for (const out of Object.values(outputItems)) {
-        if (out.permission === 'deny') continue;
-        const cmd = out.name.toLowerCase().replace(/\s+/g, '-');
-        atItems.push({
-          id: `view-${out.id}`,
-          type: 'context' as const,
-          category: 'Apps',
-          name: out.name,
-          description: out.description || `Render ${out.name} view`,
-          command: cmd,
-          icon: <ViewQuiltOutlinedIcon sx={{ fontSize: 15 }} />,
-          toolNames: ['RenderOutput'],
-          iconKey: 'View',
-        });
-      }
-
       all = atItems;
     }
 
@@ -279,7 +259,7 @@ const CommandPicker: React.FC<Props> = ({ trigger, filter, onSelect, onClose, vi
         item.command.toLowerCase().includes(lower) ||
         item.description.toLowerCase().includes(lower),
     );
-  }, [trigger, skills, modesMap, builtinTools, customTools, outputItems, filter]);
+  }, [trigger, skills, modesMap, builtinTools, customTools, filter]);
 
   const flatItems = useMemo(() => {
     const result: { item: CommandPickerItem; isGroupStart: boolean; category: string }[] = [];

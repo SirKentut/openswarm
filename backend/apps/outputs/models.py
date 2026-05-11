@@ -4,15 +4,6 @@ from uuid import uuid4
 from datetime import datetime
 
 
-class AutoRunConfig(BaseModel):
-    enabled: bool = False
-    prompt: str = ""
-    context_paths: list[dict[str, str]] = Field(default_factory=list)
-    forced_tools: list[dict[str, Any]] = Field(default_factory=list)
-    mode: str = "agent"
-    model: str = "sonnet"
-
-
 class Output(BaseModel):
     id: str = Field(default_factory=lambda: uuid4().hex)
     name: str
@@ -25,7 +16,6 @@ class Output(BaseModel):
     })
     files: dict[str, str] = Field(default_factory=dict)
     permission: str = "ask"
-    auto_run_config: Optional[AutoRunConfig] = None
     thumbnail: Optional[str] = None
     # Linkage so reopening the App Builder reattaches to the in-progress session
     # and reuses the same on-disk workspace folder instead of seeding a fresh one
@@ -34,11 +24,6 @@ class Output(BaseModel):
     workspace_id: Optional[str] = None
     created_at: str = Field(default_factory=lambda: datetime.now().isoformat())
     updated_at: str = Field(default_factory=lambda: datetime.now().isoformat())
-    # Usage stats: bumped by RenderOutput dispatch + OutputActivate. Drives
-    # ranking in OutputSearch so frequently-used Outputs surface first.
-    # Both default to absent for backward compat with old on-disk records.
-    last_used_at: Optional[str] = None
-    use_count: int = 0
 
     @model_validator(mode="before")
     @classmethod
@@ -79,7 +64,6 @@ class OutputCreate(BaseModel):
         "required": [],
     })
     files: dict[str, str] = Field(default_factory=dict)
-    auto_run_config: Optional[dict[str, Any]] = None
     thumbnail: Optional[str] = None
     session_id: Optional[str] = None
     workspace_id: Optional[str] = None
@@ -111,7 +95,6 @@ class OutputUpdate(BaseModel):
     input_schema: Optional[dict[str, Any]] = None
     files: Optional[dict[str, str]] = None
     permission: Optional[str] = None
-    auto_run_config: Optional[dict[str, Any]] = None
     thumbnail: Optional[str] = None
     session_id: Optional[str] = None
     workspace_id: Optional[str] = None
@@ -151,29 +134,6 @@ class OutputExecuteResult(BaseModel):
     stdout: Optional[str] = None
     stderr: Optional[str] = None
     error: Optional[str] = None
-
-
-class AutoRunRequest(BaseModel):
-    # extra="ignore" so callers that historically sent `backend_code` (the
-    # field was removed for security — see auto_run_output endpoint) don't
-    # 422 on the way in. The endpoint silently drops it now; backend code
-    # only runs via the persisted-Output flow at /api/outputs/execute.
-    model_config = {"extra": "ignore"}
-
-    prompt: str
-    input_schema: dict[str, Any] = Field(default_factory=dict)
-    context_paths: list[dict[str, str]] = Field(default_factory=list)
-    forced_tools: list[str] = Field(default_factory=list)
-    model: str = "sonnet"
-
-
-class AutoRunAgentRequest(BaseModel):
-    prompt: str
-    input_schema: dict[str, Any] = Field(default_factory=dict)
-    output_id: str
-    model: str = "sonnet"
-    forced_tools: list[str] = Field(default_factory=list)
-    context_paths: list[dict[str, str]] = Field(default_factory=list)
 
 
 class WorkspaceSeedRequest(BaseModel):
