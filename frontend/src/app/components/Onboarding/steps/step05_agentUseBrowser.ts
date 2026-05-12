@@ -13,9 +13,7 @@ export const step05: OnboardingStep = {
   dependsOn: [{ stepId: 'use_browser', reopen: 'walk_again' }],
   ops: [
     { kind: 'move_to', target: S.newAgentButton },
-    // side:'left' — same as step03; + is the leftmost icon in the
-    // toolbar cluster.
-    { kind: 'popup', text: 'Time for a fresh chat that surfs the web.', side: 'left' },
+    { kind: 'popup', text: 'Time for a fresh chat that surfs the web.' },
     {
       kind: 'wait_user',
       condition: { kind: 'click_target', target: S.newAgentButton },
@@ -27,10 +25,7 @@ export const step05: OnboardingStep = {
     // (-10, -10) puts the body's visual center over this icon's
     // center, where it belongs.
     { kind: 'move_to', target: S.elementSelectionToggle, offset: { x: -10, y: -10 } },
-    // side:'left' — cursor-circle is the leftmost of the chat-input
-    // right-side icons (cursor-circle clip mic). Right popup overlapped
-    // the paperclip / mic.
-    { kind: 'popup', text: 'Tap here to plug a browser into this chat.', side: 'left' },
+    { kind: 'popup', text: 'Tap here to plug a browser into this chat.' },
     {
       kind: 'wait_user',
       condition: { kind: 'click_target', target: S.elementSelectionToggle },

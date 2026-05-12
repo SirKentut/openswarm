@@ -17,7 +17,7 @@ import logging
 import os
 import socket
 import sys
-from collections import deque
+from collections import deque, OrderedDict
 from dataclasses import dataclass
 from typing import Callable, Optional
 
@@ -44,6 +44,42 @@ _TERMINATE_GRACE_SECONDS = 3
 # the preview pane on a port that may never come up.
 _FRONTEND_BIND_TIMEOUT_SECONDS = 180
 _FRONTEND_BIND_POLL_INTERVAL = 0.5
+
+# Number of idle (zero-attachment) runtimes the manager keeps alive in
+# its LRU before reaping the oldest. Trades memory for instant
+# switch-back: clicking a previously-opened App reattaches to an
+# already-running vite + uvicorn instead of paying the ~1-2s spawn
+# cost. Bumped beyond 1 because the typical "App Builder" user keeps
+# 2-3 in-progress apps and ping-pongs between them.
+_MAX_IDLE_RUNTIMES = 3
+
+# Cap on recent error lines kept per workspace runtime. The agent only
+# needs a snapshot of "what broke since my last write" — older errors
+# get dropped. 50 is enough to catch a babel error message + its stack
+# trace + a couple of related warnings without bloating the context.
+_RECENT_ERRORS_MAX = 50
+
+# Regex that matches lines we want to surface back to the agent. Picks
+# up the common JS/TS/Python build-error formats vite, babel, tsc, and
+# uvicorn emit. Kept narrow on purpose so routine info logs and
+# deprecation warnings don't pollute the agent's context.
+import re as _re
+_ERROR_PATTERNS = _re.compile(
+    r"(?:"
+    r"\[plugin:[^\]]+\]|"      # vite plugin errors
+    r"SyntaxError|"            # node / babel
+    r"Unexpected token|"       # babel / tsc parser
+    r"\berror TS\d+|"          # tsc diagnostics
+    r"ERROR\s+in\s|"           # webpack-style
+    r"Traceback \(most recent call last\)|"  # python
+    r"ModuleNotFoundError|"
+    r"ImportError|"
+    r"AttributeError:|"
+    r"Failed to compile|"
+    r"Cannot find module|"
+    r"Cannot resolve"
+    r")"
+)
 
 
 def _find_free_port() -> int:
@@ -137,11 +173,24 @@ class AppRuntime:
         self.process: Optional[asyncio.subprocess.Process] = None
         self.log_buffer: deque[LogLine] = deque(maxlen=_LOG_BUFFER_LINES)
         self._subscribers: set[LogSubscriber] = set()
+        # Recent build/runtime errors scraped from stderr — drained by
+        # the agent's post-tool hook after Write/Edit so the agent sees
+        # vite/babel/uvicorn errors in its next turn and can self-fix
+        # instead of leaving the user with a red iframe overlay.
+        self.recent_errors: deque[str] = deque(maxlen=_RECENT_ERRORS_MAX)
         self._stdout_task: Optional[asyncio.Task] = None
         self._stderr_task: Optional[asyncio.Task] = None
         self._wait_task: Optional[asyncio.Task] = None
         self._frontend_ready_task: Optional[asyncio.Task] = None
         self._lock = asyncio.Lock()
+
+    def drain_errors(self) -> list[str]:
+        """Pop and return all accumulated error lines. Used by the
+        agent-manager's post-tool hook to surface build errors back
+        into the agent's context immediately after a file write."""
+        out = list(self.recent_errors)
+        self.recent_errors.clear()
+        return out
 
     @property
     def running(self) -> bool:
@@ -388,6 +437,14 @@ class AppRuntime:
             except Exception:
                 pass
 
+    def _maybe_capture_error(self, text: str) -> None:
+        """If a stderr/stdout line matches a known build-error pattern,
+        record it for the next agent-tool drain. Tests every line —
+        cheap (single regex search) and only the matching ones land in
+        the buffer."""
+        if _ERROR_PATTERNS.search(text):
+            self.recent_errors.append(text.rstrip())
+
     async def _pipe_stream(self, stream: Optional[asyncio.StreamReader], name: str) -> None:
         if stream is None:
             return
@@ -399,6 +456,8 @@ class AppRuntime:
                 text = raw.decode(errors="replace").rstrip("\r\n")
                 if text:
                     self._broadcast(LogLine(name, text))
+                    if name == "stderr" or name == "stdout":
+                        self._maybe_capture_error(text)
         except Exception:
             logger.exception("log pipe error (%s) for %s", name, self.workspace_id)
 
@@ -413,32 +472,66 @@ class AppRuntimeManager:
     """Per-process singleton tracking all live AppRuntime instances.
 
     Reference-counts attachments so we don't kill a backend when one
-    Terminal closes while another is still subscribed. The first attach
-    spawns, the last detach stops."""
+    Terminal closes while another is still subscribed. First attach
+    spawns; final detach moves the runtime into an LRU idle pool
+    instead of stopping it immediately — so re-clicking a recent App
+    is instant. The oldest runtime gets reaped once the pool exceeds
+    _MAX_IDLE_RUNTIMES."""
 
     def __init__(self) -> None:
+        # workspace_id → AppRuntime, currently has >=1 subscriber.
         self.runtimes: dict[str, AppRuntime] = {}
         self._attached: dict[str, int] = {}
+        # workspace_id → AppRuntime with no subscribers but still
+        # alive. OrderedDict gives O(1) move_to_end + popitem(last=False)
+        # for LRU semantics.
+        self._idle_lru: "OrderedDict[str, AppRuntime]" = OrderedDict()
         self._lock = asyncio.Lock()
 
     async def attach(self, workspace_id: str, workspace_path: str) -> AppRuntime:
+        revived = False
         async with self._lock:
             rt = self.runtimes.get(workspace_id)
             if rt is None:
-                rt = AppRuntime(workspace_id, workspace_path)
-                self.runtimes[workspace_id] = rt
+                # Maybe the runtime is sitting idle in the LRU — revive
+                # it without paying the spawn cost again.
+                idle_rt = self._idle_lru.pop(workspace_id, None)
+                if idle_rt is not None and idle_rt.running:
+                    rt = idle_rt
+                    rt.workspace_path = workspace_path
+                    self.runtimes[workspace_id] = rt
+                    revived = True
+                else:
+                    if idle_rt is not None:
+                        # Stale idle entry — process died while idling.
+                        # Drop and spawn a fresh one below; old one
+                        # gets stopped outside the lock.
+                        dead = idle_rt
+                    else:
+                        dead = None
+                    rt = AppRuntime(workspace_id, workspace_path)
+                    self.runtimes[workspace_id] = rt
             else:
                 # Workspace paths shouldn't change for a given id, but if
                 # somehow they did (e.g. the user moved the workspace
                 # folder), trust the latest caller — they have the
                 # current truth.
                 rt.workspace_path = workspace_path
+                dead = None
             self._attached[workspace_id] = self._attached.get(workspace_id, 0) + 1
-        if not rt.running:
+        if not revived and not rt.running:
             await rt.start()
+        # Stop any dead idle runtime outside the lock to avoid blocking.
+        if dead is not None:
+            try:
+                await dead.stop()
+            except Exception:
+                logger.exception("failed to reap dead idle runtime %s", workspace_id)
         return rt
 
     async def detach(self, workspace_id: str) -> None:
+        to_idle: Optional[AppRuntime] = None
+        to_reap: list[AppRuntime] = []
         async with self._lock:
             count = self._attached.get(workspace_id, 0) - 1
             if count > 0:
@@ -446,14 +539,68 @@ class AppRuntimeManager:
                 return
             self._attached.pop(workspace_id, None)
             rt = self.runtimes.pop(workspace_id, None)
-        if rt:
-            await rt.stop()
+            if rt is None:
+                return
+            # If the process is already dead, no point keeping it
+            # around — just clean up. Otherwise move to the LRU.
+            if not rt.running:
+                to_reap.append(rt)
+            else:
+                self._idle_lru[workspace_id] = rt
+                self._idle_lru.move_to_end(workspace_id)
+                while len(self._idle_lru) > _MAX_IDLE_RUNTIMES:
+                    _, old_rt = self._idle_lru.popitem(last=False)
+                    to_reap.append(old_rt)
+            to_idle = rt if rt.running else None
+
+        # Stop any reaped runtimes OUTSIDE the lock. stop() is async and
+        # can take up to _TERMINATE_GRACE_SECONDS; holding the lock for
+        # it would block every other attach/detach.
+        for old in to_reap:
+            try:
+                await old.stop()
+            except Exception:
+                logger.exception("failed to reap idle runtime %s", workspace_id)
+        if to_idle is not None:
+            logger.debug("workspace %s idled (LRU size now %d)", workspace_id, len(self._idle_lru))
 
     def get(self, workspace_id: str) -> Optional[AppRuntime]:
-        return self.runtimes.get(workspace_id)
+        # Active subscribers see the live runtime; idle-pool members
+        # are also accessible so a status probe between detach and
+        # the next attach still works.
+        rt = self.runtimes.get(workspace_id)
+        if rt is not None:
+            return rt
+        return self._idle_lru.get(workspace_id)
+
+    def drain_errors_for_path(self, file_path: str) -> list[str]:
+        """If `file_path` falls under one of the live workspace
+        runtimes' workspace_path, drain that workspace's recent
+        build/runtime errors. Returns [] if no workspace owns the path
+        or no errors are queued — caller can treat empty as 'all clear'.
+        Used by agent_manager's post-tool hook so the agent sees vite /
+        babel / uvicorn errors right after a Write/Edit completes."""
+        if not file_path:
+            return []
+        try:
+            abs_path = os.path.abspath(file_path)
+        except Exception:
+            return []
+        # Walk both active and idle runtimes — the user might have
+        # navigated away from the workspace mid-build, but the agent
+        # could still be editing files; the LRU keeps the runtime alive
+        # for ~3 idle slots.
+        for rt in (*self.runtimes.values(), *self._idle_lru.values()):
+            try:
+                ws_root = os.path.abspath(rt.workspace_path)
+            except Exception:
+                continue
+            if abs_path == ws_root or abs_path.startswith(ws_root + os.sep):
+                return rt.drain_errors()
+        return []
 
     async def restart(self, workspace_id: str, workspace_path: Optional[str] = None) -> Optional[AppRuntime]:
-        rt = self.runtimes.get(workspace_id)
+        rt = self.runtimes.get(workspace_id) or self._idle_lru.get(workspace_id)
         if rt is None:
             return None
         if workspace_path:

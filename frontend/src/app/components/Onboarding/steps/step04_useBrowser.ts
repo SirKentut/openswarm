@@ -18,9 +18,7 @@ export const step04: OnboardingStep = {
   requiresDashboard: true,
   ops: [
     { kind: 'move_to', target: S.browserButton },
-    // side:'left' — globe sits to the left of history + note; default
-    // right-side popup would visually point at history.
-    { kind: 'popup', text: 'Pop open a browser.', side: 'left' },
+    { kind: 'popup', text: 'Pop open a browser.' },
     {
       kind: 'wait_user',
       condition: { kind: 'event_bus', event: 'browser:spawned' },

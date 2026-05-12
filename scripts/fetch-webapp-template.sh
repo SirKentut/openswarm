@@ -69,6 +69,40 @@ awk '
     { print }
 ' "$PYPROJECT" > "$PYPROJECT.tmp" && mv "$PYPROJECT.tmp" "$PYPROJECT"
 
+# Patch 1c: vite.config.ts — pin host to 127.0.0.1 (so our IPv4-only
+# bind poller in runtime.py:_await_frontend_bind() actually sees the
+# bound socket on macOS, where `localhost` can resolve to ::1), disable
+# Vite's `open: true` browser auto-launch (preview belongs in the
+# OpenSwarm webview, not a popped-out Chrome tab), and set strictPort
+# so Vite doesn't silently increment to a port we're not polling.
+VITE_CONFIG="$DEST/frontend/vite.config.ts"
+if ! grep -q "host: '127.0.0.1'" "$VITE_CONFIG"; then
+    awk '
+        /server: \{/ && !patched {
+            print
+            print "      host: '\''127.0.0.1'\'',"
+            patched_server = 1
+            next
+        }
+        patched_server && /open: true/ {
+            sub(/open: true/, "open: false")
+            patched_server = 0
+            patched = 1
+        }
+        { print }
+    ' "$VITE_CONFIG" > "$VITE_CONFIG.tmp" && mv "$VITE_CONFIG.tmp" "$VITE_CONFIG"
+    # Add strictPort right after the port line.
+    awk '
+        /port: Number\(process\.env\.FRONTEND_PORT\)/ && !inserted {
+            print
+            print "      strictPort: true,"
+            inserted = 1
+            next
+        }
+        { print }
+    ' "$VITE_CONFIG" > "$VITE_CONFIG.tmp" && mv "$VITE_CONFIG.tmp" "$VITE_CONFIG"
+fi
+
 # Patch 2: ship a minimal .gitignore inside the snapshot so per-app
 # workspaces don't accidentally commit node_modules / .env / venv.
 cat > "$DEST/.gitignore" <<'EOF'

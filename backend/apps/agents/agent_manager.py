@@ -1321,6 +1321,35 @@ class AgentManager:
                 except Exception:
                     content = str(raw_response)
 
+            # When the agent writes/edits a file inside a live App
+            # Builder workspace, surface any build-server errors
+            # (vite/babel/tsc/uvicorn) that landed in the runtime's
+            # stderr in the moments after the write. Without this the
+            # agent walks away from broken JSX, the iframe shows a red
+            # overlay, and the user has to copy-paste the error back.
+            # ~400ms gives vite's file watcher + babel parse enough
+            # time to react; the post_tool_hook runs once per tool so
+            # the added latency is acceptable for the win.
+            hook_tool_name_for_errors = input_data.get("tool_name", "")
+            if hook_tool_name_for_errors in ("Write", "Edit", "MultiEdit"):
+                tool_in = input_data.get("tool_input") or {}
+                file_path = tool_in.get("file_path") or tool_in.get("path") or ""
+                if file_path:
+                    try:
+                        await asyncio.sleep(0.4)
+                        from backend.apps.outputs.runtime import (
+                            manager as _outputs_runtime_manager,
+                        )
+                        errs = _outputs_runtime_manager.drain_errors_for_path(file_path)
+                    except Exception:
+                        errs = []
+                    if errs:
+                        joined = "\n".join(errs[-20:])
+                        content = (
+                            f"{content}\n\n"
+                            f"---\nBuild server reported (after this write):\n{joined}"
+                        )
+
             result_payload = {"text": content}
             hook_tool_name = input_data.get("tool_name", "")
             if hook_tool_name:

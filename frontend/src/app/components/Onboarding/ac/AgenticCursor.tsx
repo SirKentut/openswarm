@@ -46,21 +46,17 @@ export interface AgenticCursorHandle {
   startTracking: (selector: string, offset?: { x: number; y: number }) => void;
   stopTracking: () => void;
   /**
-   * Show a non-blocking popup next to the cursor. Returns immediately;
+   * Show a non-blocking popup above the cursor. Returns immediately;
    * the popup stays visible until hidePopup() is called or another
    * showPopup replaces it. The runtime calls hidePopup() before any op
    * that physically moves the cursor or types, so the popup naturally
    * disappears when the cursor's "instruction" no longer applies.
    *
-   * `side` overrides the default "render bottom-right of cursor"
-   * placement. Use `'left'` when the cursor lands on an icon whose
-   * right-hand neighbors would otherwise be covered by the bubble (the
-   * dashboard toolbar's [+ grid globe history note] cluster, the chat
-   * input's [cursor-circle clip mic] cluster, etc.). The bubble still
-   * auto-flips back to the other side if the chosen side would clip the
-   * viewport.
+   * Placement is fixed: bubble centered on the cursor's x, sitting
+   * directly above the cursor (auto-flips below if no room above).
+   * See ACPopup for the full positioning logic.
    */
-  showPopup: (text: string, opts?: { side?: 'left' | 'right' }) => void;
+  showPopup: (text: string) => void;
   /**
    * Single-select multi-choice. Resolves with the chosen option id; the
    * panel that calls this can route the rest of the flow accordingly.
@@ -72,7 +68,6 @@ export interface AgenticCursorHandle {
 
 interface PopupState {
   text: string;
-  side?: 'left' | 'right';
 }
 
 interface MultiChoiceState {
@@ -81,9 +76,11 @@ interface MultiChoiceState {
   resolve: (id: string) => void;
 }
 
-// Tighter spring than the original (180/22) — settles ~30% faster while
-// keeping the soft "alive" arrival, so the cursor feels responsive
-// instead of slow-zooming across the screen for every move op.
+// Snappy spring — back to the tight 260/26 from before the 50%
+// slowdown. The "calm" feel of the AC now comes from the popup's
+// slower typewriter cadence + the 3s dwell floor; the cursor itself
+// stays responsive so bubble-less moves (move_to → click, move_to →
+// type_into, the canvas-controls tour) don't feel sluggish.
 const SPRING = { type: 'spring' as const, stiffness: 260, damping: 26 };
 
 const AgenticCursor = forwardRef<AgenticCursorHandle>((_props, ref) => {
@@ -282,11 +279,11 @@ const AgenticCursor = forwardRef<AgenticCursorHandle>((_props, ref) => {
     stopTracking() {
       stopTrackingInternal();
     },
-    showPopup(text, opts) {
+    showPopup(text) {
       // Non-blocking — replaces any existing popup. Caller advances the
       // flow; popup auto-clears on the next op that physically moves the
       // cursor (move_to / click / type_into / drag_select / outro).
-      setPopup({ text, side: opts?.side });
+      setPopup({ text });
     },
     showMultiChoice(question, options) {
       return new Promise<string>((resolve) => {
@@ -373,7 +370,7 @@ const AgenticCursor = forwardRef<AgenticCursorHandle>((_props, ref) => {
           inherited from the cursor wrapper's pointer-events:none. They
           subscribe to cursorStore to track the live position. */}
       <AnimatePresence>
-        {popup && <ACPopup key="popup" text={popup.text} side={popup.side} />}
+        {popup && <ACPopup key="popup" text={popup.text} />}
         {multiChoice && (
           <ACMultiChoice
             key="multi-choice"

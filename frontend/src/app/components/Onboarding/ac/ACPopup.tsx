@@ -8,16 +8,6 @@ interface Props {
   text: string;
   /** Offset from cursor tip in px when there's room. */
   offset?: { x: number; y: number };
-  /**
-   * Preferred horizontal side of the cursor. Default `'right'` (the
-   * bubble appears to the bottom-right of the tip). Pass `'left'` for
-   * cursors that land on an icon whose right-hand neighbors would
-   * otherwise be covered by the bubble (toolbar [+ grid globe history
-   * note], chat input [cursor-circle clip mic], etc.). The viewport
-   * clip-flip still wins — if the chosen side would clip, we flip to
-   * the other side.
-   */
-  side?: 'left' | 'right';
 }
 
 const SAFE_PAD = 8;
@@ -26,11 +16,17 @@ const SAFE_PAD = 8;
 // ref so this is just an initial-mount estimate.
 const APPROX_W = 320;
 const APPROX_H = 70;
+// Distance from the bubble edge to the rounded corner radius — the
+// tail's anchor x is clamped between TAIL_PAD and (w - TAIL_PAD) so
+// the tail never juts past the corner.
+const TAIL_PAD = 16;
 
 // Pokémon-dialog cadence — letters pop in steadily, punctuation gets
 // a small extra pause so sentences "land" instead of slurring together.
-const STREAM_MS_PER_CHAR = 20;
-const STREAM_PUNCT_EXTRA_MS = 140; // after . , ! ? ; :
+// Slowed 50% (was 20ms/char) so the popup reads at a more deliberate
+// pace, matching the AC cursor's calmer motion.
+const STREAM_MS_PER_CHAR = 30;
+const STREAM_PUNCT_EXTRA_MS = 210; // after . , ! ? ; : (also +50%)
 const STREAM_MIN_CHARS = 5;
 
 /**
@@ -40,19 +36,32 @@ const STREAM_MIN_CHARS = 5;
  * very short strings, which appear instantly to avoid visual jank on
  * single-word popups).
  *
- * Positioning: prefers bottom-right of the cursor, but flips quadrants
- * when the chosen position would clip past the viewport. Re-evaluates
- * whenever the cursor moves (cursorStore subscription).
+ * Positioning: vertical-only — the bubble sits DIRECTLY ABOVE the
+ * cursor (centered horizontally on the cursor's actual x), with the
+ * tail pointing down at the target icon. Flips to BELOW the cursor
+ * only when there isn't room above. This places the popup "over" the
+ * thing it's referring to instead of beside it, so adjacent siblings
+ * (toolbar [+ grid globe history note], chat-input [cursor-circle clip
+ * mic], etc.) are never covered by the bubble's body.
+ *
+ * The tail anchors at the cursor's actual x relative to the bubble's
+ * (possibly clamped) left edge, so it still points at the icon even
+ * when the bubble is shifted by the viewport-edge clamp.
  */
-const ACPopup: React.FC<Props> = ({ text, offset = { x: 14, y: 14 }, side = 'right' }) => {
+const ACPopup: React.FC<Props> = ({ text, offset = { x: 0, y: 14 } }) => {
   const c = useClaudeTokens();
   const { x, y, visible } = useCursorPosition();
   const ref = useRef<HTMLDivElement>(null);
-  const [pos, setPos] = useState<{ x: number; y: number; flipX: boolean; flipY: boolean }>({
-    x: x + offset.x,
-    y: y + offset.y,
-    flipX: false,
-    flipY: false,
+  const [pos, setPos] = useState<{
+    x: number;
+    y: number;
+    tailLeft: number;
+    flipY: boolean;
+  }>({
+    x: x - APPROX_W / 2,
+    y: y - APPROX_H - offset.y,
+    tailLeft: APPROX_W / 2,
+    flipY: true,
   });
 
   // Streaming text state — grows from 0 to text.length char-by-char.
@@ -98,44 +107,27 @@ const ACPopup: React.FC<Props> = ({ text, offset = { x: 14, y: 14 }, side = 'rig
     const vw = window.innerWidth;
     const vh = window.innerHeight;
 
-    // Start on the preferred side. `flipX = true` means the bubble is
-    // drawn to the LEFT of the cursor (and its tail anchors on the
-    // bubble's right edge). Default preference is right.
-    let flipX = side === 'left';
-    // `side: 'left'` AND cursor in the lower half → also flip
-    // vertically so the bubble sits ABOVE-LEFT of the cursor rather
-    // than beside its target row. This matters for the chat-input
-    // cluster (cursor-circle / clip / mic) where a below-left bubble
-    // would extend horizontally across the input field's placeholder
-    // text. Above-left stacks the bubble above the input box where
-    // there's clear canvas. Top-half cursors (dashboard toolbar) stay
-    // below-left so the bubble doesn't fly off into the title bar.
-    let flipY = side === 'left' && y > vh / 2;
-    let nx = flipX ? x - w - offset.x : x + offset.x;
-    let ny = flipY ? y - h - offset.y : y + offset.y;
-
-    // Viewport clip: if the preferred side would overflow, flip to the
-    // other side. The flip wins over the preference so the bubble stays
-    // on-screen no matter what the caller asked for.
-    if (!flipX && nx + w + SAFE_PAD > vw) {
-      nx = x - w - offset.x;
-      flipX = true;
-    } else if (flipX && nx < SAFE_PAD) {
-      nx = x + offset.x;
-      flipX = false;
-    }
-    if (!flipY && ny + h + SAFE_PAD > vh) {
-      ny = y - h - offset.y;
-      flipY = true;
-    } else if (flipY && ny < SAFE_PAD) {
+    // Default: bubble centered on cursor's x, sitting above the cursor.
+    // Flip below only when there isn't room above.
+    let nx = x - w / 2;
+    let ny = y - h - offset.y;
+    let flipY = true;
+    if (ny < SAFE_PAD) {
       ny = y + offset.y;
       flipY = false;
     }
-    nx = Math.max(SAFE_PAD, Math.min(nx, vw - w - SAFE_PAD));
-    ny = Math.max(SAFE_PAD, Math.min(ny, vh - h - SAFE_PAD));
 
-    setPos({ x: nx, y: ny, flipX, flipY });
-  }, [x, y, offset.x, offset.y, side, text, streamCount]);
+    // Horizontal clamp — keep the bubble on-screen. The tail's anchor x
+    // is computed AFTER clamping so the tail always points at the
+    // cursor's actual position even when the bubble has been shoved
+    // inward by the viewport edge.
+    const nxClamped = Math.max(SAFE_PAD, Math.min(nx, vw - w - SAFE_PAD));
+    const nyClamped = Math.max(SAFE_PAD, Math.min(ny, vh - h - SAFE_PAD));
+    const tailRaw = x - nxClamped;
+    const tailLeft = Math.max(TAIL_PAD, Math.min(tailRaw, w - TAIL_PAD));
+
+    setPos({ x: nxClamped, y: nyClamped, tailLeft, flipY });
+  }, [x, y, offset.y, text, streamCount]);
 
   if (!visible) return null;
 
@@ -157,10 +149,13 @@ const ACPopup: React.FC<Props> = ({ text, offset = { x: 14, y: 14 }, side = 'rig
       }}
       exit={{ opacity: 0, scale: 0.85 }}
       transition={{
-        opacity: { duration: 0.14 },
-        scale: { duration: 0.14 },
-        x: { type: 'spring', stiffness: 320, damping: 32 },
-        y: { type: 'spring', stiffness: 320, damping: 32 },
+        // Slowed 50% from {0.14, stiffness 320, damping 32} — gives the
+        // bubble a more deliberate arrival, in sync with the cursor's
+        // gentler spring.
+        opacity: { duration: 0.21 },
+        scale: { duration: 0.21 },
+        x: { type: 'spring', stiffness: 160, damping: 22 },
+        y: { type: 'spring', stiffness: 160, damping: 22 },
       }}
       style={{
         position: 'fixed',
@@ -185,7 +180,10 @@ const ACPopup: React.FC<Props> = ({ text, offset = { x: 14, y: 14 }, side = 'rig
           fontFamily: c.font.sans,
         }}
       >
-        {/* Tail pointing back at the cursor. */}
+        {/* Tail pointing back at the cursor. Centered on the cursor's
+            actual x (via tailLeft) so the diamond's point lands on the
+            target icon, regardless of whether the bubble itself was
+            shifted by the viewport clamp. */}
         <Box
           sx={{
             position: 'absolute',
@@ -196,8 +194,12 @@ const ACPopup: React.FC<Props> = ({ text, offset = { x: 14, y: 14 }, side = 'rig
             transform: 'rotate(45deg)',
             top: pos.flipY ? 'auto' : -5,
             bottom: pos.flipY ? -5 : 'auto',
-            left: pos.flipX ? 'auto' : 14,
-            right: pos.flipX ? 14 : 'auto',
+            left: pos.tailLeft - 5,
+            // flipY=true → bubble is above cursor, tail at bubble's
+            // bottom edge → bottom-right corner borders visible so the
+            // diamond points down at the cursor.
+            // flipY=false → bubble is below cursor, tail at top edge →
+            // top-left corner borders visible, diamond points up.
             borderRight: pos.flipY ? `1px solid ${c.accent.primary}` : 'none',
             borderBottom: pos.flipY ? `1px solid ${c.accent.primary}` : 'none',
             borderTop: pos.flipY ? 'none' : `1px solid ${c.accent.primary}`,

@@ -31,6 +31,21 @@ const OnboardingRoot = lazy(() =>
   import('./components/Onboarding').then((m) => ({ default: m.OnboardingRoot })),
 );
 const SignInGate = lazy(() => import('./components/SignInGate'));
+
+// Idle-prefetch the Views chunk (the App Builder page) so a first click
+// on Apps in the sidebar doesn't pay 200-600ms for the webpack chunk
+// download. Views/ViewEditor pulls in CodeMirror + the entire app
+// runtime preview, so it's the largest lazy chunk by a wide margin.
+// requestIdleCallback waits until the main thread is quiet — won't
+// compete with first paint, sign-in, or onboarding boot.
+if (typeof window !== 'undefined') {
+  const prefetchViews = () => { void import('./pages/Views/Views'); };
+  const ric = (window as any).requestIdleCallback as
+    | ((cb: () => void, opts?: { timeout?: number }) => number)
+    | undefined;
+  if (ric) ric(prefetchViews, { timeout: 4000 });
+  else window.setTimeout(prefetchViews, 2000);
+}
 import { report, getSessionTraceState, getRecentActions } from '@/shared/serviceClient';
 import { useRouteTracker } from '@/shared/hooks/useRouteTracker';
 import { useKeyboardShortcuts } from '@/shared/hooks/useKeyboardShortcuts';

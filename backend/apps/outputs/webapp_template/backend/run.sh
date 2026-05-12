@@ -37,27 +37,41 @@ echo "Using Python: $PYTHON ($($PYTHON --version 2>&1))"
 
 # --- Create virtual environment if it doesn't exist ---
 VENV_DIR="$BACKEND_DIR_ABSPATH/.venv"
-if [[ ! -d "$VENV_DIR" ]]; then
-    echo "Creating virtual environment..."
-    "$PYTHON" -m venv "$VENV_DIR"
+SENTINEL="$VENV_DIR/.openswarm_installed"
+
+# Fast path on every restart: if .venv exists AND we've already
+# installed the workspace's deps once, skip the entire venv-create +
+# pip-install dance (saves ~25s per workspace cold-restart). The
+# sentinel gets touched at the end of the install block; if any step
+# failed we never wrote it, so the next run takes the slow path again
+# and retries.
+if [[ -d "$VENV_DIR" && -f "$SENTINEL" ]]; then
+    echo "Dependencies already installed — skipping venv create + pip install."
+    source "$VENV_DIR/bin/activate"
+else
+    if [[ ! -d "$VENV_DIR" ]]; then
+        echo "Creating virtual environment..."
+        "$PYTHON" -m venv "$VENV_DIR"
+        if [[ $? -ne 0 ]]; then
+            echo "Error: Failed to create virtual environment."
+            exit 1
+        fi
+    fi
+    source "$VENV_DIR/bin/activate"
+
+    # --- Install Python dependencies ---
+    echo "Installing dependencies..."
+    cd "$BACKEND_DIR_ABSPATH"
+    if [[ -n "${OPENSWARM_DEBUGGER_PATH:-}" && -d "$OPENSWARM_DEBUGGER_PATH" ]]; then
+        echo "Installing OpenSwarm debugger (swarm_debug) from $OPENSWARM_DEBUGGER_PATH"
+        pip install -e "$OPENSWARM_DEBUGGER_PATH"
+    fi
+    pip install -e .
     if [[ $? -ne 0 ]]; then
-        echo "Error: Failed to create virtual environment."
+        echo "Error: Failed to install Python dependencies."
         exit 1
     fi
-fi
-source "$VENV_DIR/bin/activate"
-
-# --- Install Python dependencies ---
-echo "Installing dependencies..."
-cd "$BACKEND_DIR_ABSPATH"
-if [[ -n "${OPENSWARM_DEBUGGER_PATH:-}" && -d "$OPENSWARM_DEBUGGER_PATH" ]]; then
-    echo "Installing OpenSwarm debugger (swarm_debug) from $OPENSWARM_DEBUGGER_PATH"
-    pip install -e "$OPENSWARM_DEBUGGER_PATH"
-fi
-pip install -e .
-if [[ $? -ne 0 ]]; then
-    echo "Error: Failed to install Python dependencies."
-    exit 1
+    touch "$SENTINEL"
 fi
 
 # --- Start the backend server ---

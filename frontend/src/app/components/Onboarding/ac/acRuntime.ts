@@ -46,6 +46,48 @@ interface RunContext {
   findStep: (id: string) => OnboardingStep | undefined;
   // Cleanup for the highlight_section big glow.
   highlightCleanup: { current: (() => void) | null };
+  // Wall-clock timestamp the current popup was shown at, or null if no
+  // popup is active. Used by ensurePopupDwell to guarantee every popup
+  // stays visible for at least MIN_POPUP_DWELL_MS before being replaced
+  // or cleared by the next auto-transition op.
+  popupShownAt: { current: number | null };
+}
+
+// Minimum time every popup stays visible before an auto-transition
+// (move_to, click, type_into, drag_select, outro) or a popup replacement
+// is allowed to clear it. user-driven transitions (wait_user resolving)
+// also flow through here, but typically the user has already been
+// reading for longer than this anyway. Set to 3s — covers the streaming
+// typewriter cadence plus enough post-stream read time for most popups.
+const MIN_POPUP_DWELL_MS = 3000;
+
+// Resolves once `ms` has elapsed or the signal aborts (whichever
+// comes first). Used inside ensurePopupDwell so a step cancel doesn't
+// hang on a popup that just appeared.
+function abortableSleep(ms: number, signal: AbortSignal): Promise<void> {
+  if (ms <= 0) return Promise.resolve();
+  if (signal.aborted) return Promise.resolve();
+  return new Promise<void>((resolve) => {
+    const timer = window.setTimeout(() => {
+      signal.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      window.clearTimeout(timer);
+      resolve();
+    };
+    signal.addEventListener('abort', onAbort, { once: true });
+  });
+}
+
+// Awaits the remaining minimum dwell time for the currently-displayed
+// popup. No-op if no popup is active or the dwell has already elapsed.
+async function ensurePopupDwell(ctx: RunContext): Promise<void> {
+  const shownAt = ctx.popupShownAt.current;
+  if (shownAt == null) return;
+  const elapsed = performance.now() - shownAt;
+  const remaining = MIN_POPUP_DWELL_MS - elapsed;
+  if (remaining > 0) await abortableSleep(remaining, ctx.signal);
 }
 
 export interface RunStepArgs {
@@ -76,6 +118,7 @@ export async function runStep(args: RunStepArgs): Promise<void> {
   report('step_started', { step_id: step.id, stage: step.stage });
 
   const highlightCleanup: { current: (() => void) | null } = { current: null };
+  const popupShownAt: { current: number | null } = { current: null };
   const ctx: RunContext = {
     ac,
     store,
@@ -86,6 +129,7 @@ export async function runStep(args: RunStepArgs): Promise<void> {
     stepId: step.id,
     findStep,
     highlightCleanup,
+    popupShownAt,
   };
 
   try {
@@ -251,7 +295,15 @@ async function runOp(op: ACOp, ctx: RunContext): Promise<void> {
     op.kind === 'drag_select' ||
     op.kind === 'outro';
   if (clearsTransients) {
+    // Hold the previous popup on screen for MIN_POPUP_DWELL_MS before
+    // letting the next auto-transition clear it. Without this, a fast
+    // sequence like `popup → delay 350 → move_to → click` would yank
+    // the bubble before the user has a chance to read it. wait_user
+    // gates aren't routed through here because they don't transition
+    // until the user acts.
+    await ensurePopupDwell(ctx);
     ac.hidePopup();
+    ctx.popupShownAt.current = null;
     ac.stopTracking();
     if (ctx.highlightCleanup.current) {
       ctx.highlightCleanup.current();
@@ -384,11 +436,18 @@ async function runOp(op: ACOp, ctx: RunContext): Promise<void> {
     }
     case 'popup': {
       if (ctx.silent) return;
-      ac.showPopup(op.text, { side: op.side });
+      // Replacing a popup-with-popup also has to honor the dwell floor,
+      // otherwise back-to-back popups would flash by too fast to read.
+      await ensurePopupDwell(ctx);
+      ac.showPopup(op.text);
+      ctx.popupShownAt.current = performance.now();
       return;
     }
     case 'multi_choice': {
       if (ctx.silent) return;
+      // Multi-choice supersedes any showing popup. Same dwell floor.
+      await ensurePopupDwell(ctx);
+      ctx.popupShownAt.current = null;
       const id = await ac.showMultiChoice(op.question, op.options);
       if (id) {
         store.dispatch(
@@ -421,7 +480,9 @@ async function runOp(op: ACOp, ctx: RunContext): Promise<void> {
       // op (move_to / click / type_into / drag_select / outro) or at
       // step-end in the runStep finally block.
       if (op.popup && !ctx.silent) {
-        ac.showPopup(op.popup, { side: op.popupSide });
+        await ensurePopupDwell(ctx);
+        ac.showPopup(op.popup);
+        ctx.popupShownAt.current = performance.now();
       }
       // Optional minimum dwell so very-fast paths still register the
       // glow visually. Defaults to a short beat; explicit durationMs
@@ -590,6 +651,17 @@ async function runOp(op: ACOp, ctx: RunContext): Promise<void> {
     case 'wait_user': {
       await waitForCondition(op.condition, signal, store, op.timeoutMs);
       ac.hidePopup();
+      // The user just did the thing — they don't need a dwell floor on
+      // top of having engaged with the popup. Clearing popupShownAt
+      // makes the next op's clearsTransients block a no-op for dwell,
+      // so the cursor starts moving toward the next target the instant
+      // the click registers. Without this, the cursor sat idle for up
+      // to MIN_POPUP_DWELL_MS while the next op's click listener was
+      // unregistered — so a quick follow-up click (e.g. clicking the
+      // chat-input select-mode toggle right after opening the chat)
+      // was being dropped on the floor, and the user saw "Show me"
+      // reset because the wait never resolved.
+      ctx.popupShownAt.current = null;
       // Quick layout-settle — one frame is enough in 95% of cases
       // (React commits on the next animation frame). The move_to
       // op also has its own settle if the rect comes out degenerate,
@@ -761,14 +833,19 @@ function maybeBuildExpandSidebarOps(target: string): ACOp[] | null {
   const expanded =
     toggle?.getAttribute('aria-expanded') === 'true' || toggle === null;
   if (expanded) return null;
+  // Auto-expand: simulate-click the toggle. Previously we asked the
+  // user to click it themselves, which fell over in two ways: (1) if
+  // the AC's popup positioning glitched on collapsed-layout shift, the
+  // user saw the cursor freeze with no obvious instruction, and (2) the
+  // user shouldn't have to undo their own sidebar collapse to continue
+  // onboarding anyway. simulate:true fires the React onClick on the
+  // IconButton, the sidebar slides open, and the original move_to
+  // continues against the now-mounted target.
   return [
-    { kind: 'move_to', target: 'sidebar-toggle' },
-    { kind: 'popup', text: 'Pop the sidebar back open.' },
-    {
-      kind: 'wait_user',
-      condition: { kind: 'click_target', target: 'sidebar-toggle' },
-      timeoutMs: 60000,
-    },
+    { kind: 'click', target: 'sidebar-toggle', simulate: true },
+    // Sidebar slide-in is ~200ms; the small delay lets the slide
+    // animation land before the next move_to reads rects.
+    { kind: 'delay', ms: 260 },
   ];
 }
 

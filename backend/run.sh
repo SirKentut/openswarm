@@ -54,8 +54,34 @@ if [[ $? -ne 0 ]]; then
 fi
 
 # --- Start the backend server ---
+# IMPORTANT: --reload-exclude must cover every path the running backend
+# itself may WRITE to. Without this, the App Builder agent writing into
+# a workspace's backend (e.g. backend/data/outputs_workspace/<ws>/backend/
+# apps/chat/chat.py) triggers WatchFiles, which reloads uvicorn,
+# which closes the agent's WebSocket mid-stream — visible to the user
+# as the agent randomly "stopping" and needing a Resume.
+#
+# Caveat about uvicorn's pattern semantics: glob strings like `*/data/*`
+# get matched via `Path.match`, which is RIGHT-anchored and doesn't
+# match deep paths. Only `--reload-exclude` values that resolve to a
+# real directory at config time get added to uvicorn's dir-exclude list
+# (compared via `dir in path.parents`). So we pass ABSOLUTE paths to
+# the dirs we want to exclude — those are the only patterns uvicorn's
+# WatchFilesReload actually honors for "anywhere under this tree".
 echo "Starting backend server on http://0.0.0.0:8324 ..."
 cd "$PROJECT_ROOT_ABSPATH"
+
+UVICORN_EXCLUDE_ARGS=(--reload-exclude '*.pyc')
+for d in \
+    "$BACKEND_DIR_ABSPATH/data" \
+    "$BACKEND_DIR_ABSPATH/mcp-bundles" \
+    "$BACKEND_DIR_ABSPATH/apps/outputs/webapp_template" \
+; do
+    if [[ -d "$d" ]]; then
+        UVICORN_EXCLUDE_ARGS+=(--reload-exclude "$d")
+    fi
+done
+
 python3 -m uvicorn backend.main:app --host 0.0.0.0 --port 8324 --reload \
     --reload-dir "$BACKEND_DIR_ABSPATH" \
-    --reload-exclude '*.pyc'
+    "${UVICORN_EXCLUDE_ARGS[@]}"

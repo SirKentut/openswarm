@@ -19,8 +19,7 @@ export const step06: OnboardingStep = {
       text: "Pretend this chat already did the homework. Now we'll have a fresh one boss it around.",
     },
     { kind: 'move_to', target: S.newAgentButton },
-    // side:'left' — same as step03/step05; + is the leftmost icon.
-    { kind: 'popup', text: "Make a new chat. This one's the boss.", side: 'left' },
+    { kind: 'popup', text: "Make a new chat. This one's the boss." },
     {
       kind: 'wait_user',
       condition: { kind: 'click_target', target: S.newAgentButton },
@@ -28,9 +27,7 @@ export const step06: OnboardingStep = {
     // See step05 — same nudge so the cursor's visual body center sits
     // over the select-mode icon, not the adjacent paperclip.
     { kind: 'move_to', target: S.elementSelectionToggle, offset: { x: -10, y: -10 } },
-    // side:'left' — same as step05; cursor-circle is leftmost of the
-    // chat-input right cluster.
-    { kind: 'popup', text: 'Tap here to hook in the older chat.', side: 'left' },
+    { kind: 'popup', text: 'Tap here to hook in the older chat.' },
     {
       kind: 'wait_user',
       condition: { kind: 'click_target', target: S.elementSelectionToggle },

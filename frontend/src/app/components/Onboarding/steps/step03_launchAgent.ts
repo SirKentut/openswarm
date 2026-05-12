@@ -14,10 +14,7 @@ export const step03: OnboardingStep = {
   requiresDashboard: true,
   ops: [
     { kind: 'move_to', target: S.newAgentButton },
-    // side:'left' — the + lives at the left edge of the toolbar cluster
-    // (+ grid globe history note). Default right-side popup would cover
-    // all four neighbors.
-    { kind: 'popup', text: 'Tap the plus to start a fresh chat.', side: 'left' },
+    { kind: 'popup', text: 'Tap the plus to start a fresh chat.' },
     {
       kind: 'wait_user',
       condition: { kind: 'click_target', target: S.newAgentButton },

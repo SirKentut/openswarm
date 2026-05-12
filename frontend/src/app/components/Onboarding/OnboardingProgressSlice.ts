@@ -59,7 +59,7 @@ export function loadFromStorage(): OnboardingProgressState | null {
       startedAt: typeof parsed.startedAt === 'number' ? parsed.startedAt : Date.now(),
       completedSteps: Array.isArray(parsed.completedSteps) ? parsed.completedSteps : [],
       currentStepId: typeof parsed.currentStepId === 'string' ? parsed.currentStepId : null,
-      panelMode: parsed.panelMode ?? 'pill',
+      panelMode: parsed.panelMode ?? 'expanded',
       dismissedAt: typeof parsed.dismissedAt === 'number' ? parsed.dismissedAt : null,
       perStepState: (parsed.perStepState as Record<string, PerStepState>) ?? {},
       running: false,
@@ -86,7 +86,10 @@ const initialState: OnboardingProgressState = {
   startedAt: 0,
   completedSteps: [],
   currentStepId: null,
-  panelMode: 'pill',
+  // Default to expanded — users land on the dashboard with the full
+  // step card visible so they see the next milestone + video preview
+  // without having to click into the pill first.
+  panelMode: 'expanded',
   dismissedAt: null,
   perStepState: {},
   running: false,

@@ -56,6 +56,29 @@ echo "Copying backend/ from $OPENSWARM_TEMPLATE_BACKEND_PATH..."
 cp -R "$OPENSWARM_TEMPLATE_BACKEND_PATH" ./backend
 chmod +x ./backend/run.sh
 
+# Reuse the warm-cache backend venv if available — this skips the
+# ~5s venv-create + ~20s pip-install in the workspace's backend/run.sh.
+# The cache holds FastAPI + transitives pre-installed; the workspace's
+# own editable install (`pip install -e .`) still runs once on first
+# boot to register its egg-link, but completes in <1s since every dep
+# is already satisfied. After we cp -aR the cache into the workspace,
+# the activate script's VIRTUAL_ENV path is rewritten so `source
+# .venv/bin/activate` resolves to the correct workspace path.
+CACHE_VENV="${OPENSWARM_BACKEND_VENV_CACHE:-}/.venv"
+if [[ -d "$CACHE_VENV" ]]; then
+    echo "Reusing warm backend venv from $CACHE_VENV..."
+    cp -aR "$CACHE_VENV" ./backend/.venv
+    NEW_VENV_ABS="$HERE/backend/.venv"
+    ACTIVATE="$NEW_VENV_ABS/bin/activate"
+    if [[ -f "$ACTIVATE" ]]; then
+        if [[ "$OSTYPE" == "darwin"* ]]; then
+            sed -i '' "s|^VIRTUAL_ENV=.*|VIRTUAL_ENV=\"$NEW_VENV_ABS\"|" "$ACTIVATE"
+        else
+            sed -i "s|^VIRTUAL_ENV=.*|VIRTUAL_ENV=\"$NEW_VENV_ABS\"|" "$ACTIVATE"
+        fi
+    fi
+fi
+
 # Pick a free port. SO_REUSEADDR=0 means the kernel won't immediately
 # recycle, so the small race between bind+close and the backend
 # re-binding is harmless in practice.

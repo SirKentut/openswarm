@@ -20,9 +20,9 @@ export type ACMultiChoiceOption = {
 
 export type ACOp =
   | { kind: 'move_to'; target: Selector; offset?: { x: number; y: number } }
-  | { kind: 'popup'; text: string; cta?: string; side?: 'left' | 'right' }
+  | { kind: 'popup'; text: string; cta?: string }
   | { kind: 'multi_choice'; opId: string; question: string; options: ACMultiChoiceOption[] }
-  | { kind: 'highlight_section'; target: Selector; popup?: string; popupSide?: 'left' | 'right'; durationMs?: number }
+  | { kind: 'highlight_section'; target: Selector; popup?: string; durationMs?: number }
   | { kind: 'type_into'; target: Selector; text: string; speedMs?: number }
   | { kind: 'click'; target: Selector; simulate?: boolean }
   | { kind: 'drag_select'; target: Selector }

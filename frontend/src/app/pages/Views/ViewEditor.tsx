@@ -40,7 +40,14 @@ import { API_BASE, getAuthToken } from '@/shared/config';
 import { onboardingBus } from '@/app/components/Onboarding/eventBus';
 
 const WORKSPACE_API = `${API_BASE}/outputs/workspace`;
-const POLL_INTERVAL_MS = 2000;
+// Workspace state poll cadence. While the agent is actively writing
+// files we want a snappy 2s so the file tree / code panes stay in
+// sync. Once the agent goes idle there's no reason to keep hammering
+// `/api/outputs/workspace/<ws>` every 2s — bump to 15s. The
+// agent-status effect snaps a one-shot poll on every active→idle
+// transition, so we don't miss the FINAL file write at quiescence.
+const POLL_INTERVAL_ACTIVE_MS = 2000;
+const POLL_INTERVAL_IDLE_MS = 15000;
 
 function getFileIcon(filename: string): React.ReactNode {
   const ext = filename.split('.').pop()?.toLowerCase();
@@ -521,11 +528,12 @@ const ViewEditor: React.FC<Props> = ({ output }) => {
   useEffect(() => {
     if (!workspaceId) return;
     pollWorkspace();
-    pollRef.current = setInterval(pollWorkspace, POLL_INTERVAL_MS);
+    const interval = isAgentActive ? POLL_INTERVAL_ACTIVE_MS : POLL_INTERVAL_IDLE_MS;
+    pollRef.current = setInterval(pollWorkspace, interval);
     return () => {
       if (pollRef.current) clearInterval(pollRef.current);
     };
-  }, [workspaceId, pollWorkspace]);
+  }, [workspaceId, pollWorkspace, isAgentActive]);
 
   const prevAgentActive = useRef(false);
   useEffect(() => {

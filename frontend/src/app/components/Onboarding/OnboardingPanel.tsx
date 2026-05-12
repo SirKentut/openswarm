@@ -10,12 +10,14 @@
 // useEffect below clears it on a timer.
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Box, Typography, IconButton, Button, ButtonBase } from '@mui/material';
 import RemoveIcon from '@mui/icons-material/Remove';
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
 import HelpOutlineIcon from '@mui/icons-material/HelpOutline';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+import CloseIcon from '@mui/icons-material/Close';
 import { useClaudeTokens } from '@/shared/styles/ThemeContext';
 import { useAppDispatch } from '@/shared/hooks';
 import { useOnboardingProgress } from './hooks/useOnboardingProgress';
@@ -27,7 +29,7 @@ import { report } from './telemetry';
 import { cursorStore } from './ac/cursorStore';
 import OnboardingRoadmapModal from './OnboardingRoadmapModal';
 
-const PANEL_WIDTH = 320;
+const PANEL_WIDTH = 420;
 // Long enough to register the strike-through + check, short enough that
 // it doesn't feel like waiting before the next step appears.
 const CELEBRATION_MS = 900;
@@ -215,41 +217,42 @@ const OnboardingPanel: React.FC = () => {
                 sx={{
                   display: 'flex',
                   alignItems: 'center',
-                  gap: 1.4,
+                  gap: 1.7,
                   bgcolor: c.bg.surface,
                   border: `1px solid ${c.border.medium}`,
                   borderRadius: 999,
-                  py: 0.65,
-                  pl: 1.5,
-                  pr: 1.4,
-                  boxShadow: '0 6px 18px rgba(0,0,0,0.10)',
+                  py: 1.05,
+                  pl: 2.1,
+                  pr: 1.9,
+                  boxShadow: `0 8px 22px rgba(0,0,0,0.15), 0 0 0 1px ${c.accent.primary}1f`,
                   textAlign: 'left',
-                  transition: 'background 0.15s, box-shadow 0.15s',
+                  transition: 'background 0.15s, box-shadow 0.15s, transform 0.15s',
                   '&:hover': {
                     bgcolor: c.bg.elevated ?? c.bg.surface,
-                    boxShadow: '0 10px 24px rgba(0,0,0,0.14)',
+                    boxShadow: `0 12px 28px rgba(0,0,0,0.2), 0 0 0 1px ${c.accent.primary}44`,
+                    transform: 'translateY(-1px)',
                   },
                 }}
               >
-                <Typography sx={{ fontSize: 13, fontWeight: 500, color: c.text.primary }}>
+                <Typography sx={{ fontSize: 14.5, fontWeight: 600, color: c.text.primary }}>
                   Finish setup
                 </Typography>
-                <Typography sx={{ fontSize: 12, color: c.text.muted }}>
+                <Typography sx={{ fontSize: 13.5, color: c.text.muted, fontWeight: 500 }}>
                   {done}/{total}
                 </Typography>
-                <Box sx={{ flexGrow: 1, minWidth: 8 }} />
+                <Box sx={{ flexGrow: 1, minWidth: 12 }} />
                 <Typography
                   sx={{
-                    fontSize: 12.5,
-                    fontWeight: 600,
+                    fontSize: 14,
+                    fontWeight: 700,
                     color: c.accent.primary,
                     display: 'flex',
                     alignItems: 'center',
-                    gap: 0.4,
+                    gap: 0.45,
                   }}
                 >
                   Continue
-                  <ArrowForwardIcon sx={{ fontSize: 14 }} />
+                  <ArrowForwardIcon sx={{ fontSize: 15.5 }} />
                 </Typography>
               </ButtonBase>
             </motion.div>
@@ -442,8 +445,17 @@ const StepCardBody: React.FC<StepCardProps> = ({
   onToggleInfo,
   running,
 }) => {
+  // Click-to-zoom on the demo video. Lives at the card level so the
+  // overlay is portaled out (full viewport) regardless of how the panel
+  // is positioned. Auto-collapses on step change so a leftover overlay
+  // from step N doesn't linger into step N+1.
+  const [videoExpanded, setVideoExpanded] = useState(false);
+  useEffect(() => {
+    setVideoExpanded(false);
+  }, [step?.id]);
   if (!step) return null;
   return (
+    <>
     <Box sx={{ px: 1.6, pt: 1.2, pb: 1.6 }}>
       <Typography
         sx={{
@@ -468,6 +480,7 @@ const StepCardBody: React.FC<StepCardProps> = ({
       </Typography>
 
       <Box
+        onClick={step.videoSrc ? () => setVideoExpanded(true) : undefined}
         sx={{
           position: 'relative',
           borderRadius: `${c.radius.md}px`,
@@ -476,9 +489,17 @@ const StepCardBody: React.FC<StepCardProps> = ({
           mb: 1.5,
           background: `linear-gradient(135deg, ${c.accent.primary}22, ${c.accent.primary}08)`,
           border: `1px solid ${c.border.subtle}`,
+          cursor: step.videoSrc ? 'zoom-in' : 'default',
+          transition: 'transform 0.18s ease-out, box-shadow 0.18s ease-out',
+          '&:hover': step.videoSrc
+            ? {
+                transform: 'scale(1.015)',
+                boxShadow: `0 8px 22px ${c.accent.primary}33`,
+              }
+            : undefined,
         }}
       >
-        {step.videoSrc && (
+        {step.videoSrc ? (
           <Box
             component="video"
             src={step.videoSrc}
@@ -495,28 +516,16 @@ const StepCardBody: React.FC<StepCardProps> = ({
               width: '100%',
               height: '100%',
               objectFit: 'cover',
+              // The source recordings have baked-in black side bars
+              // (recorded at a wider canvas than the OpenSwarm window
+              // actually filled). Scaling up + overflow:hidden on the
+              // parent crops them off the visible thumbnail area.
+              transform: 'scale(1.55)',
+              transformOrigin: 'center',
+              pointerEvents: 'none',
             }}
           />
-        )}
-        {step.videoDurationLabel && (
-          <Box
-            sx={{
-              position: 'absolute',
-              top: 8,
-              left: 8,
-              bgcolor: 'rgba(0,0,0,0.55)',
-              color: '#fff',
-              fontSize: 10.5,
-              fontWeight: 600,
-              px: 0.8,
-              py: 0.2,
-              borderRadius: 999,
-              backdropFilter: 'blur(2px)',
-            }}
-          >
-            {step.videoDurationLabel} - Demo
-          </Box>
-        )}
+        ) : null}
       </Box>
 
       <Box
@@ -590,6 +599,77 @@ const StepCardBody: React.FC<StepCardProps> = ({
         </IconButton>
       </Box>
     </Box>
+    {/* Click-zoom overlay — portaled to body so it covers the full
+        viewport regardless of how the panel is positioned. Lives as a
+        sibling of the main card Box rather than as a child so the card
+        Box's children list stays a clean array of static elements
+        (helps React's children-validation in dev). */}
+    {videoExpanded && step.videoSrc
+      ? createPortal(
+          <Box
+            onClick={() => setVideoExpanded(false)}
+            sx={{
+              position: 'fixed',
+              inset: 0,
+              bgcolor: 'rgba(0,0,0,0.78)',
+              backdropFilter: 'blur(4px)',
+              zIndex: 2000,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              cursor: 'zoom-out',
+              p: 4,
+            }}
+          >
+            <Box
+              onClick={(e) => e.stopPropagation()}
+              sx={{
+                position: 'relative',
+                width: 'min(960px, 92vw)',
+                aspectRatio: '16 / 9',
+                borderRadius: `${c.radius.lg}px`,
+                overflow: 'hidden',
+                boxShadow: '0 24px 64px rgba(0,0,0,0.5)',
+                bgcolor: '#000',
+              }}
+            >
+              <Box
+                component="video"
+                src={step.videoSrc}
+                autoPlay
+                muted
+                loop
+                playsInline
+                controls
+                sx={{
+                  width: '100%',
+                  height: '100%',
+                  objectFit: 'cover',
+                  transform: 'scale(1.55)',
+                  transformOrigin: 'center',
+                  display: 'block',
+                }}
+              />
+              <IconButton
+                onClick={() => setVideoExpanded(false)}
+                aria-label="Close video"
+                sx={{
+                  position: 'absolute',
+                  top: 10,
+                  right: 10,
+                  bgcolor: 'rgba(0,0,0,0.55)',
+                  color: '#fff',
+                  '&:hover': { bgcolor: 'rgba(0,0,0,0.75)' },
+                }}
+              >
+                <CloseIcon />
+              </IconButton>
+            </Box>
+          </Box>,
+          document.body,
+        )
+      : null}
+    </>
   );
 };
 
