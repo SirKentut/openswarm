@@ -154,6 +154,56 @@ async def execute(wf: Workflow, triggered_by: str = "schedule", scheduled_for: O
         run.session_id = session.id
         storage.record_run(run)
 
+        # Background poller: surface the latest tool-call name as a
+        # live "what's the agent doing" subtitle on the workflow:run
+        # ws event. Cheap enough to run at 1.5s cadence; nothing else
+        # is watching session.messages from here. Cancelled in the
+        # finally block alongside _running cleanup.
+        async def _watch_tool_calls() -> None:
+            last_seen = ""
+            while True:
+                try:
+                    await asyncio.sleep(1.5)
+                    sess = agent_manager.sessions.get(session.id)
+                    if not sess:
+                        return
+                    msgs = getattr(sess, "messages", []) or []
+                    label = ""
+                    for m in reversed(msgs):
+                        if getattr(m, "role", None) != "tool_call":
+                            continue
+                        content = getattr(m, "content", None)
+                        # Content can be a string, a dict with "name", or
+                        # a list of blocks. Pick the first tool_use name.
+                        if isinstance(content, list):
+                            for b in content:
+                                if isinstance(b, dict) and b.get("type") == "tool_use":
+                                    label = str(b.get("name") or "")
+                                    break
+                        elif isinstance(content, dict):
+                            label = str(content.get("name") or "")
+                        elif isinstance(content, str):
+                            label = content[:60]
+                        if label:
+                            break
+                    if label and label != last_seen:
+                        last_seen = label
+                        run.last_tool_label = label
+                        try:
+                            from backend.apps.agents.ws_manager import ws_manager
+                            await ws_manager.broadcast_global("workflow:run", {
+                                "workflow_id": wf.id,
+                                "run": run.model_dump(mode="json"),
+                            })
+                        except Exception:
+                            pass
+                except asyncio.CancelledError:
+                    return
+                except Exception:
+                    return
+
+        watcher_task = asyncio.create_task(_watch_tool_calls())
+
         # Send each step sequentially. agent_manager.send_message is a no-op
         # while a prior turn is still streaming, so we await until the
         # session is idle before posting the next step. Keeps the runner
@@ -208,6 +258,12 @@ async def execute(wf: Workflow, triggered_by: str = "schedule", scheduled_for: O
             "last_run_at": run.finished_at,
         })
     finally:
+        # Cancel the tool-call watcher before we tear the session down so
+        # the next poll doesn't race close_session.
+        try:
+            watcher_task.cancel()  # type: ignore[name-defined]
+        except Exception:
+            pass
         # Close the workflow's agent session so closed_at is set and the
         # run shows up in chat history (get_history sorts by closed_at;
         # sessions with closed_at=None sort to the bottom and fall off

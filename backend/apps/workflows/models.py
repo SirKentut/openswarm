@@ -66,6 +66,10 @@ class WorkflowStep(BaseModel):
     label: Optional[str] = None
 
 
+def _empty_str_default() -> str:
+    return ""
+
+
 class Workflow(BaseModel):
     # validate_assignment is load-bearing for the PATCH /workflows/{id} path
     # (workflows.py:update_workflow setattr's raw dicts from body.model_dump
@@ -112,6 +116,10 @@ class WorkflowRun(BaseModel):
     error: Optional[str] = None
     cost_usd: float = 0.0
     triggered_by: Literal["schedule", "manual", "retry"] = "schedule"
+    # Last tool-call label observed on the underlying agent session while
+    # the workflow is running. Surfaced under the active step in RunningView
+    # (Image #40) so the user can tell the run is still making progress.
+    last_tool_label: Optional[str] = None
 
 
 class WorkflowCreate(BaseModel):

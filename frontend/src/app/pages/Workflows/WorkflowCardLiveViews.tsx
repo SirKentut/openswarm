@@ -151,10 +151,10 @@ export function RunningView({ workflow, steps, runs, mode = 'card' }: {
   const completeCount = statuses.filter((s) => s === 'done').length;
   const total = steps.length;
 
-  // Tool-call subtitle for the active step. The backend will emit this on
-  // workflow:run as `last_tool_label` once slice 5 lands; until then we
-  // surface a soft placeholder so the row never feels empty.
-  const activeSubtitle = (run as unknown as { last_tool_label?: string })?.last_tool_label || null;
+  // Tool-call subtitle for the active step. Backend polls the session's
+  // messages at 1.5s cadence and broadcasts on workflow:run as the agent
+  // makes new tool calls. See executor.py _watch_tool_calls.
+  const activeSubtitle = run?.last_tool_label || null;
   const activeDuration = formatLiveDuration(run);
 
   const isLinked = mode === 'sidecar-linked' && card?.sidecarKind === 'watching';

@@ -607,6 +607,54 @@ async def run_workflow_now(workflow_id: str):
     return {"run_id": "", "status": None, "error": None}
 
 
+@workflows.router.post("/runs/{run_id}/stop")
+async def stop_run(run_id: str):
+    """Force-terminate a running workflow's underlying agent session.
+
+    Fired by RunningView's Stop button (Image #40). The run record gets
+    marked failure with a "stopped by user" error so it surfaces correctly
+    in History instead of looking like it succeeded.
+    """
+    target_wf_id = None
+    target_run = None
+    for wf in storage.list_workflows():
+        for r in storage.list_runs(wf.id, limit=50):
+            if r.id == run_id and r.status == "running":
+                target_wf_id = wf.id
+                target_run = r
+                break
+        if target_run:
+            break
+    if not target_run or not target_wf_id:
+        raise HTTPException(status_code=404, detail="Run not found or not active")
+    if target_run.session_id:
+        try:
+            from backend.apps.agents.agent_manager import agent_manager
+            await agent_manager.close_session(target_run.session_id)
+        except Exception:
+            logger.exception("stop_run: close_session failed for %s", target_run.session_id)
+    target_run.status = "failure"
+    target_run.error = "Stopped by user"
+    target_run.finished_at = datetime.now()
+    storage.record_run(target_run)
+    wf = storage.get_workflow(target_wf_id)
+    if wf:
+        _persist_run_fields(wf, {
+            "last_run_status": "failure",
+            "last_run_at": target_run.finished_at,
+            "last_run_id": target_run.id,
+        })
+    try:
+        from backend.apps.agents.ws_manager import ws_manager
+        await ws_manager.broadcast_global("workflow:run", {
+            "workflow_id": target_wf_id,
+            "run": target_run.model_dump(mode="json"),
+        })
+    except Exception:
+        pass
+    return {"ok": True}
+
+
 @workflows.router.get("/{workflow_id}/runs")
 async def list_workflow_runs(workflow_id: str, limit: int = 50):
     wf = storage.get_workflow(workflow_id)

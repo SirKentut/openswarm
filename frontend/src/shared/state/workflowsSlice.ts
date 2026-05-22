@@ -90,6 +90,8 @@ export interface WorkflowRun {
   error: string | null;
   cost_usd: number;
   triggered_by: 'schedule' | 'manual' | 'retry';
+  /** Live "what's the agent doing" subtitle while status is 'running'. */
+  last_tool_label?: string | null;
 }
 
 /** Transient view-only state per card; position lives in dashboardLayoutSlice.workflowCards. */
