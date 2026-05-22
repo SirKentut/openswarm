@@ -122,6 +122,43 @@ TOOLS = [
             "required": ["workflow_id"],
         },
     },
+    {
+        "name": "EditWorkflowStep",
+        "description": (
+            "Edit a single step's prompt text on an existing workflow. Use "
+            "when the user has accepted a proposed change during an Edit "
+            "Agent conversation; the new prompt replaces the existing one "
+            "and persists immediately. The next scheduled run uses the new "
+            "version. Always confirm the change with the user before "
+            "calling this; AskUserQuestion FIRST if there is any ambiguity."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "workflow_id": {"type": "string", "description": "The workflow to edit."},
+                "step_idx": {"type": "integer", "description": "0-based index of the step to modify."},
+                "new_text": {"type": "string", "description": "Full replacement prompt text for the step."},
+            },
+            "required": ["workflow_id", "step_idx", "new_text"],
+        },
+    },
+    {
+        "name": "TestWorkflow",
+        "description": (
+            "Spawn a sibling Test Agent that runs the workflow end-to-end "
+            "(with the latest persisted steps) so the user can watch it "
+            "work. Use after editing a step to verify the change. The Test "
+            "Agent renders as a sibling card on the dashboard with a "
+            "'Testing' arrow chip linking back to this workflow."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "workflow_id": {"type": "string", "description": "The workflow to test."},
+            },
+            "required": ["workflow_id"],
+        },
+    },
 ]
 
 
@@ -286,6 +323,42 @@ def _err(text: str) -> dict:
     return {"content": [{"type": "text", "text": f"Error: {text}"}], "isError": True}
 
 
+def handle_edit_step(args: dict) -> dict:
+    wid = args.get("workflow_id") or ""
+    if not wid:
+        return _err("workflow_id is required.")
+    try:
+        idx = int(args.get("step_idx"))
+    except (TypeError, ValueError):
+        return _err("step_idx must be an integer.")
+    new_text = (args.get("new_text") or "").strip()
+    if not new_text:
+        return _err("new_text is required.")
+    cur = _call("GET", f"/{wid}")
+    if "_error" in cur:
+        return _err(cur["_error"])
+    steps = cur.get("steps") or []
+    if idx < 0 or idx >= len(steps):
+        return _err(f"step_idx {idx} out of range (workflow has {len(steps)} steps).")
+    new_steps = list(steps)
+    new_steps[idx] = {**new_steps[idx], "text": new_text}
+    r = _call("PATCH", f"/{wid}", {"steps": new_steps})
+    if "_error" in r:
+        return _err(r["_error"])
+    return _ok(f"Step {idx + 1} updated. The next run uses the new prompt.")
+
+
+def handle_test_workflow(args: dict) -> dict:
+    wid = args.get("workflow_id") or ""
+    if not wid:
+        return _err("workflow_id is required.")
+    r = _call("POST", f"/{wid}/test-run", {})
+    if "_error" in r:
+        return _err(r["_error"])
+    sid = r.get("session_id", "")
+    return _ok(f"Test Agent spawned (session {sid[:8]}...). It runs the latest workflow on the dashboard with a Testing arrow chip.")
+
+
 HANDLERS = {
     "ScheduleWorkflow": handle_schedule_workflow,
     "ListScheduledWorkflows": handle_list,
@@ -294,6 +367,8 @@ HANDLERS = {
     "PauseAllWorkflows": handle_pause_all,
     "ResumeAllWorkflows": handle_resume_all,
     "RunWorkflowNow": handle_run_now,
+    "EditWorkflowStep": handle_edit_step,
+    "TestWorkflow": handle_test_workflow,
 }
 
 

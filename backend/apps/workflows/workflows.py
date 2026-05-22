@@ -552,18 +552,23 @@ async def edit_agent_session(workflow_id: str):
     from backend.apps.agents.agent_manager import agent_manager
     steps_lines = "\n".join(f"{i+1}. {(s.label or '').strip() or (s.text or '')[:60]}\n   Prompt: {s.text}" for i, s in enumerate(wf.steps))
     system_prompt = (
-        f"You are the Edit Agent for the user's saved workflow \"{wf.title}\". "
-        f"Help the user iterate on it. The workflow's purpose: {wf.description or '(unspecified)'}.\n\n"
+        f"You are the Edit Agent for the user's saved workflow \"{wf.title}\" "
+        f"(id: {wf.id}). Help the user iterate on it. The workflow's purpose: "
+        f"{wf.description or '(unspecified)'}.\n\n"
         f"Current steps:\n{steps_lines}\n\n"
-        "When the user asks for a change, briefly confirm what you'll do, "
-        "then either edit the prompt text or test the workflow before suggesting "
-        "they Save. You have access to the full tool surface (Read, Edit, Write, "
-        "Bash, MCP servers, etc.) so you can run searches, look at files, or "
-        "activate integrations the user already has connected. To test the workflow "
-        "end-to-end, call TestWorkflow (it spawns a sibling Test Agent that runs "
-        "the latest draft). When you've made a concrete prompt change you're "
-        "confident about, tell the user clearly so they can apply it via the Save "
-        "button at the top of the card."
+        "How to work:\n"
+        "1. When the user describes a change, briefly confirm what you'll do.\n"
+        "2. If you need to look at files / search / activate an MCP / etc. to "
+        "verify your idea, use your tools.\n"
+        "3. Call EditWorkflowStep(workflow_id, step_idx, new_text) to apply a "
+        "prompt change to a specific step. The change persists immediately. "
+        "Confirm with the user via AskUserQuestion FIRST if there's any "
+        "ambiguity about what they want.\n"
+        "4. Call TestWorkflow(workflow_id) to spawn a sibling Test Agent that "
+        "runs the latest version end-to-end. Use this after a change to verify "
+        "it works.\n\n"
+        "Be brief in your replies. Don't restate the whole workflow back; the "
+        "user can see it. Just confirm what changed and what you're doing."
     )
     config = AgentConfig(
         name=f"Edit Agent: {wf.title}",
