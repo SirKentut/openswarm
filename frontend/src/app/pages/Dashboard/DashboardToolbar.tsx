@@ -22,7 +22,7 @@ function ChatBubbleTeardrop(props: { sx?: { fontSize?: number } }) {
       strokeLinecap="round" strokeLinejoin="round"
       style={{ display: 'block' }}
     >
-      <path d="M 7 3 H 15 A 6 6 0 0 1 21 9 V 13 A 6 6 0 0 1 15 19 H 11 L 5 23 V 19 A 6 6 0 0 1 1 13 V 9 A 6 6 0 0 1 7 3 Z" />
+      <path d="M 8 3 H 16 A 5 5 0 0 1 21 8 V 13 A 5 5 0 0 1 16 18 H 11 L 6 22 L 8 18 A 5 5 0 0 1 3 13 V 8 A 5 5 0 0 1 8 3 Z" />
     </svg>
   );
 }
