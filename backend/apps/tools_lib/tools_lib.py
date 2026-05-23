@@ -190,7 +190,15 @@ async def update_builtin_permissions(body: dict):
 
 @tools_lib.router.get("/list")
 async def list_tools():
-    return {"tools": [t.model_dump() for t in _load_all()]}
+    tools = []
+    for t in _load_all():
+        d = t.model_dump()
+        # Heal pre-fix tools whose persisted email is the "{name} account" placeholder so the pill stops reading like a name and falls back to plain "Connected".
+        placeholder = f"{t.name} account"
+        if d.get("connected_account_email") == placeholder:
+            d["connected_account_email"] = ""
+        tools.append(d)
+    return {"tools": tools}
 
 
 def _connected_html() -> HTMLResponse:
@@ -1248,7 +1256,7 @@ async def oauth_cloud_claim(
     # Google's token endpoint doesn't include the user's email; fetch it
     # from userinfo so the UI can show "you connected ericzeng@gmail.com"
     # rather than the generic "Google account" placeholder.
-    if tool.name.lower() == "google" and tokens.get("access_token") and not tokens.get("email"):
+    if tool.name.lower().startswith("google") and tokens.get("access_token") and not tokens.get("email"):
         try:
             async with httpx.AsyncClient(timeout=10.0) as info_client:
                 info_resp = await info_client.get(
