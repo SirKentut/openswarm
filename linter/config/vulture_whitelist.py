@@ -53,4 +53,3 @@ _resolve_model
 load_output
 submit_state
 get_provider_credentials
-DISCOVERY_SCAFFOLDING

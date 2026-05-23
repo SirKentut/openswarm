@@ -16,32 +16,6 @@ from backend.apps.tools_lib.tools_lib import _load_all as load_all_tools
 logger = logging.getLogger(__name__)
 
 
-# Tool-agnostic discovery scaffolding; appended only when preflight flags the prompt as vague/info-gathering.
-DISCOVERY_SCAFFOLDING = (
-    "# Discovery before action\n"
-    "When a request is vague or could be grounded in user context, do not "
-    "guess generic defaults. First silently enumerate what would change the "
-    "output; voice, tone, audience, prior context, recent precedent, facts "
-    "that only live in the user's data. Then look at your available tools and "
-    "pick the ones that could answer those unknowns. Read a few examples "
-    "(usually 3, 10 is enough), summarize what you found into a few bullets, "
-    "then act confidently.\n\n"
-    "Tool-selection hierarchy for information gathering:\n"
-    "  1. Direct local access (filesystem reads, code search, shell); "
-    "cheapest and fastest.\n"
-    "  2. Connected services / MCP tools; for user data that lives in a "
-    "linked account (email, calendar, notes, tickets, etc.).\n"
-    "  3. Web search / fetch; for public information that isn't in your "
-    "training cutoff.\n"
-    "  4. Browser automation; only when a real interactive session or "
-    "login is required.\n"
-    "  5. Sub-agents; only for parallelizable subtasks or to isolate heavy "
-    "context. Not for serial steps.\n\n"
-    "Asking the user is a fallback, not a first move. Never fabricate. If "
-    "no tool can ground a critical unknown, ask one concise question."
-)
-
-
 # Curated shortlist; `id` MUST match ToolDefinition.name exactly or the enabled/dismissed filter no-ops and the modal renders nothing.
 CuratedEntry = dict[str, Any]
 
