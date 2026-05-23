@@ -235,7 +235,6 @@ export const CommandsContent: React.FC = () => {
     }
 
     for (const out of Object.values(outputItems)) {
-      if (out.permission === 'deny') continue;
       const cmd = out.name.toLowerCase().replace(/\s+/g, '-');
       items.push({
         prefix: `@${cmd}`,

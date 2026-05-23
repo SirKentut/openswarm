@@ -82,16 +82,10 @@ import {
   clearDetail,
   McpServer,
 } from '@/shared/state/mcpRegistrySlice';
-import {
-  fetchOutputs,
-  updateOutput,
-  Output,
-} from '@/shared/state/outputsSlice';
 import { Skeleton } from '@/app/components/Loading';
 
 import { useClaudeTokens } from '@/shared/styles/ThemeContext';
 import { API_BASE } from '@/shared/config';
-import ViewQuiltIcon from '@mui/icons-material/ViewQuilt';
 
 interface CredentialField {
   key: string;
@@ -467,8 +461,6 @@ const Tools: React.FC = () => {
   const { items, builtinTools, builtinPermissions, loading } = useAppSelector((s) => s.tools);
   const { servers: regServersRaw, total: regTotal, loading: regLoading, stats: regStats, detail: regDetail, detailLoading: regDetailLoading } = useAppSelector((s) => s.mcpRegistry);
   const devMode = useAppSelector((s) => s.settings.data.dev_mode);
-  const outputItems = useAppSelector((s) => s.outputs.items);
-  const outputs = useMemo(() => Object.values(outputItems), [outputItems]);
   const allTools = Object.values(items);
   const tools = allTools;
   const uninstalledIntegrations = useMemo(() => INTEGRATIONS.filter((ig) => !allTools.find((t) => t.name === ig.name)), [allTools]);
@@ -646,7 +638,6 @@ const Tools: React.FC = () => {
   const [expandedServices, setExpandedServices] = useState<Record<string, boolean>>({});
   const [expandedSchema, setExpandedSchema] = useState<string | null>(null);
 
-  const [viewsSectionOpen, setViewsSectionOpen] = useState(false);
   const [browserSectionOpen, setBrowserSectionOpen] = useState(false);
   const [browserCollapsed, setBrowserCollapsed] = useState<Record<string, boolean>>({ browser_delegation: true, browser_action: true });
   const [builtinSectionOpen, setBuiltinSectionOpen] = useState(true);
@@ -655,12 +646,7 @@ const Tools: React.FC = () => {
     dispatch(fetchTools());
     dispatch(fetchBuiltinTools());
     dispatch(fetchBuiltinPermissions());
-    dispatch(fetchOutputs());
   }, [dispatch]);
-
-  const handleViewPermissionChange = async (viewId: string, permission: string) => {
-    await dispatch(updateOutput({ id: viewId, permission }));
-  };
 
   const handleBuiltinPermissionChange = async (toolName: string, policy: string) => {
     await dispatch(updateBuiltinPermissions({ [toolName]: policy }));
@@ -694,10 +680,6 @@ const Tools: React.FC = () => {
     () => !deferredTools.every((t) => builtinPermissions[t.name] === 'deny'),
     [deferredTools, builtinPermissions],
   );
-  const viewsSectionEnabled = useMemo(
-    () => !outputs.every((o) => o.permission === 'deny'),
-    [outputs],
-  );
   const browserSectionEnabled = useMemo(
     () => browserTools.length > 0 && !browserTools.every((t) => builtinPermissions[t.name] === 'deny'),
     [browserTools, builtinPermissions],
@@ -707,12 +689,6 @@ const Tools: React.FC = () => {
     const perms: Record<string, string> = {};
     for (const t of tools) perms[t.name] = enabled ? 'always_allow' : 'deny';
     await dispatch(updateBuiltinPermissions(perms));
-  };
-
-  const handleViewsSectionEnabledChange = async (enabled: boolean) => {
-    for (const out of outputs) {
-      await dispatch(updateOutput({ id: out.id, permission: enabled ? 'ask' : 'deny' }));
-    }
   };
 
   const toggleCategory = (cat: string) => setCollapsedCategories((p) => ({ ...p, [cat]: !p[cat] }));
@@ -1092,7 +1068,7 @@ const Tools: React.FC = () => {
           {builtinSectionOpen ? <KeyboardArrowDownIcon className="section-arrow" sx={{ fontSize: 18, color: c.text.tertiary, transition: 'color 0.15s' }} /> : <KeyboardArrowRightIcon className="section-arrow" sx={{ fontSize: 18, color: c.text.tertiary, transition: 'color 0.15s' }} />}
           <LockIcon sx={{ fontSize: 14, color: c.text.tertiary }} />
           <Typography sx={{ color: c.text.muted, fontWeight: 600, fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Built-in Action Sets</Typography>
-          <Chip label={coreTools.length + deferredTools.length + outputs.length + browserTools.length} size="small" sx={{ bgcolor: c.bg.secondary, color: c.text.muted, fontSize: '0.7rem', height: 18, minWidth: 24, '& .MuiChip-label': { px: 0.8 } }} />
+          <Chip label={coreTools.length + deferredTools.length + browserTools.length} size="small" sx={{ bgcolor: c.bg.secondary, color: c.text.muted, fontSize: '0.7rem', height: 18, minWidth: 24, '& .MuiChip-label': { px: 0.8 } }} />
         </Box>
         <Collapse in={builtinSectionOpen} timeout={0} unmountOnExit>
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, pl: 1 }}>
@@ -1103,87 +1079,6 @@ const Tools: React.FC = () => {
 
       {deferredTools.length > 0 && (
         <ToolSection label="Extended Actions" icon={<HourglassEmptyIcon sx={{ fontSize: 14, color: c.text.tertiary }} />} count={deferredTools.length} open={deferredSectionOpen} onToggle={() => setDeferredSectionOpen((v) => !v)} grouped={groupedDeferred} collapsedCategories={collapsedCategories} toggleCategory={toggleCategory} expandedBuiltin={expandedBuiltin} toggleBuiltinExpand={toggleBuiltinExpand} deferred builtinPermissions={builtinPermissions} onPermissionChange={handleBuiltinPermissionChange} onCategoryPermissionChange={handleBuiltinCategoryPermissionChange} enabled={deferredSectionEnabled} onEnabledChange={(v) => handleSectionEnabledChange(deferredTools, v)} />
-      )}
-
-      {outputs.length > 0 && (
-        <Card sx={{ bgcolor: c.bg.surface, border: `1px solid ${viewsSectionOpen && viewsSectionEnabled ? c.accent.primary : c.border.subtle}`, borderRadius: 2, boxShadow: c.shadow.sm, '&:hover': { borderColor: c.accent.primary, boxShadow: '0 0 0 1px rgba(174,86,48,0.12)' }, transition: 'border-color 0.2s, box-shadow 0.2s' }}>
-          <CardContent sx={{ py: 1.5, px: 2, '&:last-child': { pb: 1.5 } }}>
-            <Box
-              onClick={() => viewsSectionEnabled && setViewsSectionOpen((v) => !v)}
-              sx={{ display: 'flex', alignItems: 'center', gap: 2, cursor: viewsSectionEnabled ? 'pointer' : 'default' }}
-            >
-              <Box sx={{
-                width: 36, height: 36, borderRadius: 2, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                bgcolor: c.bg.secondary, color: c.text.tertiary, flexShrink: 0,
-                opacity: viewsSectionEnabled ? 1 : 0.4, transition: 'opacity 0.2s',
-              }}>
-                <ViewQuiltIcon sx={{ fontSize: 18 }} />
-              </Box>
-              <Box sx={{ flex: 1, minWidth: 0, opacity: viewsSectionEnabled ? 1 : 0.4, transition: 'opacity 0.2s' }}>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.25 }}>
-                  <Typography sx={{ color: c.text.primary, fontWeight: 600, fontSize: '0.95rem' }}>Apps</Typography>
-                  <Chip label={`${outputs.length} app${outputs.length !== 1 ? 's' : ''}`} size="small" sx={{ bgcolor: c.bg.secondary, color: c.text.muted, fontSize: '0.7rem', height: 20, '& .MuiChip-label': { px: 0.6 } }} />
-                </Box>
-                <Typography sx={{ color: c.text.muted, fontSize: '0.84rem' }}>Dashboard apps and data displays for your agent</Typography>
-              </Box>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexShrink: 0 }} onClick={(e) => e.stopPropagation()}>
-                <Switch
-                  checked={viewsSectionEnabled}
-                  onChange={(_, checked) => handleViewsSectionEnabledChange(checked)}
-                  sx={{
-                    '& .MuiSwitch-switchBase.Mui-checked': { color: c.accent.primary },
-                    '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { bgcolor: c.accent.primary },
-                  }}
-                />
-              </Box>
-              {viewsSectionEnabled && (
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.25, flexShrink: 0 }}>
-                  <KeyboardArrowDownIcon sx={{ fontSize: 18, color: c.text.ghost, transition: 'transform 0.2s', transform: viewsSectionOpen ? 'rotate(180deg)' : 'rotate(0deg)' }} />
-                </Box>
-              )}
-            </Box>
-          </CardContent>
-          <Collapse in={viewsSectionOpen && viewsSectionEnabled} timeout={0} unmountOnExit>
-            <Box sx={{ px: 2, pb: 2, pt: 0, borderTop: `1px solid ${c.border.subtle}` }}>
-              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5, mt: 1.5 }}>
-                {outputs.map((out) => {
-                  const perm = out.permission || 'ask';
-                  return (
-                    <Box
-                      key={out.id}
-                      sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', py: 0.5, px: 1.5, borderRadius: 1, '&:hover': { bgcolor: c.bg.secondary } }}
-                    >
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, minWidth: 0, flex: 1, mr: 1 }}>
-                        <Box sx={{
-                          width: 28, height: 28, borderRadius: 1.5, flexShrink: 0,
-                          display: 'flex', alignItems: 'center', justifyContent: 'center',
-                          bgcolor: `${c.accent.primary}20`,
-                        }}>
-                          <ViewQuiltIcon sx={{ fontSize: 14, color: c.accent.primary }} />
-                        </Box>
-                        <Box sx={{ minWidth: 0, flex: 1 }}>
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                            <Typography sx={{ color: c.text.primary, fontSize: '0.8rem', fontWeight: 500 }}>{out.name}</Typography>
-                          </Box>
-                          {out.description && (
-                            <Typography sx={{ color: c.text.ghost, fontSize: '0.7rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                              {out.description}
-                            </Typography>
-                          )}
-                        </Box>
-                      </Box>
-                      <Box sx={{ display: 'flex', gap: 0.25, flexShrink: 0 }} onClick={(e) => e.stopPropagation()}>
-                        <Tooltip title="Always allow"><IconButton size="small" onClick={() => handleViewPermissionChange(out.id, 'always_allow')} sx={{ p: 0.4, borderRadius: 1, bgcolor: perm === 'always_allow' ? `${c.status.success}20` : 'transparent', color: perm === 'always_allow' ? c.status.success : c.text.ghost, '&:hover': { bgcolor: `${c.status.success}15`, color: c.status.success } }}><CheckCircleIcon sx={{ fontSize: 14 }} /></IconButton></Tooltip>
-                        <Tooltip title="Ask permission"><IconButton size="small" onClick={() => handleViewPermissionChange(out.id, 'ask')} sx={{ p: 0.4, borderRadius: 1, bgcolor: perm === 'ask' ? `${c.status.warning}20` : 'transparent', color: perm === 'ask' ? c.status.warning : c.text.ghost, '&:hover': { bgcolor: `${c.status.warning}15`, color: c.status.warning } }}><PanToolIcon sx={{ fontSize: 14 }} /></IconButton></Tooltip>
-                        <Tooltip title="Always deny"><IconButton size="small" onClick={() => handleViewPermissionChange(out.id, 'deny')} sx={{ p: 0.4, borderRadius: 1, bgcolor: perm === 'deny' ? `${c.status.error}20` : 'transparent', color: perm === 'deny' ? c.status.error : c.text.ghost, '&:hover': { bgcolor: `${c.status.error}15`, color: c.status.error } }}><BlockIcon sx={{ fontSize: 14 }} /></IconButton></Tooltip>
-                      </Box>
-                    </Box>
-                  );
-                })}
-              </Box>
-            </Box>
-          </Collapse>
-        </Card>
       )}
 
       {browserTools.length > 0 && (

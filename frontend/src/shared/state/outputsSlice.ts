@@ -13,7 +13,6 @@ export interface Output {
   icon: string;
   input_schema: Record<string, any>;
   files: Record<string, string>;
-  permission: string;
   thumbnail?: string | null;
   /** Linkage so reopening App Builder reattaches to the in-progress session and workspace. */
   session_id?: string | null;
@@ -84,7 +83,7 @@ export const fetchOutputs = createAsyncThunk(
 
 export const createOutput = createAsyncThunk(
   'outputs/create',
-  async (body: Omit<Output, 'id' | 'created_at' | 'updated_at' | 'permission'>) => {
+  async (body: Omit<Output, 'id' | 'created_at' | 'updated_at'>) => {
     const res = await fetch(`${OUTPUTS_API}/create`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

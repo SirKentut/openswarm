@@ -15,7 +15,6 @@ class Output(BaseModel):
         "required": [],
     })
     files: dict[str, str] = Field(default_factory=dict)
-    permission: str = "ask"
     thumbnail: Optional[str] = None
     # Linkage so reopening the App Builder reattaches to the in-progress session
     # and reuses the same on-disk workspace folder instead of seeding a fresh one
@@ -94,7 +93,6 @@ class OutputUpdate(BaseModel):
     icon: Optional[str] = None
     input_schema: Optional[dict[str, Any]] = None
     files: Optional[dict[str, str]] = None
-    permission: Optional[str] = None
     thumbnail: Optional[str] = None
     session_id: Optional[str] = None
     workspace_id: Optional[str] = None
