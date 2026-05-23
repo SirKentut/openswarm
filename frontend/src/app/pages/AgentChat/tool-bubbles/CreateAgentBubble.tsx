@@ -10,7 +10,7 @@ import BlockIcon from '@mui/icons-material/Block';
 import CallSplitIcon from '@mui/icons-material/CallSplit';
 import { AgentMessage } from '@/shared/state/agentsSlice';
 import { useClaudeTokens } from '@/shared/styles/ThemeContext';
-import { ElapsedTimer, formatElapsed } from './toolBubbleChrome';
+import { ElapsedTimer, formatElapsed } from '../parsing/toolBubbleChrome';
 import { AgentResponseBody } from './AgentResponseBody';
 
 interface CreateAgentBubbleProps {

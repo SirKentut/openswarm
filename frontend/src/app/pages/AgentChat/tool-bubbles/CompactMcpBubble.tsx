@@ -9,14 +9,14 @@ import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
 import BlockIcon from '@mui/icons-material/Block';
 import { AgentMessage } from '@/shared/state/agentsSlice';
 import { useClaudeTokens } from '@/shared/styles/ThemeContext';
-import { getToolLabel } from './toolLabels';
-import BrowserAgentInlineFeed from './BrowserAgentInlineFeed';
-import { GoogleServiceIcon } from './GoogleServiceIcon';
-import { ElapsedTimer, formatElapsed } from './toolBubbleChrome';
-import { useTermColors } from './toolColorize';
-import { ParsedResult } from './toolResultParsing';
+import { getToolLabel } from '../parsing/toolLabels';
+import BrowserAgentInlineFeed from '../shell/BrowserAgentInlineFeed';
+import { GoogleServiceIcon } from '../mcp-cards/GoogleServiceIcon';
+import { ElapsedTimer, formatElapsed } from '../parsing/toolBubbleChrome';
+import { useTermColors } from '../parsing/toolColorize';
+import { ParsedResult } from '../parsing/toolResultParsing';
 import { McpToolInfo, getMcpShortAction } from '@/shared/mcpToolMeta';
-import { McpResultCard } from './McpResultCard';
+import { McpResultCard } from '../mcp-cards/McpResultCard';
 
 interface CompactMcpBubbleProps {
   call: AgentMessage;

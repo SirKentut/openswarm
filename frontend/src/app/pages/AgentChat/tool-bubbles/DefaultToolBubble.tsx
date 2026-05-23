@@ -11,14 +11,14 @@ import BlockIcon from '@mui/icons-material/Block';
 import SearchIcon from '@mui/icons-material/Search';
 import { AgentMessage } from '@/shared/state/agentsSlice';
 import { useClaudeTokens } from '@/shared/styles/ThemeContext';
-import { getToolLabelWithInput } from './toolLabels';
-import BrowserAgentInlineFeed from './BrowserAgentInlineFeed';
-import { GoogleServiceIcon } from './GoogleServiceIcon';
-import { ElapsedTimer, formatElapsed } from './toolBubbleChrome';
-import { useTermColors, colorizeInput, colorizeOutput } from './toolColorize';
-import { ParsedResult } from './toolResultParsing';
+import { getToolLabelWithInput } from '../parsing/toolLabels';
+import BrowserAgentInlineFeed from '../shell/BrowserAgentInlineFeed';
+import { GoogleServiceIcon } from '../mcp-cards/GoogleServiceIcon';
+import { ElapsedTimer, formatElapsed } from '../parsing/toolBubbleChrome';
+import { useTermColors, colorizeInput, colorizeOutput } from '../parsing/toolColorize';
+import { ParsedResult } from '../parsing/toolResultParsing';
 import { McpToolInfo } from '@/shared/mcpToolMeta';
-import { McpResultCard } from './McpResultCard';
+import { McpResultCard } from '../mcp-cards/McpResultCard';
 
 interface DefaultToolBubbleProps {
   call: AgentMessage;

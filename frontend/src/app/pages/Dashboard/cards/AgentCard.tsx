@@ -26,7 +26,7 @@ import {
   removeCard,
 } from '@/shared/state/dashboardLayoutSlice';
 import { useAppDispatch, useAppSelector } from '@/shared/hooks';
-import { QuestionForm } from '@/app/pages/AgentChat/ApprovalBar';
+import { QuestionForm } from '@/app/pages/AgentChat/shell/ApprovalBar';
 import AgentChat from '@/app/pages/AgentChat/AgentChat';
 import { parseMcpToolName, getMcpShortAction } from '@/shared/mcpToolMeta';
 import { useClaudeTokens } from '@/shared/styles/ThemeContext';

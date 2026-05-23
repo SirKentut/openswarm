@@ -1,8 +1,8 @@
 import React from 'react';
 import Box from '@mui/material/Box';
 import { useClaudeTokens } from '@/shared/styles/ThemeContext';
-import { ParsedMcpResult } from './toolResultParsing';
-import { useTermColors } from './toolColorize';
+import { ParsedMcpResult } from '../parsing/toolResultParsing';
+import { useTermColors } from '../parsing/toolColorize';
 import { useCardColors } from './cardColors';
 import { GmailCard } from './GmailCard';
 import { CalendarCard } from './CalendarCard';

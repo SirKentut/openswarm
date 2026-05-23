@@ -1,7 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { useStreamingMessage } from '@/shared/state/streamingSlice';
 import MessageBubble from './MessageBubble';
-import ToolCallBubble from './ToolCallBubble';
+import ToolCallBubble from '../tool-bubbles/ToolCallBubble';
 
 interface Props {
   sessionId: string;

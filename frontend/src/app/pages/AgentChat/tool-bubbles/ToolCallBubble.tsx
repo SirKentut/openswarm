@@ -3,7 +3,7 @@ import { AgentMessage, expandSession, collapseSession, fetchSession } from '@/sh
 import { useAppDispatch, useAppSelector } from '@/shared/hooks';
 import { placeCard, removeCard, setGlowingAgentCard, clearGlowingAgentCard, DEFAULT_CARD_W, DEFAULT_CARD_H, EXPANDED_CARD_MIN_H, GRID_GAP } from '@/shared/state/dashboardLayoutSlice';
 import { useClaudeTokens } from '@/shared/styles/ThemeContext';
-import { ensureToolCallKeyframes } from './toolBubbleChrome';
+import { ensureToolCallKeyframes } from '../parsing/toolBubbleChrome';
 import {
   getToolData,
   getInputSummary,
@@ -11,7 +11,7 @@ import {
   parseToolResult,
   getResultSummary,
   getPromptPrefix,
-} from './toolResultParsing';
+} from '../parsing/toolResultParsing';
 import { parseMcpToolName } from '@/shared/mcpToolMeta';
 import {
   isBrowserAgentTool,
@@ -20,7 +20,7 @@ import {
   parseInvokedSessionId,
   parseCreateAgentResult,
   parseInvokeAgentResult,
-} from './agentToolParsing';
+} from '../parsing/agentToolParsing';
 import { InvokeAgentBubble } from './InvokeAgentBubble';
 import { CreateAgentBubble } from './CreateAgentBubble';
 import { CompactMcpBubble } from './CompactMcpBubble';
