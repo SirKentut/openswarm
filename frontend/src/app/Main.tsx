@@ -19,7 +19,7 @@ import {
 } from '@/shared/state/updateSlice';
 import AppShell from './components/Layout/AppShell';
 import DashboardSelection from './pages/DashboardSelection/DashboardSelection';
-import ErrorBoundary from './components/ErrorBoundary';
+import ErrorBoundary from './components/feedback/ErrorBoundary';
 const Skills = lazy(() => import('./pages/Skills/Skills'));
 const Tools = lazy(() => import('./pages/Tools/Tools'));
 const Modes = lazy(() => import('./pages/Modes/Modes'));

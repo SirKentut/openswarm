@@ -26,7 +26,7 @@ import {
   fetchServerDetail,
   clearDetail,
 } from '@/shared/state/mcpRegistrySlice';
-import { Skeleton } from '@/app/components/Loading';
+import { Skeleton } from '@/app/components/feedback/Loading';
 
 import { useClaudeTokens } from '@/shared/styles/ThemeContext';
 import { Integration, INTEGRATIONS } from './integrations';

@@ -1,7 +1,7 @@
 import React, { useRef, useEffect, useMemo, useCallback, forwardRef, useImperativeHandle, useState } from 'react';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
-import { Skeleton } from '@/app/components/Loading';
+import { Skeleton } from '@/app/components/feedback/Loading';
 import { useElementSelection } from '@/app/components/ElementSelectionContext';
 import { useIframeElementSelector } from './useIframeElementSelector';
 import { getAuthToken, ensureAuthToken } from '@/shared/config';

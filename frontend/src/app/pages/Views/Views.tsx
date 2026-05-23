@@ -8,7 +8,7 @@ import { useAppDispatch, useAppSelector } from '@/shared/hooks';
 import { fetchOutputs, deleteOutput, Output } from '@/shared/state/outputsSlice';
 import { useClaudeTokens } from '@/shared/styles/ThemeContext';
 import ViewCard from './ViewCard';
-import { Skeleton } from '@/app/components/Loading';
+import { Skeleton } from '@/app/components/feedback/Loading';
 import ViewRunDialog from './ViewRunDialog';
 // Lazy: pulls CodeMirror (~600KB) + 1600 lines of form scaffolding, only needed when an editor opens.
 const ViewEditor = lazy(() => import('./ViewEditor'));

@@ -1,7 +1,7 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import Main from './app/Main';
-import ErrorBoundary from './app/components/ErrorBoundary';
+import ErrorBoundary from './app/components/feedback/ErrorBoundary';
 import { ensureAuthToken } from './shared/config';
 import { runStartupMigrations } from './shared/migrations';
 

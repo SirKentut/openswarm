@@ -50,7 +50,7 @@ import ToolGroupBubble, { RenderItem, ToolGroup, isToolGroup, isToolPair } from 
 import ApprovalBar, { BatchApprovalBar } from './shell/ApprovalBar';
 import ChatInput, { ChatInputHandle } from './ChatInput';
 import ContextDrawer from './shell/ContextDrawer';
-import { ErrorSlime } from '@/app/components/ErrorSlime';
+import { ErrorSlime } from '@/app/components/feedback/ErrorSlime';
 import { ContextPath } from '@/app/components/DirectoryBrowser';
 import { setGlowingBrowserCards, fadeGlowingBrowserCards, clearGlowingBrowserCards } from '@/shared/state/dashboardLayoutSlice';
 import { useClaudeTokens } from '@/shared/styles/ThemeContext';

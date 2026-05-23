@@ -22,7 +22,7 @@ import ToggleButton from '@mui/material/ToggleButton';
 import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
 import { McpServer, McpServerDetail } from '@/shared/state/mcpRegistrySlice';
 import { ToolDefinition } from '@/shared/state/toolsSlice';
-import { Skeleton } from '@/app/components/Loading';
+import { Skeleton } from '@/app/components/feedback/Loading';
 import { useClaudeTokens } from '@/shared/styles/ThemeContext';
 import { cleanServerName } from '../toolsHelpers';
 import RegistryServerRow from './RegistryServerRow';

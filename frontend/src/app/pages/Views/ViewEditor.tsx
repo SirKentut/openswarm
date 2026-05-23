@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 import CircularProgress from '@mui/material/CircularProgress';
-import PixelBlast from '@/app/components/PixelBlast';
+import PixelBlast from '@/app/components/feedback/PixelBlast';
 import Button from '@mui/material/Button';
 import IconButton from '@mui/material/IconButton';
 import TextField from '@mui/material/TextField';

@@ -24,7 +24,7 @@ import { useAppDispatch, useAppSelector } from '@/shared/hooks';
 import { useClaudeTokens } from '@/shared/styles/ThemeContext';
 import { SKILL_COLOR } from '@/app/components/richEditorUtils';
 import PlanPicker from '@/app/components/PlanPicker';
-import { ErrorSlime } from '@/app/components/ErrorSlime';
+import { ErrorSlime } from '@/app/components/feedback/ErrorSlime';
 
 const streamingCursorKeyframes = `
 @keyframes blink-cursor {

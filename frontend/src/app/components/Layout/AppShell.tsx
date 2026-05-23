@@ -46,7 +46,7 @@ import { fetchOutputs } from '@/shared/state/outputsSlice';
 import { setInstalling } from '@/shared/state/updateSlice';
 import { findBrowserByWebContentsId } from '@/shared/browserRegistry';
 import { useClaudeTokens } from '@/shared/styles/ThemeContext';
-import { ErrorSlime } from '@/app/components/ErrorSlime';
+import { ErrorSlime } from '@/app/components/feedback/ErrorSlime';
 
 const SIDEBAR_MIN = 160;
 const SIDEBAR_MAX = 400;
