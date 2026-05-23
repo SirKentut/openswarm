@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, type RefObject } from 'react';
 import { store } from '@/shared/state/store';
 import { updateDashboardThumbnail } from '@/shared/state/dashboardsSlice';
-import { captureDashboardThumbnail } from './captureDashboardThumbnail';
+import { captureDashboardThumbnail } from './geometry/captureDashboardThumbnail';
 
 interface UseDashboardThumbnailArgs {
   isActive: boolean;

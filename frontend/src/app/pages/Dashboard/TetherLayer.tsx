@@ -1,6 +1,6 @@
 import React from 'react';
 import type { ClaudeTokens } from '@/shared/styles/claudeTokens';
-import type { Tether } from './dashboardTethers';
+import type { Tether } from './geometry/dashboardTethers';
 
 const TETHER_FADE_MS = 2500;
 

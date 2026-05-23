@@ -1,5 +1,5 @@
 import { store } from '@/shared/state/store';
-import type { CardType } from './useDashboardSelection';
+import type { CardType } from '../useDashboardSelection';
 
 // Reads a card's rect straight from the live Redux store (collapsed height,
 // which is what the zoom math wants). Module-level + store.getState() so the
