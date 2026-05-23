@@ -12,7 +12,7 @@ import KeyboardIcon from '@mui/icons-material/Keyboard';
 import LanguageIcon from '@mui/icons-material/Language';
 import { AppSettings } from '@/shared/state/settingsSlice';
 import { useClaudeTokens } from '@/shared/styles/ThemeContext';
-import type { SettingsStyles } from './settingsStyles';
+import type { SettingsStyles } from '../settingsStyles';
 
 const GeneralInterface: React.FC<{
   form: AppSettings;

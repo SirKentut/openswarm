@@ -12,7 +12,7 @@ import RestartAltIcon from '@mui/icons-material/RestartAlt';
 import { useAppDispatch } from '@/shared/hooks';
 import { resetSystemPrompt, AppSettings, DEFAULT_SYSTEM_PROMPT } from '@/shared/state/settingsSlice';
 import { useClaudeTokens } from '@/shared/styles/ThemeContext';
-import type { SettingsStyles } from './settingsStyles';
+import type { SettingsStyles } from '../settingsStyles';
 
 type ModelOption = { value: string; label: string };
 

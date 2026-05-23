@@ -12,7 +12,7 @@ import DownloadIcon from '@mui/icons-material/Download';
 import { useAppDispatch, useAppSelector } from '@/shared/hooks';
 import { setChecking, setUpdateError, setInstalling } from '@/shared/state/updateSlice';
 import { useClaudeTokens } from '@/shared/styles/ThemeContext';
-import type { SettingsStyles } from './settingsStyles';
+import type { SettingsStyles } from '../settingsStyles';
 
 const SoftwareUpdateRow: React.FC<{ styles: SettingsStyles }> = ({ styles }) => {
   const c = useClaudeTokens();

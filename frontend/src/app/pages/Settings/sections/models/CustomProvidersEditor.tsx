@@ -10,7 +10,7 @@ import VisibilityOffIcon from '@mui/icons-material/VisibilityOff';
 import CloseIcon from '@mui/icons-material/Close';
 import { useClaudeTokens } from '@/shared/styles/ThemeContext';
 import { AppSettings, CustomProvider } from '@/shared/state/settingsSlice';
-import type { SettingsStyles } from './settingsStyles';
+import type { SettingsStyles } from '../settingsStyles';
 
 const CustomProvidersEditor: React.FC<{
   form: AppSettings;

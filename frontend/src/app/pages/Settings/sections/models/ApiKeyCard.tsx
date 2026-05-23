@@ -9,7 +9,7 @@ import VisibilityOffIcon from '@mui/icons-material/VisibilityOff';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import { useClaudeTokens } from '@/shared/styles/ThemeContext';
 import { AppSettings } from '@/shared/state/settingsSlice';
-import type { SettingsStyles } from './settingsStyles';
+import type { SettingsStyles } from '../settingsStyles';
 
 type ApiKeyField = 'anthropic_api_key' | 'openai_api_key' | 'google_api_key' | 'openrouter_api_key';
 

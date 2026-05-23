@@ -11,7 +11,7 @@ import { resetTour } from '@/shared/state/onboardingProgressSlice';
 import { useClaudeTokens } from '@/shared/styles/ThemeContext';
 import TrustedFilePatterns from '@/app/components/TrustedFilePatterns';
 import SoftwareUpdateRow from './SoftwareUpdateRow';
-import type { SettingsStyles } from './settingsStyles';
+import type { SettingsStyles } from '../settingsStyles';
 
 const GeneralAdvanced: React.FC<{
   form: AppSettings;

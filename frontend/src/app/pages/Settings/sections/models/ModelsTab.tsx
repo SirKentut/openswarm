@@ -3,11 +3,11 @@ import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 import { useClaudeTokens } from '@/shared/styles/ThemeContext';
 import { AppSettings } from '@/shared/state/settingsSlice';
-import OpenSwarmProCard from './OpenSwarmProCard';
-import SubscriptionCards from './SubscriptionCards';
+import OpenSwarmProCard from '../subscription/OpenSwarmProCard';
+import SubscriptionCards from '../subscription/SubscriptionCards';
 import ApiKeyCard, { API_KEY_CARDS } from './ApiKeyCard';
 import CustomProvidersEditor from './CustomProvidersEditor';
-import type { SettingsStyles } from './settingsStyles';
+import type { SettingsStyles } from '../settingsStyles';
 
 const ModelsTab: React.FC<{
   form: AppSettings;

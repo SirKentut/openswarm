@@ -2,11 +2,11 @@ import React from 'react';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 import { AppSettings } from '@/shared/state/settingsSlice';
-import AccountCard from './AccountCard';
+import AccountCard from '../subscription/AccountCard';
 import GeneralAgentDefaults from './GeneralAgentDefaults';
 import GeneralInterface from './GeneralInterface';
 import GeneralAdvanced from './GeneralAdvanced';
-import type { SettingsStyles } from './settingsStyles';
+import type { SettingsStyles } from '../settingsStyles';
 
 type ModelOption = { value: string; label: string };
 
