@@ -100,7 +100,7 @@ def mock_settings(tmp_path):
         "installation_id": "test-install-id",
     }))
 
-    import backend.apps.settings.settings as settings_mod
+    import backend.apps.settings.store as settings_mod
     old_file = settings_mod.SETTINGS_FILE
     settings_mod.SETTINGS_FILE = str(settings_file)
     yield
