@@ -282,11 +282,24 @@ async def usage_summary():
     for s in agent_manager.get_all_sessions():
         sessions.append(s.model_dump(mode="json"))
 
+    def _is_real(sess: dict) -> bool:
+        # "Real" = actually ran. Empty draft/abandoned sessions (no assistant turn, no tokens,
+        # no active time) otherwise inflate the count and drag every average toward zero.
+        if (sess.get("agent_active_ms") or 0) > 0 or (sess.get("cost_usd") or 0) > 0:
+            return True
+        tk = sess.get("tokens") or {}
+        if (tk.get("input") or 0) > 0 or (tk.get("output") or 0) > 0:
+            return True
+        return any(m.get("role") == "assistant" for m in sess.get("messages", []))
+
+    sessions = [s for s in sessions if _is_real(s)]
+
     total_sessions = len(sessions)
     total_cost = sum(s.get("cost_usd", 0) for s in sessions)
     total_messages = 0
     total_tool_calls = 0
-    total_duration = 0.0
+    total_run_seconds = 0.0
+    timed_sessions = 0
     model_counts: Counter = Counter()
     provider_counts: Counter = Counter()
     tool_counts: Counter = Counter()
@@ -294,30 +307,43 @@ async def usage_summary():
 
     for s in sessions:
         messages = s.get("messages", [])
-        user_msgs = [m for m in messages if m.get("role") in ("user", "assistant")]
-        tool_msgs = [m for m in messages if m.get("role") == "tool_call"]
-        total_messages += len(user_msgs)
-        total_tool_calls += len(tool_msgs)
+        total_messages += sum(1 for m in messages if m.get("role") in ("user", "assistant"))
         model_counts[s.get("model", "unknown")] += 1
         provider_counts[s.get("provider", "anthropic")] += 1
         status_counts[s.get("status", "unknown")] += 1
-        created = s.get("created_at")
-        closed = s.get("closed_at")
-        if created and closed:
-            try:
-                dur = (datetime.fromisoformat(closed[:19]) - datetime.fromisoformat(created[:19])).total_seconds()
-                if dur > 0:
-                    total_duration += dur
-            except Exception:
-                pass
-        for m in tool_msgs:
-            content = m.get("content", {})
-            if isinstance(content, dict):
-                tool_name = content.get("tool", "")
-                if tool_name:
-                    tool_counts[tool_name] += 1
 
-    avg_duration = total_duration / total_sessions if total_sessions > 0 else 0
+        # Tool calls: tool_latencies carries authoritative per-tool counts; older sessions only have
+        # the sparse tool_call messages. Per session take whichever source recorded more so we never
+        # undercount what's on record (and so the total never drops below the old message-only count).
+        lat_counts: Counter = Counter()
+        for tool, d in (s.get("tool_latencies") or {}).items():
+            cnt = (d or {}).get("count", 0) or 0
+            if tool and cnt:
+                lat_counts[tool] += cnt
+        msg_counts: Counter = Counter()
+        for m in messages:
+            if m.get("role") == "tool_call":
+                content = m.get("content", {})
+                name = content.get("tool") if isinstance(content, dict) else None
+                msg_counts[name or "tool"] += 1
+        chosen = lat_counts if sum(lat_counts.values()) >= sum(msg_counts.values()) else msg_counts
+        total_tool_calls += sum(chosen.values())
+        tool_counts.update(chosen)
+
+        # Run time: real agent-active time when tracked, else session wall-clock as a rough proxy.
+        run_s = (s.get("agent_active_ms") or 0) / 1000.0
+        if run_s <= 0:
+            created, closed = s.get("created_at"), s.get("closed_at")
+            if created and closed:
+                try:
+                    run_s = (datetime.fromisoformat(closed[:19]) - datetime.fromisoformat(created[:19])).total_seconds()
+                except Exception:
+                    run_s = 0
+        if run_s > 0:
+            total_run_seconds += run_s
+            timed_sessions += 1
+
+    avg_duration = total_run_seconds / timed_sessions if timed_sessions > 0 else 0
     completed = status_counts.get("completed", 0)
     completion_rate = completed / total_sessions if total_sessions > 0 else 0
 
@@ -362,6 +388,7 @@ async def usage_summary():
         "total_cost_usd": round(total_cost, 4),
         "total_messages": total_messages,
         "total_tool_calls": total_tool_calls,
+        "total_run_seconds": round(total_run_seconds, 1),
         "avg_duration_seconds": round(avg_duration, 1),
         "avg_cost_per_session": round(avg_cost, 4),
         "completion_rate": round(completion_rate, 3),

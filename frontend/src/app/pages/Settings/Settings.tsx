@@ -1037,7 +1037,7 @@ const UsageStats: React.FC = () => {
     <PixelBarOuter {...props} tokens={c} />
   );
 
-  const totalTime = stats.avg_duration_seconds * stats.total_sessions;
+  const totalTime = stats.total_run_seconds ?? (stats.avg_duration_seconds * stats.total_sessions);
   const msgsPerSession = stats.total_sessions > 0 ? (stats.total_messages / stats.total_sessions).toFixed(1) : '0';
   const toolsPerSession = stats.total_sessions > 0 ? (stats.total_tool_calls / stats.total_sessions).toFixed(1) : '0';
   const formatTokens = (n: number) => {
@@ -1049,8 +1049,33 @@ const UsageStats: React.FC = () => {
   const isSubscription = stats.cost_source === '9router';
   const costSourceLabel = isSubscription ? 'saved with your subscription' : stats.cost_source === 'sdk' ? 'via API' : '';
 
+  // Quirky savings nudge (subscription users only): what their token usage would've cost at API
+  // rates, framed a little differently each day so it stays fun without nagging.
+  const savedAmt = stats.total_cost_usd || 0;
+  const sessionsLabel = (stats.total_sessions || 0).toLocaleString();
+  const lattes = Math.max(1, Math.round(savedAmt / 5.75));
+  const savingsQuips = [
+    `You've sidestepped ${formatCost(savedAmt)} in API fees by routing ${sessionsLabel} agent runs through your own subscriptions. The meter never blinked.`,
+    `${formatCost(savedAmt)} saved, about ${lattes} oat-milk latte${lattes === 1 ? '' : 's'} you didn't expense to a token meter.`,
+    `Your subscriptions quietly did the work of a ${formatCost(savedAmt)} API bill. OpenSwarm just drove around the toll booth.`,
+    `${formatCost(savedAmt)} that stayed in your wallet across ${sessionsLabel} sessions. Per-token guilt: zero.`,
+  ];
+  const savingsQuip = savingsQuips[Math.floor(Date.now() / 86_400_000) % savingsQuips.length];
+
   return (
     <Box sx={{ mb: 2.5 }}>
+      {isSubscription && savedAmt > 1 && (
+        <Box sx={{
+          mb: 1.5, px: 1.5, py: 1, borderRadius: `${c.radius.md}px`,
+          bgcolor: `${c.accent.primary}0F`, border: `1px solid ${c.accent.primary}26`,
+          display: 'flex', alignItems: 'center', gap: 1,
+        }}>
+          <Typography sx={{ fontSize: '0.95rem', lineHeight: 1 }}>✨</Typography>
+          <Typography sx={{ fontSize: '0.74rem', color: c.text.secondary, fontStyle: 'italic', lineHeight: 1.4 }}>
+            {savingsQuip}
+          </Typography>
+        </Box>
+      )}
       <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 1, mb: 1 }}>
         <Box sx={cardSx}>
           <Typography sx={labelSx}>Total Sessions</Typography>
