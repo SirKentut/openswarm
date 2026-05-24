@@ -581,7 +581,27 @@ async def list_models():
         if anth_alternates:
             result["Anthropic"] = _serialize(anth_alternates)
     elif has_api_key or has_claude_sub:
-        result["Anthropic"] = _serialize(adaptive)
+        rows = _serialize(adaptive)
+        # When an Anthropic key is set, these adaptive rows run on it: own-key routing prefers the
+        # user's key over any sub (agent_manager + anthropic_proxy._pick_upstream), so it holds even
+        # with a Claude sub connected. Label + bucket as API key (not 9router-state dependent).
+        if has_api_key:
+            for r in rows:
+                if not r["label"].endswith("(API key)"):
+                    r["label"] += " (API key)"
+                r["billing_kind"] = "api_key"
+                r["is_free"] = False
+        elif has_claude_sub:
+            # Only a sub: the adaptive rows route through 9router's cc/ lane, so they're covered
+            # by the subscription, not pay-per-use.
+            for r in rows:
+                r["billing_kind"] = "subscription"
+        # With BOTH a key and a sub the adaptive rows above run on the key, so also surface the
+        # subscription (cc) variants; they route via 9router's cc/ lane and stay selectable, the
+        # way OpenAI/Gemini show both a subscription row and an API-key row.
+        if has_api_key and has_claude_sub:
+            rows += _serialize(cc_variants)
+        result["Anthropic"] = rows
 
     has_openai_key = bool(getattr(settings, "openai_api_key", None))
     has_google_key = bool(getattr(settings, "google_api_key", None))
