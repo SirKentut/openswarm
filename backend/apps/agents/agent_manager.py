@@ -27,6 +27,7 @@ from backend.apps.tools_lib.tools_lib import (
     save_trusted_sensitive_paths,
 )
 from backend.config.paths import SESSIONS_DIR
+from backend.config.json_store import read_json_or_none, atomic_write_json
 from backend.apps.service.client import sync as _sync
 
 logger = logging.getLogger(__name__)
@@ -83,16 +84,11 @@ def _apply_context_window(session, settings=None) -> None:
 
 def _save_session(session_id: str, doc_data: dict):
     os.makedirs(SESSIONS_DIR, exist_ok=True)
-    with open(os.path.join(SESSIONS_DIR, f"{session_id}.json"), "w") as f:
-        json.dump(doc_data, f, indent=2)
+    atomic_write_json(os.path.join(SESSIONS_DIR, f"{session_id}.json"), doc_data)
 
 
 def _load_session_data(session_id: str) -> dict | None:
-    path = os.path.join(SESSIONS_DIR, f"{session_id}.json")
-    if not os.path.exists(path):
-        return None
-    with open(path) as f:
-        return json.load(f)
+    return read_json_or_none(os.path.join(SESSIONS_DIR, f"{session_id}.json"))
 
 
 def _delete_session_file(session_id: str):
@@ -206,8 +202,9 @@ def _load_all_session_data() -> list[tuple[str, dict]]:
         return results
     for fname in os.listdir(SESSIONS_DIR):
         if fname.endswith(".json"):
-            with open(os.path.join(SESSIONS_DIR, fname)) as f:
-                results.append((fname[:-5], json.load(f)))
+            data = read_json_or_none(os.path.join(SESSIONS_DIR, fname))
+            if data is not None:
+                results.append((fname[:-5], data))
     return results
 
 FULL_TOOLS = [

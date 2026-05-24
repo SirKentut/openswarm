@@ -20,6 +20,7 @@ from fastapi import HTTPException
 logger = logging.getLogger(__name__)
 
 from backend.config.paths import DASHBOARDS_DIR as DATA_DIR, SESSIONS_DIR, DASHBOARD_LAYOUT_DIR as OLD_LAYOUT_DIR
+from backend.config.json_store import read_json_or_none, atomic_write_json
 
 OLD_LAYOUT_FILE = os.path.join(OLD_LAYOUT_DIR, "layout.json")
 
@@ -30,22 +31,28 @@ def _load_all() -> list[Dashboard]:
         return result
     for fname in os.listdir(DATA_DIR):
         if fname.endswith(".json"):
-            with open(os.path.join(DATA_DIR, fname)) as f:
-                result.append(Dashboard(**json.load(f)))
+            data = read_json_or_none(os.path.join(DATA_DIR, fname))
+            if data is None:
+                continue
+            try:
+                result.append(Dashboard(**data))
+            except Exception as e:
+                # Parseable JSON, wrong shape (e.g. an older/newer schema). Skip from the
+                # list but leave the file alone so a later version can still read it.
+                logger.warning("Skipping invalid dashboard file %s: %s", fname, e)
     return result
 
 
 def _save(dashboard: Dashboard):
-    with open(os.path.join(DATA_DIR, f"{dashboard.id}.json"), "w") as f:
-        json.dump(dashboard.model_dump(mode="json"), f, indent=2)
+    atomic_write_json(os.path.join(DATA_DIR, f"{dashboard.id}.json"), dashboard.model_dump(mode="json"))
 
 
 def _load(dashboard_id: str) -> Dashboard:
     path = os.path.join(DATA_DIR, f"{dashboard_id}.json")
-    if not os.path.exists(path):
+    data = read_json_or_none(path)
+    if data is None:
         raise HTTPException(status_code=404, detail="Dashboard not found")
-    with open(path) as f:
-        return Dashboard(**json.load(f))
+    return Dashboard(**data)
 
 
 def _delete(dashboard_id: str):
@@ -83,11 +90,13 @@ def _migrate_if_needed():
             if not fname.endswith(".json"):
                 continue
             fpath = os.path.join(SESSIONS_DIR, fname)
-            with open(fpath) as f:
-                session_data = json.load(f)
+            # Per-file guard: one unreadable session must not halt the migration partway
+            # and orphan the rest (the dashboard is already created above).
+            session_data = read_json_or_none(fpath)
+            if session_data is None:
+                continue
             session_data["dashboard_id"] = dashboard.id
-            with open(fpath, "w") as f:
-                json.dump(session_data, f, indent=2)
+            atomic_write_json(fpath, session_data)
             count += 1
         if count:
             logger.info(f"Tagged {count} existing chat sessions with dashboard_id={dashboard.id}")
@@ -189,8 +198,7 @@ async def seed_demo(dashboard_id: str):
     }
 
     os.makedirs(SESSIONS_DIR, exist_ok=True)
-    with open(os.path.join(SESSIONS_DIR, f"{session_id}.json"), "w") as f:
-        json.dump(session_data, f, indent=2)
+    atomic_write_json(os.path.join(SESSIONS_DIR, f"{session_id}.json"), session_data)
 
     return {"session_id": session_id}
 
@@ -281,8 +289,7 @@ async def seed_orchestration_demo(dashboard_id: str):
     }
 
     os.makedirs(SESSIONS_DIR, exist_ok=True)
-    with open(os.path.join(SESSIONS_DIR, f"{session_id}.json"), "w") as f:
-        json.dump(session_data, f, indent=2)
+    atomic_write_json(os.path.join(SESSIONS_DIR, f"{session_id}.json"), session_data)
 
     return {"session_id": session_id}
 
@@ -424,7 +431,6 @@ async def duplicate_dashboard(dashboard_id: str):
             "browser_cards": source_data.get("layout", {}).get("browser_cards", {}),
         },
     }
-    with open(os.path.join(DATA_DIR, f"{new_id}.json"), "w") as f:
-        json.dump(new_dashboard, f, indent=2)
+    atomic_write_json(os.path.join(DATA_DIR, f"{new_id}.json"), new_dashboard)
 
     return new_dashboard

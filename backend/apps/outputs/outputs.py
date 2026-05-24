@@ -65,6 +65,7 @@ def _validate_against_schema(data: dict, schema: dict) -> str | None:
         return f"Schema validation failed at {path}: {exc.message}"
 
 from backend.config.paths import OUTPUTS_DIR as DATA_DIR, OUTPUTS_WORKSPACE_DIR as WORKSPACE_DIR
+from backend.config.json_store import read_json_or_none, atomic_write_json
 
 
 def _build_data_injection(input_json: str, result_json: str, backend_url_json: str = "null") -> str:
@@ -204,31 +205,31 @@ def _load_all() -> list[Output]:
         return result
     for fname in os.listdir(DATA_DIR):
         if fname.endswith(".json"):
-            with open(os.path.join(DATA_DIR, fname)) as f:
-                result.append(Output(**json.load(f)))
+            data = read_json_or_none(os.path.join(DATA_DIR, fname))
+            if data is None:
+                continue
+            try:
+                result.append(Output(**data))
+            except Exception as e:
+                logger.warning("Skipping invalid output file %s: %s", fname, e)
     return result
 
 
 def _save(output: Output):
-    with open(os.path.join(DATA_DIR, f"{output.id}.json"), "w") as f:
-        json.dump(output.model_dump(), f, indent=2)
+    atomic_write_json(os.path.join(DATA_DIR, f"{output.id}.json"), output.model_dump())
 
 
 def _load(output_id: str) -> Output:
-    path = os.path.join(DATA_DIR, f"{output_id}.json")
-    if not os.path.exists(path):
+    data = read_json_or_none(os.path.join(DATA_DIR, f"{output_id}.json"))
+    if data is None:
         raise HTTPException(status_code=404, detail="Output not found")
-    with open(path) as f:
-        return Output(**json.load(f))
+    return Output(**data)
 
 
 def load_output(output_id: str) -> Output | None:
     """Public helper for other modules to resolve an output by ID."""
-    path = os.path.join(DATA_DIR, f"{output_id}.json")
-    if not os.path.exists(path):
-        return None
-    with open(path) as f:
-        return Output(**json.load(f))
+    data = read_json_or_none(os.path.join(DATA_DIR, f"{output_id}.json"))
+    return Output(**data) if data is not None else None
 
 
 # Build/install/cache directories that the polling endpoint must never
