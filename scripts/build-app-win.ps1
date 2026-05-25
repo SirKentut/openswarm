@@ -427,19 +427,18 @@ try {
 Remove-Item -Recurse -Force $Staging -ErrorAction SilentlyContinue
 
 # --- Step 5b: Stable-named installer alias for the website download button ---
-# electron-builder's Squirrel target ignores `artifactName`, so the installer
-# ships as `openswarm-Setup-<version>.exe` (lowercase, version-stamped). The
-# openswarm.com Windows button links to a fixed name, so without this alias
-# every release 404s. The DMG target DOES honor artifactName, which is why
-# macOS never hit this. The alias is a byte copy of the already-signed
-# installer (signature preserved) and is invisible to the Squirrel updater,
-# which keys off RELEASES + .nupkg, not the installer filename.
+# Squirrel names the local installer per `artifactName` (in
+# dist\squirrel-windows\) but RENAMES the published asset to
+# `openswarm-Setup-<version>.exe`, so the fixed openswarm.com download link
+# 404s without this stable-named copy. -Recurse because the .exe sits in the
+# squirrel-windows\ subdir, not the dist\ root. Byte copy keeps the signature;
+# invisible to the updater, which keys off RELEASES + .nupkg, not the filename.
 if ($Publish) {
     Write-Host "[5b/5] Uploading stable-named installer alias (OpenSwarm-Setup-x64.exe)..."
     $version  = (Get-Content -Raw (Join-Path $ProjectRoot 'electron\package.json') | ConvertFrom-Json).version
     $DistDir  = Join-Path $ProjectRoot 'electron\dist'
-    $SetupExe = Get-ChildItem -Path $DistDir -Filter '*Setup*.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
-    if (-not $SetupExe) { throw "No Squirrel Setup .exe found in $DistDir to alias" }
+    $SetupExe = Get-ChildItem -Path $DistDir -Recurse -Filter '*Setup*.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
+    if (-not $SetupExe) { throw "No Squirrel Setup .exe found under $DistDir to alias" }
     if (-not (Get-Command gh -ErrorAction SilentlyContinue)) {
         throw "gh CLI not found; cannot upload OpenSwarm-Setup-x64.exe alias (install gh or upload it manually)"
     }
