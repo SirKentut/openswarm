@@ -10,7 +10,6 @@ import EditOutlined from '@mui/icons-material/EditOutlined';
 import { useClaudeTokens } from '@/shared/styles/ThemeContext';
 import { useAppDispatch, useAppSelector } from '@/shared/hooks';
 import {
-  closeWorkflowCard,
   createWorkflow,
   toggleExpandedStep,
   updateWorkflow,
@@ -18,7 +17,6 @@ import {
   type Workflow,
   type WorkflowRun,
 } from '@/shared/state/workflowsSlice';
-import { removeWorkflowCard } from '@/shared/state/dashboardLayoutSlice';
 import { CostChip, humanDuration, routingFor, StreakBadge } from './workflowVisuals';
 import StepList from './StepList';
 
@@ -114,6 +112,12 @@ export function PreviewView({ workflowId, steps, sourceSessionId, initialDraft, 
   const liveDraft = (card?.draft ?? initialDraft ?? {}) as Partial<Workflow>;
   const title = (liveDraft.title as string) || 'New workflow';
   const description = (liveDraft.description as string) || '';
+  // The new workflow runs with the user's configured default model/mode (their
+  // subscription, etc.), falling back to whatever the source chat used. Without
+  // this the backend picks its own default, which surprised users who'd set a
+  // subscription default but saw the workflow created on an API-key model.
+  const defaultModel = useAppSelector((s) => s.settings.data.default_model);
+  const defaultMode = useAppSelector((s) => s.settings.data.default_mode);
   // Steps render compact (label + chevron, capped + "... N more"), same as
   // the saved card. The raw prompt drills down on click. Keeping them short
   // is what leaves room for the schedule prompt + buttons to stay on-card.
@@ -122,58 +126,64 @@ export function PreviewView({ workflowId, steps, sourceSessionId, initialDraft, 
     dispatch(toggleExpandedStep({ workflowId, stepId }));
   }, [dispatch, workflowId]);
 
-  const onDiscard = useCallback(() => {
-    dispatch(closeWorkflowCard(workflowId));
-    dispatch(removeWorkflowCard(workflowId));
-  }, [dispatch, workflowId]);
-
   const onChangeDescription = useCallback((value: string) => {
     dispatch(updateWorkflowCard({ workflowId, patch: { draft: { ...liveDraft, description: value } } }));
   }, [dispatch, workflowId, liveDraft]);
 
-  // The Save flow auto-creates the workflow, then prompts the user to schedule it
-  // (Image #7). Ignore = save without schedule. Schedule = open the scheduling
-  // composer (slice 3 wires this to the natural-language input).
+  // Both buttons persist the workflow; the only difference is where they land.
+  // Ignore = save and show the saved card. Schedule = save then open the
+  // natural-language scheduling composer. (Ignore used to delete the card,
+  // which surprised people; the schedule prompt is optional, the workflow isn't.)
+  const saveWorkflow = useCallback(async (): Promise<Workflow | null> => {
+    const result = await dispatch(createWorkflow({
+      title,
+      description,
+      steps: steps.map((s) => ({ id: s.id, text: s.text })),
+      source_session_id: sourceSessionId,
+      use_synced_prompt: true,
+      // The user's configured default wins over whatever model the source chat
+      // happened to run on, so a converted workflow behaves like a fresh chat.
+      model: defaultModel || (liveDraft.model as string),
+      mode: defaultMode || (liveDraft.mode as string),
+    } as Partial<Workflow>));
+    const wf = (result as unknown as { payload: Workflow }).payload;
+    if (wf?.id) { onSaved(wf); return wf; }
+    return null;
+  }, [dispatch, title, description, steps, sourceSessionId, onSaved, liveDraft, defaultModel, defaultMode]);
+
+  const onIgnore = useCallback(async () => {
+    if (busy) return;
+    setBusy(true);
+    try { await saveWorkflow(); } finally { setBusy(false); }
+  }, [busy, saveWorkflow]);
+
   const onSaveThenSchedule = useCallback(async () => {
     if (busy) return;
     setBusy(true);
     try {
-      const result = await dispatch(createWorkflow({
-        title,
-        description,
-        steps: steps.map((s) => ({ id: s.id, text: s.text })),
-        source_session_id: sourceSessionId,
-        use_synced_prompt: true,
-      } as Partial<Workflow>));
-      const wf = (result as unknown as { payload: Workflow }).payload;
-      if (wf?.id) {
-        onSaved(wf);
-        // Route to the new SchedulingView (Image #49), not the legacy
-        // facet editor. The old `view: 'edit', editFacet: 'Schedule'`
-        // path opens a different design entirely.
-        dispatch(updateWorkflowCard({ workflowId: wf.id, patch: { view: 'scheduling' } }));
-      }
+      const wf = await saveWorkflow();
+      if (wf?.id) dispatch(updateWorkflowCard({ workflowId: wf.id, patch: { view: 'scheduling' } }));
     } finally {
       setBusy(false);
     }
-  }, [busy, dispatch, title, description, steps, sourceSessionId, onSaved]);
+  }, [busy, saveWorkflow, dispatch]);
 
   void onChangeDescription;
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.25, minHeight: '100%' }}>
       <StepList steps={steps} expandable expandedIds={expandedIds} onToggleExpand={onToggleStep} />
       <Box sx={{ flex: 1 }} />
-      {/* Schedule prompt card. Soft warning-gold tint + calendar icon, matching
-          Image #35. Gold is the same token the HITL/human-intervention UI uses. */}
+      {/* Schedule prompt card. Soft accent tint + calendar icon. Accent is the
+          same color the human-intervention (AskUserQuestion) popup uses. */}
       <Box sx={{
         display: 'flex', alignItems: 'flex-start', gap: 1.25,
         p: 1.5, borderRadius: `${c.radius.lg}px`,
-        bgcolor: c.status.warning + '10',
-        border: `1px solid ${c.status.warning}30`,
+        bgcolor: c.accent.primary + '10',
+        border: `1px solid ${c.accent.primary}30`,
       }}>
         <Box sx={{
           width: 32, height: 32, borderRadius: `${c.radius.md}px`,
-          bgcolor: c.status.warning + '22', color: c.status.warning,
+          bgcolor: c.accent.primary + '22', color: c.accent.primary,
           display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
         }}>
           <CalendarMonthRounded sx={{ fontSize: 18 }} />
@@ -189,11 +199,12 @@ export function PreviewView({ workflowId, steps, sourceSessionId, initialDraft, 
       </Box>
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 1.5 }}>
         <Box
-          onClick={onDiscard}
+          onClick={onIgnore}
           role="button"
           sx={{
             fontSize: '0.86rem', fontWeight: 500, color: c.text.secondary,
-            cursor: 'pointer', px: 0.75, py: 0.5,
+            cursor: busy ? 'wait' : 'pointer', px: 0.75, py: 0.5,
+            opacity: busy ? 0.6 : 1,
             '&:hover': { color: c.text.primary },
           }}>
           Ignore
@@ -205,10 +216,10 @@ export function PreviewView({ workflowId, steps, sourceSessionId, initialDraft, 
             display: 'inline-flex', alignItems: 'center', gap: 0.5,
             fontSize: '0.88rem', fontWeight: 700,
             px: 1.75, py: 0.6, borderRadius: 999,
-            color: '#fff', bgcolor: c.status.warning,
+            color: '#fff', bgcolor: c.accent.primary,
             cursor: busy ? 'wait' : 'pointer',
             opacity: busy ? 0.6 : 1,
-            '&:hover': { bgcolor: c.status.warning, filter: 'brightness(1.06)' },
+            '&:hover': { bgcolor: c.accent.primary, filter: 'brightness(1.06)' },
           }}>
           Schedule Workflow
         </Box>

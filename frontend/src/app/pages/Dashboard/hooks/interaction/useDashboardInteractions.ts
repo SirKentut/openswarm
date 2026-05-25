@@ -72,7 +72,16 @@ export function useDashboardInteractions({
     setTimeout(() => {
       const rect = getCardRect(id, type);
       if (rect) canvas.actions.fitToCards([rect], 1.15, true, type === 'browser' ? 0.8 : undefined);
-      setTimeout(() => (document.activeElement as HTMLElement)?.blur?.(), 150);
+      setTimeout(() => {
+        // Don't blur an input/textarea/contentEditable the user is typing in
+        // (e.g. a workflow card's embedded chat); the click that selected the
+        // card also focused the field, and blurring it kills the cursor.
+        const active = document.activeElement as HTMLElement | null;
+        if (!active) return;
+        const tag = active.tagName;
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || active.isContentEditable) return;
+        active.blur?.();
+      }, 150);
     }, 100);
   }, [selection, getCardRect, canvas.actions, dispatch, expandedSessionIds]);
 
@@ -152,7 +161,16 @@ export function useDashboardInteractions({
     setTimeout(() => {
       const rect = getCardRect(id, type);
       if (rect) canvas.actions.fitToCards([rect], 1.15, true);
-      setTimeout(() => (document.activeElement as HTMLElement)?.blur?.(), 150);
+      setTimeout(() => {
+        // Don't blur an input/textarea/contentEditable the user is typing in
+        // (e.g. a workflow card's embedded chat); the click that selected the
+        // card also focused the field, and blurring it kills the cursor.
+        const active = document.activeElement as HTMLElement | null;
+        if (!active) return;
+        const tag = active.tagName;
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || active.isContentEditable) return;
+        active.blur?.();
+      }, 150);
     }, 100);
   }, [getCardRect, canvas.actions, dispatch]);
 

@@ -190,7 +190,7 @@ const DashboardToolbar = React.forwardRef<HTMLDivElement, Props>(
       );
     }, [outputList, viewSearch]);
 
-    const shortcutLabel = shortcut
+    const shortcutLabel = (shortcut || '')
       .split('+')
       .map((p) => {
         if (p === 'Meta') return '⌘';

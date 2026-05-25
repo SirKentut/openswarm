@@ -6,7 +6,7 @@
 // ScheduleConfig in a confirmation modal (the "always ask permission"
 // stand-in for the schedule_workflow tool call), and PATCH on confirm.
 
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 import Dialog from '@mui/material/Dialog';
@@ -62,6 +62,23 @@ export default function SchedulingView({ workflow, steps }: Props) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState<ScheduleConfig | null>(null);
+
+  // The composer behaves like any normal chat: it defaults to the user's
+  // configured default model/mode (e.g. their subscription model), not the
+  // workflow's stored run model, and its pickers actually work.
+  const defaultModel = _useAppSelector((s) => s.settings.data.default_model);
+  const defaultMode = _useAppSelector((s) => s.settings.data.default_mode);
+  const settingsLoaded = _useAppSelector((s) => s.settings.loaded);
+  const [chatModel, setChatModel] = useState(defaultModel || 'sonnet');
+  const [chatMode, setChatMode] = useState(defaultMode || 'agent');
+  const settingsApplied = useRef(false);
+  useEffect(() => {
+    if (settingsLoaded && !settingsApplied.current) {
+      setChatModel(defaultModel || 'sonnet');
+      setChatMode(defaultMode || 'agent');
+      settingsApplied.current = true;
+    }
+  }, [settingsLoaded, defaultModel, defaultMode]);
 
   const onCancel = useCallback(() => {
     dispatch(updateWorkflowCard({ workflowId: workflow.id, patch: { view: 'saved' } }));
@@ -136,21 +153,10 @@ export default function SchedulingView({ workflow, steps }: Props) {
           Cancel task scheduling
         </Box>
       </Box>
-      <Box sx={{
-        p: 1.5, borderRadius: `${c.radius.lg}px`,
-        border: `1px solid ${c.border.subtle}`, bgcolor: c.bg.elevated,
-      }}>
-        <StepList steps={steps} />
-      </Box>
-      <Box sx={{
-        p: 1.5, borderRadius: `${c.radius.lg}px`,
-        bgcolor: c.bg.surface,
-        border: `1px solid ${c.border.subtle}`,
-      }}>
-        <Typography sx={{ fontSize: '0.92rem', color: c.text.primary, lineHeight: 1.45 }}>
-          When should this workflow run (e.g. every Wednesday at 1pm)
-        </Typography>
-      </Box>
+      <StepList steps={steps} />
+      <Typography sx={{ fontSize: '0.92rem', color: c.text.secondary, lineHeight: 1.45, mt: 0.5 }}>
+        When should this workflow run (e.g. every Wednesday at 1pm)
+      </Typography>
       {error && (
         <Typography sx={{ fontSize: '0.82rem', color: c.status.error }}>{error}</Typography>
       )}
@@ -164,10 +170,10 @@ export default function SchedulingView({ workflow, steps }: Props) {
       <Box sx={{ mx: -0.5 }}>
         <ChatInput
           onSend={(msg) => { void onSubmit(msg); }}
-          mode={workflow.mode || 'agent'}
-          onModeChange={() => { /* schedule chat doesn't persist mode */ }}
-          model={workflow.model || 'sonnet'}
-          onModelChange={() => { /* schedule chat doesn't persist model */ }}
+          mode={chatMode}
+          onModeChange={setChatMode}
+          model={chatModel}
+          onModelChange={setChatModel}
           embedded
           autoFocus
           sessionId={`schedule-${workflow.id}`}
