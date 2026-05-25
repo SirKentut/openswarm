@@ -3,9 +3,10 @@ import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 import Select from '@mui/material/Select';
 import MenuItem from '@mui/material/MenuItem';
+import ArrowBackRounded from '@mui/icons-material/ArrowBackRounded';
 import { useClaudeTokens } from '@/shared/styles/ThemeContext';
 import { useAppDispatch } from '@/shared/hooks';
-import { updateWorkflow, type Workflow } from '@/shared/state/workflowsSlice';
+import { updateWorkflow, updateWorkflowCard, type Workflow } from '@/shared/state/workflowsSlice';
 import { validateDraft } from './permissionsUtils';
 import { ActionBtn, HINT_FS, LABEL_FS } from './workflowEditCommon';
 import GeneralFacet from './GeneralFacet';
@@ -103,6 +104,18 @@ export default function WorkflowEditViews({ workflow, facet, onChangeFacet, onDi
           as two distinct groups, not five evenly-spaced chips. */}
       <Box sx={{ display: 'flex', alignItems: 'center', flexWrap: 'nowrap', minWidth: 0, py: 0.5 }}>
         <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 1, flexShrink: 0 }}>
+          <Box
+            onClick={() => dispatch(updateWorkflowCard({ workflowId: workflow.id, patch: { view: 'saved' } }))}
+            role="button"
+            aria-label="Back"
+            sx={{
+              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+              width: 26, height: 26, borderRadius: 999, mr: 0.25,
+              color: c.text.secondary, cursor: 'pointer',
+              '&:hover': { color: c.text.primary, bgcolor: c.bg.elevated },
+            }}>
+            <ArrowBackRounded sx={{ fontSize: 17 }} />
+          </Box>
           <Typography sx={{ fontSize: LABEL_FS, color: c.text.secondary, fontWeight: 500 }}>Currently Editing</Typography>
           <Select
             size="small"

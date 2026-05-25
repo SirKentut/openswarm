@@ -978,6 +978,9 @@ app.whenReady().then(async () => {
       backendPort = parseInt(process.env.OPENSWARM_PORT || '8324', 10);
       console.log(`Dev mode: using existing backend on port ${backendPort}`);
       emitSplashStatus('Connecting to dev backend…');
+      // Load the token before marking ready, same as prod, so the workflow
+      // poller's setBackend() gets a real token instead of '' (else it 401s).
+      await loadAuthToken();
       markBackendReady();
     } else {
       // Kick off backend without awaiting so the window can paint while Python is still cold-starting. Renderer fetches lazy-await markBackendReady() via the get-auth-token IPC; splash status updates still fire from inside startBackend.

@@ -356,6 +356,12 @@ const WorkflowCard: React.FC<Props> = ({
   const displayY = localResize?.y ?? localDragPos?.y ?? (cardY + mdDy);
   const displayW = localResize?.w ?? cardWidth;
   const displayH = localResize?.h ?? cardHeight;
+  // Chat views embed a full AgentChat that needs a fixed scroll viewport;
+  // every other view should size to its content so nothing is cut off and
+  // there's no dead space below short content. While the user is actively
+  // resizing, honor the dragged height.
+  const isChatView = card?.view === 'edit_agent' || card?.view === 'fix_agent';
+  const autoHeight = !isChatView && !localResize && !isResizing;
   const noTransition = isDragging || isResizing || (isSelected && !!multiDragDelta);
 
   if (!card) return null;
@@ -412,7 +418,8 @@ const WorkflowCard: React.FC<Props> = ({
         left: displayX,
         top: displayY,
         width: displayW,
-        height: displayH,
+        height: autoHeight ? 'auto' : displayH,
+        maxHeight: autoHeight ? 'min(82vh, 760px)' : undefined,
         borderRadius: '14px',
         border,
         bgcolor: c.bg.surface,
@@ -507,7 +514,7 @@ const WorkflowCard: React.FC<Props> = ({
             label="History"
             icon={<HistoryIcon sx={{ fontSize: 16 }} />}
             active={card.view === 'history' || card.view === 'history_detail'}
-            onClick={() => dispatch(updateWorkflowCard({ workflowId, patch: { view: 'history' } }))}
+            onClick={() => dispatch(updateWorkflowCard({ workflowId, patch: { view: (card.view === 'history' || card.view === 'history_detail') ? 'saved' : 'history' } }))}
           />
           <TabBtn
             label={runStarting ? 'Starting…' : 'Run'}

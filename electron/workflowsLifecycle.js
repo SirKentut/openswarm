@@ -48,7 +48,9 @@ function fetchJson(pathStr) {
 }
 
 async function getActive() {
-  const res = await fetchJson('/workflows/active');
+  // Must hit the /api prefix; the bare path 401s and would leave the
+  // powerSaveBlocker + updater-veto blind to in-flight runs.
+  const res = await fetchJson('/api/workflows/active');
   if (!res || !Array.isArray(res.active)) return [];
   return res.active;
 }

@@ -68,7 +68,9 @@ export default function StepList(props: Props) {
             left: CONNECTOR_X - 0.5,
             top: CIRCLE_SIZE * 0.5,
             bottom: CIRCLE_SIZE * 0.5,
-            width: 1,
+            // '1px' not 1: MUI sx treats width:1 as 100%, which rendered the
+            // connector as a full-width grey band behind the steps.
+            width: '1px',
             bgcolor: c.border.medium,
             opacity: 0.65,
           }}

@@ -228,12 +228,7 @@ export default function EditAgentView({ workflow, steps, isFixMode = false }: Pr
           tone="filled"
         />
       </Box>
-      <Box sx={{
-        p: 1.5, borderRadius: `${c.radius.lg}px`,
-        border: `1px solid ${c.border.subtle}`, bgcolor: c.bg.elevated,
-      }}>
-        <StepList steps={steps} />
-      </Box>
+      <StepList steps={steps} />
       {isFixMode && fixSeed && <FixPrefixCard seed={fixSeed} expanded={fixPrefixExpanded} onToggle={() => setFixPrefixExpanded((x) => !x)} />}
       {/* Embedded real Edit Agent chat. AgentChat owns the composer +
           message list + tool-call card rendering, matching Image #48
