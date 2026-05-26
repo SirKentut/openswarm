@@ -6,9 +6,11 @@ interface CursorPos {
   x: number;
   y: number;
   visible: boolean;
+  // Windows-only: the motionWin shim strips Framer's spring, so the cursor wrapper eases via CSS transition. `instant` tells it to disable the transition for this update — set true while tracking a (mostly stationary) element so the cursor snaps like Mac's controls.set, false for moveTo/fadeOut so it eases like controls.start. Ignored on Mac (Framer drives the motion).
+  instant: boolean;
 }
 
-let state: CursorPos = { x: 0, y: 0, visible: false };
+let state: CursorPos = { x: 0, y: 0, visible: false, instant: true };
 let pendingState: CursorPos | null = null;
 const listeners = new Set<() => void>();
 

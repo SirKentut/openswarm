@@ -67,10 +67,10 @@ const AgenticCursor = forwardRef<AgenticCursorHandle>((_props, ref) => {
 
   const trackerRef = useRef<{ stop: () => void } | null>(null);
 
-  // Mirrored into cursorStore so popups follow without re-running through Framer's animation pipeline.
-  const writePos = (x: number, y: number, vis = true) => {
+  // Mirrored into cursorStore so popups follow without re-running through Framer's animation pipeline. `instant` controls the Windows CSS-transition fallback: true = snap (tracking), false = ease (moveTo/fadeOut). No-op on Mac.
+  const writePos = (x: number, y: number, vis = true, instant = true) => {
     posRef.current = { x, y };
-    cursorStore.set({ x, y, visible: vis });
+    cursorStore.set({ x, y, visible: vis, instant });
   };
 
   const stopTrackingInternal = () => {
@@ -100,17 +100,18 @@ const AgenticCursor = forwardRef<AgenticCursorHandle>((_props, ref) => {
     async moveTo(x, y, transition) {
       // Stop prior tracker so it doesn't snap the cursor back to its old anchor mid-animation.
       stopTrackingInternal();
+      // instant=false so the Windows CSS-transition eases here (mirrors Mac's spring controls.start).
+      writePos(x, y, true, false);
       await controls.start({
         x,
         y,
         transition: transition ?? SPRING,
       });
-      writePos(x, y, true);
     },
     async fadeOut(to) {
       stopTrackingInternal();
+      writePos(to.x, to.y, true, false);
       await controls.start({ x: to.x, y: to.y, transition: SPRING });
-      writePos(to.x, to.y, true);
       await controls.start({
         opacity: 0,
         scale: 0.5,
@@ -262,8 +263,8 @@ const AgenticCursor = forwardRef<AgenticCursorHandle>((_props, ref) => {
           ...(IS_WIN
             ? {
                 transform: `translate(${storePos.x}px, ${storePos.y}px)`,
-                // Closest CSS approximation of the Mac spring (stiffness 260, damping 26): a softly easing ~420ms cubic-bezier. Without this the cursor teleports because the shim strips Framer's spring runtime.
-                transition: 'transform 420ms cubic-bezier(0.22, 1, 0.36, 1)',
+                // Closest CSS approximation of the Mac spring (stiffness 260, damping 26): a softly easing ~420ms cubic-bezier for moveTo/fadeOut. Tracking sets instant=true so the cursor snaps to its target each frame instead of perpetually lagging behind.
+                transition: storePos.instant ? 'none' : 'transform 420ms cubic-bezier(0.22, 1, 0.36, 1)',
                 willChange: 'transform',
               }
             : null),
