@@ -54,6 +54,24 @@ init_auth_token()
 # proxied-request error bodies) gets redacted before hitting handlers.
 install_token_scrubber()
 
+# Generate the per-install id (installation_id) at the same pre-bind moment
+# as the auth token. It is otherwise created lazily on the first analytics
+# submission, so on a clean install the sign-in window can render and build
+# its Google/email OAuth URL (which embeds install_id) before that
+# submission fires, producing an empty install_id that the cloud rejects.
+# Generating here guarantees the very first GET /api/settings already
+# carries it. Platform-agnostic; wrapped so a settings hiccup never blocks
+# startup, and the lazy path stays as a fallback.
+try:
+    import uuid as _uuid
+    from backend.apps.settings.store import load_settings as _load_boot_settings, save_settings as _save_boot_settings
+    _boot_settings = _load_boot_settings()
+    if not getattr(_boot_settings, "installation_id", None):
+        _boot_settings.installation_id = _uuid.uuid4().hex
+        _save_boot_settings(_boot_settings)
+except Exception:
+    pass
+
 
 # CORS: previously wide open (`allow_origins=["*"]`), which combined with
 # `allow_credentials=True` was a security footgun, any external origin
