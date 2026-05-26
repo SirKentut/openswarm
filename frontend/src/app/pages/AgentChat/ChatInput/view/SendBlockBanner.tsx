@@ -16,6 +16,8 @@ interface Props {
 }
 
 export const SendBlockBanner: React.FC<Props> = ({ sendBlock, c, sessionId, setSendBlock, setContextPaths, setModelAnchor }) => {
+  // eslint-disable-next-line no-console
+  console.log('[diag][SendBlockBanner:render]', sessionId);
   const fmt = (n: number) => n >= 1000 ? `${(n / 1000).toFixed(1)}K` : String(n);
   const over = sendBlock.estimate - sendBlock.window;
   return (

@@ -43,6 +43,8 @@ export const AttachmentChips: React.FC<Props> = ({
   forcedTools, setForcedTools,
   selectedElements, elementSelection, ownerId,
 }) => {
+  // eslint-disable-next-line no-console
+  console.log('[diag][AttachmentChips:render]', 'images=', images.length, 'paths=', contextPaths.length, 'tools=', forcedTools.length);
   return (
     <>
       {images.length > 0 && (

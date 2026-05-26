@@ -25,6 +25,8 @@ export const ChatInputOverlays: React.FC<Props> = ({
   c, lightboxSrc, setLightboxSrc, oversizeQueue, summarizingPath, summarizeOversize,
   detachOversize, currentModelCtx, summarizeError, setSummarizeError,
 }) => {
+  // eslint-disable-next-line no-console
+  console.log('[diag][ChatInputOverlays:render]', 'lightbox=', !!lightboxSrc, 'oversize=', oversizeQueue && oversizeQueue.length);
   return (
     <>
       <Modal
