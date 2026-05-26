@@ -12,9 +12,6 @@ import type {
   ViewCardPosition,
   BrowserCardPosition,
   NotePosition,
-  WorkflowCardPosition,
-  WorkflowsHubPosition,
-  ConfigurePanelPosition,
 } from '@/shared/state/dashboardLayoutSlice';
 import type { Output } from '@/shared/state/outputsSlice';
 import type { CardType, useDashboardSelection } from '../hooks/state/useDashboardSelection';
@@ -40,9 +37,6 @@ interface DashboardCanvasProps {
   viewCards: Record<string, ViewCardPosition>;
   browserCards: Record<string, BrowserCardPosition>;
   notes: Record<string, NotePosition>;
-  workflowCards: Record<string, WorkflowCardPosition>;
-  workflowsHub: WorkflowsHubPosition | null;
-  configurePanels: Record<string, ConfigurePanelPosition>;
   outputs: Record<string, Output>;
   glowingAgentCards: Record<string, GlowingAgentCard>;
   expandedSessionIds: string[];
@@ -100,9 +94,6 @@ const DashboardCanvas: React.FC<DashboardCanvasProps> = ({
   viewCards,
   browserCards,
   notes,
-  workflowCards,
-  workflowsHub,
-  configurePanels,
   outputs,
   glowingAgentCards,
   expandedSessionIds,
@@ -220,7 +211,7 @@ const DashboardCanvas: React.FC<DashboardCanvasProps> = ({
           }}
         />
 
-        {sessionList.length === 0 && Object.keys(viewCards).length === 0 && Object.keys(browserCards).length === 0 && Object.keys(workflowCards).length === 0 && !workflowsHub ? (
+        {sessionList.length === 0 && Object.keys(viewCards).length === 0 && Object.keys(browserCards).length === 0 ? (
           <DashboardEmptyState c={c} />
         ) : (
           <div
@@ -239,9 +230,6 @@ const DashboardCanvas: React.FC<DashboardCanvasProps> = ({
               viewCards={viewCards}
               browserCards={browserCards}
               notes={notes}
-              workflowCards={workflowCards}
-              workflowsHub={workflowsHub}
-              configurePanels={configurePanels}
               outputs={outputs}
               glowingAgentCards={glowingAgentCards}
               expandedSessionIds={expandedSessionIds}

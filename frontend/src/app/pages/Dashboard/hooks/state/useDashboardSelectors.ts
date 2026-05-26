@@ -11,13 +11,6 @@ export function useDashboardSelectors(dashboardId: string) {
   const cards = useAppSelector((state) => state.dashboardLayout.cards);
   const viewCards = useAppSelector((state) => state.dashboardLayout.viewCards);
   const browserCards = useAppSelector((state) => state.dashboardLayout.browserCards);
-  const workflowCards = useAppSelector((state) => state.dashboardLayout.workflowCards);
-  const configurePanels = useAppSelector((state) => state.dashboardLayout.configurePanels);
-  const workflowsHub = useAppSelector((state) => state.dashboardLayout.workflowsHub);
-  const pendingFocusWorkflowId = useAppSelector((state) => state.dashboardLayout.pendingFocusWorkflowId);
-  const pendingFocusWorkflowsHub = useAppSelector((state) => state.dashboardLayout.pendingFocusWorkflowsHub);
-  const workflowItems = useAppSelector((state) => state.workflows.items);
-  const workflowOpenCards = useAppSelector((state) => state.workflows.openCards);
   const notes = useAppSelector((state) => state.dashboardLayout.notes);
   const pendingFocusNoteId = useAppSelector((state) => state.dashboardLayout.pendingFocusNoteId);
   const layoutInitialized = useAppSelector((state) => state.dashboardLayout.initialized);
@@ -39,13 +32,6 @@ export function useDashboardSelectors(dashboardId: string) {
     cards,
     viewCards,
     browserCards,
-    workflowCards,
-    workflowItems,
-    workflowOpenCards,
-    configurePanels,
-    workflowsHub,
-    pendingFocusWorkflowId,
-    pendingFocusWorkflowsHub,
     notes,
     pendingFocusNoteId,
     layoutInitialized,

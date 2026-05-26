@@ -34,9 +34,6 @@ import SearchIcon from '@mui/icons-material/Search';
 import { motion } from 'framer-motion';
 import ChatInput from '@/app/pages/AgentChat/ChatInput';
 import type { ContextPath } from '@/app/components/editor/DirectoryBrowser';
-import SchedulePopover from '@/app/pages/Workflows/SchedulePopover';
-import { openWorkflowCard } from '@/shared/state/workflowsSlice';
-import { addWorkflowCard, openWorkflowsHub } from '@/shared/state/dashboardLayoutSlice';
 import { useElementSelection } from '@/app/components/editor/ElementSelectionContext';
 import { useClaudeTokens } from '@/shared/styles/ThemeContext';
 import { useAppDispatch, useAppSelector } from '@/shared/hooks';
@@ -176,7 +173,6 @@ const DashboardToolbar = React.forwardRef<HTMLDivElement, Props>(
     const [viewSearch, setViewSearch] = useState('');
     const [historyOpen, setHistoryOpen] = useState(false);
     const [historyQuery, setHistoryQuery] = useState('');
-    const [popoverMode, setPopoverMode] = useState<'search' | 'schedule'>('search');
     const shortcut = useAppSelector((s) => s.settings.data.new_agent_shortcut);
     const outputs = useAppSelector((s) => s.outputs.items);
     const historySearch = useAppSelector((s) => s.agents.historySearch);
@@ -449,7 +445,6 @@ const DashboardToolbar = React.forwardRef<HTMLDivElement, Props>(
               // the render branch below so the popover would be hidden
               // behind it otherwise.
               if (inputOpen) onCancel();
-              setPopoverMode('search');
               setHistoryOpen(true);
             }}
             role="button"
@@ -484,7 +479,7 @@ const DashboardToolbar = React.forwardRef<HTMLDivElement, Props>(
           padding: isExpanded ? '6px' : '5px',
           userSelect: 'none' as const,
           overflow: inputOpen || newAgentBounce || historyOpen ? 'visible' : 'hidden',
-          // historyOpen: width owned by SchedulePopover; leave undefined so framer-motion measures intrinsic size.
+          // historyOpen: width owned by the inline history list; leave undefined so framer-motion measures intrinsic size.
           width: viewPickerOpen ? 580 : historyOpen ? undefined : isExpanded ? 540 : undefined,
         }}
       >
@@ -508,34 +503,57 @@ const DashboardToolbar = React.forwardRef<HTMLDivElement, Props>(
             />
           </div>
         ) : historyOpen ? (
-          <div style={{ width: '100%' }}>
-            <SchedulePopover
-              mode={popoverMode}
-              onModeChange={setPopoverMode}
-              hideTopChrome
-              historyResults={historySearch.results.map((e) => ({ id: e.id, name: e.name, closed_at: e.closed_at }))}
-              historyLoading={historySearch.loading}
-              historyQuery={historyQuery}
-              onHistoryQueryChange={setHistoryQuery}
-              onHistorySelect={handleHistorySelect}
-              onNewChat={() => { handleCloseHistory(); onNewAgent(); }}
-              onWorkflowSelect={(wid) => {
-                dispatch(addWorkflowCard({ workflowId: wid }));
-                dispatch(openWorkflowCard({
-                  workflowId: wid,
-                  view: 'saved',
-                }));
-                handleCloseHistory();
-              }}
-              onExpand={() => {
-                // Singleton per dashboard, second Expand brings the existing card forward.
-                dispatch(openWorkflowsHub({ expandedSessionIds: [] }));
-                handleCloseHistory();
-              }}
-              historyScrollRef={historyListRef as React.RefObject<HTMLDivElement>}
-              onHistoryScroll={handleHistoryScroll}
-            />
-          </div>
+          // Past-chat search list. Fixed-size bordered surface (matches the
+          // toolbar popover footprint) with a search input + scrollable
+          // results; clicking a row resumes that chat.
+          <Box sx={{ display: 'flex', flexDirection: 'column', width: 620, maxWidth: 620, flexShrink: 0 }}>
+            <Box sx={{
+              width: '100%',
+              height: 420,
+              bgcolor: c.bg.surface,
+              border: `1px solid ${c.border.subtle}`,
+              borderRadius: `${c.radius.lg}px`,
+              overflow: 'hidden',
+              display: 'flex',
+              flexDirection: 'column',
+            }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 1.5, py: 1, flexShrink: 0 }}>
+                <SearchIcon sx={{ fontSize: 18, color: c.text.muted }} />
+                <InputBase
+                  inputRef={historyInputRef}
+                  value={historyQuery}
+                  onChange={(e) => setHistoryQuery(e.target.value)}
+                  placeholder="Search past chats..."
+                  sx={{ flex: 1, fontSize: '0.85rem', color: c.text.primary, fontFamily: c.font.sans, '& input::placeholder': { color: c.text.ghost, opacity: 1 } }}
+                />
+              </Box>
+              <Box
+                ref={historyListRef}
+                onScroll={handleHistoryScroll}
+                sx={{ flex: 1, overflowY: 'auto', borderTop: `1px solid ${c.border.subtle}` }}
+              >
+                {historySearch.results.length === 0 && !historySearch.loading && (
+                  <Typography sx={{ px: 1.5, py: 2.5, fontSize: '0.82rem', color: c.text.muted, textAlign: 'center' }}>
+                    {historyQuery ? 'No matching chats' : 'No chat history yet'}
+                  </Typography>
+                )}
+                {historySearch.results.map((entry) => (
+                  <Box
+                    key={entry.id}
+                    onClick={() => handleHistorySelect(entry.id)}
+                    sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 1.5, py: 0.9, cursor: 'pointer', '&:hover': { bgcolor: c.bg.elevated } }}
+                  >
+                    <Typography sx={{ flex: 1, fontSize: '0.82rem', color: c.text.primary, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {entry.name}
+                    </Typography>
+                    <Typography sx={{ fontSize: '0.7rem', color: c.text.ghost, flexShrink: 0, whiteSpace: 'nowrap' }}>
+                      {formatRelativeTime(entry.closed_at)}
+                    </Typography>
+                  </Box>
+                ))}
+              </Box>
+            </Box>
+          </Box>
         ) : viewPickerOpen ? (
           <div style={{ width: '100%' }}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 1.5, py: 1 }}>

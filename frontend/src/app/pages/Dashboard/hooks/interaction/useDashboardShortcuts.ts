@@ -2,8 +2,7 @@ import { useEffect, type Dispatch, type SetStateAction } from 'react';
 import { report } from '@/shared/serviceClient';
 import { useAppDispatch } from '@/shared/hooks';
 import { closeSession, toggleExpandSession } from '@/shared/state/agentsSlice';
-import { removeViewCard, removeBrowserCard, removeNote, removeWorkflowCard } from '@/shared/state/dashboardLayoutSlice';
-import { closeWorkflowCard } from '@/shared/state/workflowsSlice';
+import { removeViewCard, removeBrowserCard, removeNote } from '@/shared/state/dashboardLayoutSlice';
 import type { useDashboardSelection } from '../state/useDashboardSelection';
 
 type Selection = ReturnType<typeof useDashboardSelection>;
@@ -80,9 +79,6 @@ export function useDashboardShortcuts({
           dispatch(removeBrowserCard(id));
         } else if (type === 'note') {
           dispatch(removeNote(id));
-        } else if (type === 'workflow') {
-          dispatch(removeWorkflowCard(id));
-          dispatch(closeWorkflowCard(id));
         }
       }
       selection.deselectAll();

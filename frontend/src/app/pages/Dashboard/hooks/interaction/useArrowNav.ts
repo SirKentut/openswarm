@@ -3,7 +3,7 @@ import { report } from '@/shared/serviceClient';
 import { useAppDispatch } from '@/shared/hooks';
 import { expandSession } from '@/shared/state/agentsSlice';
 import { bringToFront } from '@/shared/state/dashboardLayoutSlice';
-import type { CardPosition, ViewCardPosition, BrowserCardPosition, WorkflowCardPosition } from '@/shared/state/dashboardLayoutSlice';
+import type { CardPosition, ViewCardPosition, BrowserCardPosition } from '@/shared/state/dashboardLayoutSlice';
 import type { CardType } from '../state/useDashboardSelection';
 import type { CanvasActions } from './useCanvasControls';
 
@@ -13,7 +13,6 @@ interface UseArrowNavArgs {
   cards: Record<string, CardPosition>;
   viewCards: Record<string, ViewCardPosition>;
   browserCards: Record<string, BrowserCardPosition>;
-  workflowCards: Record<string, WorkflowCardPosition>;
   zoom: number;
   isActive: boolean;
   focusedCardId: string | null;
@@ -26,7 +25,6 @@ export function useArrowNav({
   cards,
   viewCards,
   browserCards,
-  workflowCards,
   zoom,
   isActive,
   focusedCardId,
@@ -49,9 +47,6 @@ export function useArrowNav({
     }
     for (const bc of Object.values(browserCards)) {
       allCardEntries.push({ id: bc.browser_id, type: 'browser', cx: bc.x + bc.width / 2, cy: bc.y + bc.height / 2 });
-    }
-    for (const wc of Object.values(workflowCards)) {
-      allCardEntries.push({ id: wc.workflow_id, type: 'workflow', cx: wc.x + wc.width / 2, cy: wc.y + wc.height / 2 });
     }
 
     const current = allCardEntries.find((c) => c.id === currentId);
@@ -85,7 +80,7 @@ export function useArrowNav({
     }
 
     return best ? { id: best.id, type: best.type } : null;
-  }, [cards, viewCards, browserCards, workflowCards]);
+  }, [cards, viewCards, browserCards]);
 
   // Compute which directions have neighbors from the focused card
   const neighborDirections = useMemo(() => {
