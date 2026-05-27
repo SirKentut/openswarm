@@ -207,6 +207,14 @@ find "$SP" -path '*.dist-info/WHEEL'          -delete 2>/dev/null
 find "$SP" -path '*.dist-info/top_level.txt'  -delete 2>/dev/null
 find "$SP" -path '*.dist-info/entry_points.txt' -delete 2>/dev/null
 
+# ----- type stubs + build leftovers (more files off Defender's plate) -----
+# .pyi stubs are read only by type-checkers, never by the running interpreter.
+find "$PYTHON_ENV_DIR" -name '*.pyi' -delete 2>/dev/null || true
+# Unix build artifacts: the static lib + config Makefiles exist only to compile
+# C extensions / embed Python; the running interpreter never reads them.
+rm -rf "$PYTHON_ENV_DIR"/lib/python3.13/config-3.13-* 2>/dev/null || true
+find "$PYTHON_ENV_DIR" -name 'libpython*.a' -delete 2>/dev/null || true
+
 # Pre-compile bytecode so cold backend startup skips the parse+compile
 # step on every imported .py. Worth ~5-10s on Windows under Defender
 # (parsing Python source is parser-bound; loading .pyc is just bytes).

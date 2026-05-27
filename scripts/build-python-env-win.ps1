@@ -160,6 +160,11 @@ foreach ($pattern in @('RECORD','INSTALLER','WHEEL','top_level.txt','entry_point
         | Remove-Item -Force -ErrorAction SilentlyContinue
 }
 
+# ----- type stubs (.pyi) — read only by type-checkers, never at runtime -----
+Write-Host "Trimming .pyi type stubs..."
+Get-ChildItem -Path $PythonEnvDir -Recurse -Filter '*.pyi' -File -ErrorAction SilentlyContinue `
+    | Remove-Item -Force -ErrorAction SilentlyContinue
+
 # Pre-compile bytecode so cold backend startup skips parse+compile on
 # every imported .py. Worth ~5-10s on Windows under Defender (parsing
 # Python source is parser-bound; loading .pyc is just bytes). We cap
