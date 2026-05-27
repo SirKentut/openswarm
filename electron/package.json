@@ -17,14 +17,14 @@
     "test": "node --test affiliateTracking.test.js"
   },
   "dependencies": {
-    "electron-updater": "^6.3.0",
-    "get-port": "^5.1.1"
+    "electron-updater": "6.8.3",
+    "get-port": "5.1.1"
   },
   "devDependencies": {
-    "@electron/notarize": "^3.1.1",
-    "cross-env": "^7.0.3",
+    "@electron/notarize": "3.1.1",
+    "cross-env": "7.0.3",
     "electron": "castlabs/electron-releases#v40.7.0+wvcus",
-    "electron-builder": "^25.1.0"
+    "electron-builder": "25.1.8"
   },
   "build": {
     "appId": "com.clusterlabs.openswarm",
