@@ -41,6 +41,13 @@ async function main() {
   if (!isImage) throw new Error('screenshot did not return a PNG');
   process.stdout.write(`screenshot -> ${shot.content[0].data.length} base64 bytes\n`);
 
+  // A PNG of the right size could still be a BLANK window, so prove the renderer
+  // actually painted: assert the React root mounted children (the real render gate).
+  const root = await client.callTool({ name: 'eval', arguments: { expression: "document.getElementById('root').childElementCount" } });
+  const childCount = Number(root.content?.[0]?.text);
+  if (!(childCount > 0)) throw new Error(`renderer #root has ${root.content?.[0]?.text} children (blank window, not a real paint)`);
+  process.stdout.write(`render check -> #root has ${childCount} children\n`);
+
   const log = await client.callTool({ name: 'read_log', arguments: { tailLines: 5 } });
   process.stdout.write(`read_log tail:\n${log.content?.[0]?.text}\n`);
 
