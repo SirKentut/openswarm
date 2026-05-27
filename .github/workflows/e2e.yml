@@ -4,6 +4,12 @@ name: E2E (packaged app, mac + win)
 # (e2e/). This is the cross-platform "does the real artifact actually boot and
 # serve" gate. Signing/notarization + release upload are handled separately by
 # release-windows.yml / release-macos.yml.
+#
+# Windows-10 note: GitHub retired the windows-2019 (Win10-1809-kernel) hosted
+# image, and there is no Win10-client hosted runner, so true Win10 CI coverage
+# requires a SELF-HOSTED Win10 box. The e2e-win10 job below activates the moment
+# you register a runner labeled [self-hosted, windows, win10] and set the repo
+# variable WIN10_SELF_HOSTED=true; until then it's skipped (never hangs).
 
 on:
   push:
@@ -19,10 +25,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # windows-latest = Win Server 2022 (NT 10.0.20348, Win11-era); windows-2019
-        # = NT 10.0.17763 (Win10 1809 kernel) for older-Windows coverage; macos-latest
-        # for the DMG. GitHub has no Win10-client image, so 2019 is the closest proxy.
-        os: [windows-latest, windows-2019, macos-latest]
+        # windows-latest = Win Server 2022 (NT 10.0.20348). macos-latest = the DMG.
+        os: [windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
     env:
@@ -71,3 +75,35 @@ jobs:
           path: e2e/results.json
           if-no-files-found: ignore
           retention-days: 14
+
+  # Real Windows 10 coverage. Skipped unless a self-hosted Win10 runner exists
+  # and WIN10_SELF_HOSTED=true (repo variable). Mirrors the Windows steps above.
+  e2e-win10:
+    if: ${{ vars.WIN10_SELF_HOSTED == 'true' }}
+    runs-on: [self-hosted, windows, win10]
+    timeout-minutes: 90
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      GOOGLE_OAUTH_CLIENT_ID: 'e2e-placeholder.apps.googleusercontent.com'
+      GOOGLE_OAUTH_CLIENT_SECRET: 'e2e-placeholder-secret'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20.18.1'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Build packaged app (Windows)
+        shell: pwsh
+        run: pwsh -NoProfile -File scripts/build-app-win.ps1
+      - name: Install e2e deps
+        shell: bash
+        working-directory: e2e
+        env:
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+        run: npm ci
+      - name: Run E2E
+        shell: bash
+        working-directory: e2e
+        run: npm test
