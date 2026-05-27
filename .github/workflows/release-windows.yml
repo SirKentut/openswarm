@@ -63,7 +63,10 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          # Exact pin (not '20'): the build bundles Node v20.18.1 as the runtime
+          # for 9router + MCP servers (see build-app-win.ps1 step 3b), so the
+          # toolchain that packages the app must match the runtime that ships.
+          node-version: '20.18.1'
 
       - name: Setup Python (for building bundled python-env)
         uses: actions/setup-python@v5
