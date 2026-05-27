@@ -35,6 +35,7 @@ declare global {
     getBackendPort: () => number;
     getWebviewPreloadPath: () => string;
     getAppVersion: () => Promise<string>;
+    getBuildInfo: () => Promise<{ sha: string; shortSha: string; builtAt: string | null; channel: string }>;
     getUpdateStatus: () => Promise<{ status: string; info: any; error: string | null }>;
     checkForUpdates: () => Promise<{ success: boolean; version?: string; error?: string }>;
     downloadUpdate: () => Promise<{ success: boolean; error?: string }>;

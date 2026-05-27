@@ -23,6 +23,17 @@ const GeneralAdvanced: React.FC<{
   const appVersion = useAppSelector((s) => s.update.appVersion);
   const { sectionSx, rowSx, inlineRowSx, inlineRowLastSx, labelSx, descSx } = styles;
 
+  // Provenance: the exact commit this build was cut from. Surfaced so a support
+  // screenshot of Settings is enough to identify the shipped code. Empty in dev
+  // / web (no Electron bridge or unknown sha), in which case we hide the row.
+  const [buildLabel, setBuildLabel] = React.useState<string | null>(null);
+  React.useEffect(() => {
+    const api = (window as { openswarm?: { getBuildInfo?: () => Promise<{ shortSha: string; channel: string }> } }).openswarm;
+    api?.getBuildInfo?.()
+      .then((b) => { if (b?.shortSha && b.shortSha !== 'unknown') setBuildLabel(`${b.shortSha} (${b.channel})`); })
+      .catch(() => {});
+  }, []);
+
   return (
     <>
       <Typography sx={{ ...sectionSx, mt: 3 }}>Advanced</Typography>
@@ -69,6 +80,19 @@ const GeneralAdvanced: React.FC<{
           </Box>
         </Box>
       </Box>
+
+      {buildLabel && (
+        <Box sx={rowSx}>
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <Box>
+              <Typography sx={labelSx}>Build</Typography>
+              <Typography sx={{ ...descSx, fontFamily: c.font.mono }}>
+                {buildLabel}
+              </Typography>
+            </Box>
+          </Box>
+        </Box>
+      )}
 
       <SoftwareUpdateRow styles={styles} />
 
