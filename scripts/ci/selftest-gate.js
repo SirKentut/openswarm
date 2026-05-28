@@ -59,6 +59,16 @@ check('a file with the bare username also catches', hl.scanBuffer('greetings Ali
 check('DEFAULT_ALLOW skips PEP 610 direct_url.json', hl.DEFAULT_ALLOW.some((rx) => rx.test('Lib/site-packages/foo-0.1.dist-info/direct_url.json')));
 check('DEFAULT_ALLOW does NOT skip a random json under site-packages', !hl.DEFAULT_ALLOW.some((rx) => rx.test('Lib/site-packages/foo/data.json')));
 
+process.stdout.write('\nupdate-feed mutation tests:\n');
+const uf = require('./verify-update-feed');
+const FEED = "version: 1.0.0\nfiles:\n  - url: Setup.exe\n    sha512: AAA==\n    size: 12345\npath: Setup.exe\nsha512: AAA==\n";
+const parsed = uf.parseFeed(FEED);
+check('parseFeed reads version', parsed.version === '1.0.0');
+check('parseFeed reads files[0].url', parsed.files.length === 1 && parsed.files[0].url === 'Setup.exe');
+check('parseFeed reads files[0].size as number', parsed.files[0].size === 12345);
+check('parseFeed reads top-level path + sha512', parsed.top.path === 'Setup.exe' && parsed.top.sha512 === 'AAA==');
+check('parseFeed returns no files on a feed missing the list', uf.parseFeed('version: 1.0.0\n').files.length === 0);
+
 process.stdout.write(failed
   ? `\nGATE SELFTEST FAIL: ${failed} guard(s) did not discriminate - the gate has theater in it.\n`
   : '\nGATE SELFTEST PASS: every boot guard fires on a break and passes on good input.\n');
