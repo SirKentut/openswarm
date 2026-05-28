@@ -1,5 +1,6 @@
 import { test, expect, ElectronApplication, Page, Locator } from '@playwright/test';
 import { launchApp, waitForMainWindow } from '../helpers/launch';
+import { startVisibility, VisibilityHandle } from '../helpers/visibility';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -62,14 +63,23 @@ test.describe('combinatorial user flows', () => {
     expect(fresh.map((e) => `${e.kind}: ${e.text}`).join('\n'), `unexpected errors during: ${label}`).toBe('');
   };
 
+  let vis: VisibilityHandle;
+
   test.beforeAll(async () => {
     app = await launchApp();
     page = await waitForMainWindow(app);
+    vis = await startVisibility(app, page, 'combinatorial-flows');
     page.on('pageerror', (e) => errors.push({ kind: 'pageerror', text: String(e?.message ?? e) }));
     page.on('console', (m) => { if (m.type() === 'error') errors.push({ kind: 'console', text: m.text() }); });
     baselineCrashes = rendererCrashes();
   });
-  test.afterAll(async () => { await app?.close().catch(() => {}); });
+  test.afterAll(async () => {
+    try { await vis?.stop(); } catch {}
+    await app?.close().catch(() => {});
+  });
+  // Per-test mark so events.jsonl is searchable by test name.
+  test.beforeEach(async ({}, info) => { vis?.mark('test-begin', { title: info.titlePath.join(' > ') }); });
+  test.afterEach(async ({}, info) => { vis?.mark('test-end', { title: info.titlePath.join(' > '), status: info.status }); });
 
   // The "test the test" sanity check: prove our must() helper fails loudly when
   // a target is missing. If this ever passes silently, every later assertion is

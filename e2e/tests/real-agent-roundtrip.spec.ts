@@ -1,5 +1,6 @@
 import { test, expect, ElectronApplication, Page } from '@playwright/test';
 import { launchApp, waitForMainWindow, hasAnyProviderKey } from '../helpers/launch';
+import { startVisibility, VisibilityHandle } from '../helpers/visibility';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -25,6 +26,7 @@ test.describe('real agent round-trip', () => {
   let app: ElectronApplication;
   let page: Page;
   let baselineCrashes = 0;
+  let vis: VisibilityHandle;
 
   // Whole describe skips with a clear reason when no key is wired, so we
   // never silently green this on a leg that can't actually test it.
@@ -33,9 +35,13 @@ test.describe('real agent round-trip', () => {
     test.skip(process.env.CI !== 'true' && process.env.OPENSWARM_E2E_SEED !== '1', 'seed gate not enabled; set OPENSWARM_E2E_SEED=1 for local runs');
     app = await launchApp();
     page = await waitForMainWindow(app);
+    vis = await startVisibility(app, page, 'real-agent-roundtrip');
     baselineCrashes = crashCount();
   });
-  test.afterAll(async () => { await app?.close().catch(() => {}); });
+  test.afterAll(async () => {
+    try { await vis?.stop(); } catch {}
+    await app?.close().catch(() => {});
+  });
 
   test('compose, send, and receive an assistant reply', async ({}, info) => {
     // Find the New Agent button on the dashboard toolbar.
