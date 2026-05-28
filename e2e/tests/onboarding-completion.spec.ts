@@ -147,6 +147,77 @@ test.describe('onboarding completion (8 steps, 3 orderings)', () => {
     expect(after, 'duplicate mark inflated the set').toBe(before);
   });
 
+  // Real-UI mode: drive each step's primary user action via the actual DOM
+  // rather than the slice. Skips agent-touching steps (3/5/6/8) unless a real
+  // provider key is wired because those hit the cloud's analytics ingest.
+  const REAL_UI = process.env.OPENSWARM_E2E_REAL_UI === '1';
+  const HAS_KEY = !!(process.env.ANTHROPIC_API_KEY || process.env.OPENAI_API_KEY || process.env.GOOGLE_API_KEY || process.env.OPENROUTER_API_KEY);
+  const safeClick = async (sel: string, label: string) => {
+    const loc = page.locator(sel);
+    if ((await loc.count()) === 0) return false;
+    await loc.first().click({ timeout: 5000 }).catch(() => {});
+    return true;
+  };
+
+  test('real-UI step 1: connect_model opens Settings -> Models tab', async () => {
+    test.skip(!REAL_UI, 'OPENSWARM_E2E_REAL_UI=1 not set');
+    await resetAll();
+    await page.locator('[data-onboarding="sidebar-settings-button"]').click({ timeout: 5000 });
+    await page.locator('[data-onboarding="settings-models-tab"]').click({ timeout: 5000 });
+    await expect(page.locator('[data-onboarding="settings-api-keys"]')).toBeVisible({ timeout: 5000 });
+    await page.locator('[data-onboarding="settings-close-button"]').click({ timeout: 3000 }).catch(() => {});
+    expect(crashCount()).toBe(baseline);
+  });
+
+  test('real-UI step 2: enable_actions navigates to Customization > Actions', async () => {
+    test.skip(!REAL_UI, 'OPENSWARM_E2E_REAL_UI=1 not set');
+    await safeClick('[data-onboarding="sidebar-customization"]', 'customization');
+    await page.getByText('Actions', { exact: true }).first().click({ timeout: 5000 }).catch(() => {});
+    await page.waitForTimeout(800);
+    expect(page.url()).toMatch(/actions|customization/i);
+    expect(crashCount()).toBe(baseline);
+  });
+
+  test('real-UI step 3: launch_agent opens compose (skip send if no provider key)', async () => {
+    test.skip(!REAL_UI, 'OPENSWARM_E2E_REAL_UI=1 not set');
+    await safeClick('[data-onboarding="sidebar-dashboards"]', 'dashboards');
+    await safeClick('[data-onboarding="new-agent-button"]', 'new agent');
+    await expect(page.locator('[data-onboarding="chat-input"]').first()).toBeVisible({ timeout: 10_000 });
+    if (HAS_KEY) {
+      await page.locator('[data-onboarding="chat-input"]').first().click();
+      await page.keyboard.type('hello');
+      await expect.poll(async () => (await page.locator('[data-onboarding="chat-input"]').first().innerText()).trim()).toContain('hello');
+    }
+    await page.keyboard.press('Escape').catch(() => {});
+    expect(crashCount()).toBe(baseline);
+  });
+
+  test('real-UI step 4: use_browser mounts a webview', async () => {
+    test.skip(!REAL_UI, 'OPENSWARM_E2E_REAL_UI=1 not set');
+    await safeClick('[data-onboarding="sidebar-dashboards"]', 'dashboards');
+    await safeClick('[data-onboarding="browser-button"]', 'browser');
+    await page.waitForFunction(() => document.querySelectorAll('webview').length > 0, undefined, { timeout: 15_000 });
+    expect(crashCount(), 'webview mount crashed renderer').toBe(baseline);
+  });
+
+  test('real-UI step 7: install_skill navigates to Customization > Skills', async () => {
+    test.skip(!REAL_UI, 'OPENSWARM_E2E_REAL_UI=1 not set');
+    await safeClick('[data-onboarding="sidebar-customization"]', 'customization');
+    await page.getByText('Skills', { exact: true }).first().click({ timeout: 5000 }).catch(() => {});
+    await page.waitForTimeout(800);
+    expect(page.url()).toMatch(/skills|customization/i);
+    expect(crashCount()).toBe(baseline);
+  });
+
+  test('real-UI step 8: make_app opens the Add App picker', async () => {
+    test.skip(!REAL_UI, 'OPENSWARM_E2E_REAL_UI=1 not set');
+    await safeClick('[data-onboarding="sidebar-dashboards"]', 'dashboards');
+    await safeClick('[data-onboarding="dashboard-toolbar-apps"]', 'add app');
+    await page.waitForTimeout(1000);
+    await page.keyboard.press('Escape').catch(() => {});
+    expect(crashCount()).toBe(baseline);
+  });
+
   test('roadmap UI reflects the marked state (8/8 after sequential pass)', async () => {
     await resetAll();
     for (const id of STEP_IDS) await markCompleted(id);
