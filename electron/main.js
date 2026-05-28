@@ -55,6 +55,28 @@ function perfMark(name) {
 
 // Preflight: log the usual "works on mine, not theirs" causes (python is already covered by the exists-log + spawn handler; this adds the rest). Log-only, guarded, no PII (lengths/flags, never paths).
 let _preflightInfo = {};
+let _preflightVerdict = null;
+
+// Comprehensive preflight (electron/preflight.js): fans out checks under hard per-check timeouts, caches the verdict keyed by app version, emits a [preflight2] line backend.log picks up. Kill switch via env or future settings.preflight_enabled. Fire-and-forget so it overlaps with backend spawn instead of adding to boot time.
+function runComprehensivePreflight() {
+  if (process.env.OPENSWARM_DISABLE_PREFLIGHT === '1') { console.log('[preflight2] skipped (OPENSWARM_DISABLE_PREFLIGHT=1)'); return; }
+  let pf;
+  try { pf = require('./preflight'); } catch (e) { console.log(`[preflight2] module load failed: ${e && e.message}`); return; }
+  let dataDir;
+  try { dataDir = path.join(app.getPath('userData'), 'data'); } catch { dataDir = null; }
+  const version = (() => { try { return app.getVersion(); } catch { return '0.0.0'; } })();
+  if (dataDir) { try { pf.pruneOldCaches(pf.defaultEnv(), dataDir, version); } catch {} }
+  const cached = dataDir ? pf.readCache(pf.defaultEnv(), dataDir, version) : null;
+  if (cached) { console.log(`[preflight2] cached verdict=${cached.verdict} (skipping fresh probes)`); _preflightVerdict = cached; return; }
+  // Async; don't await. The beacon picks up _preflightVerdict if it has landed by then.
+  pf.run(pf.defaultEnv(), { dataDir, gpu: { app } }).then((result) => {
+    _preflightVerdict = result;
+    if (dataDir && result.verdict === 'ok') { try { pf.writeCache(pf.defaultEnv(), dataDir, version, result); } catch {} }
+    const reasons = result.results.filter((r) => r.status !== 'ok').map((r) => `${r.name}:${r.status}(${r.reason})`).join('; ');
+    console.log(`[preflight2] verdict=${result.verdict} totalMs=${result.totalMs} ${reasons || 'all-checks-ok'}`);
+  }).catch((e) => { console.log(`[preflight2] threw: ${e && e.message}`); });
+}
+
 function logPreflight(backendPort) {
   const info = {};
   const probe = (label, fn) => { try { info[label] = fn(); } catch (_) { info[label] = 'ERR'; } };
@@ -101,7 +123,7 @@ function sendBootBeacon() {
       props: {
         sha: bi.shortSha, channel: bi.channel, version: app.getVersion(),
         os: process.platform, arch: process.arch,
-        perf: _perfValues, preflight: _preflightInfo, crash_dumps: countCrashDumps(),
+        perf: _perfValues, preflight: _preflightInfo, preflight2: _preflightVerdict ? { verdict: _preflightVerdict.verdict, totalMs: _preflightVerdict.totalMs, names: (_preflightVerdict.results || []).map((r) => `${r.name}:${r.status}`) } : null, crash_dumps: countCrashDumps(),
       },
     });
     const req = http.request({
@@ -744,6 +766,7 @@ async function startBackend() {
   const _bi = getBuildInfo();
   console.log(`[provenance] OpenSwarm ${app.getVersion()} sha=${_bi.shortSha} channel=${_bi.channel} builtAt=${_bi.builtAt || 'n/a'}`);
   logPreflight(backendPort);
+  runComprehensivePreflight();
   // Record what we're about to launch and whether the interpreter is even
   // present. If AV quarantined python.exe or the wrong-arch bundle shipped,
   // exists=false (or spawn 'error' below) names the cause that otherwise
