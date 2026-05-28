@@ -196,6 +196,28 @@ async function checkClock(env, opts = {}) {
   });
 }
 
+// Load auto-tunings emitted by the dogfood aggregator: a check the loop has
+// repeatedly seen false-positive on its platform is silently downgraded from
+// fail -> warn here so a known-noisy probe can't single-handedly scare a user.
+// File is bundled at build time (scripts/ci/preflight-tunings.json -> resources).
+function loadTunings(env) {
+  const candidates = [
+    path.join(__dirname, '..', 'scripts', 'ci', 'preflight-tunings.json'),
+    path.join(process.resourcesPath || '', 'preflight-tunings.json'),
+  ];
+  for (const p of candidates) {
+    try { return JSON.parse(env.fs.readFileSync(p, 'utf8')); } catch {}
+  }
+  return null;
+}
+
+function applyTunings(results, tunings, platform) {
+  if (!tunings || !Array.isArray(tunings.demote)) return results;
+  const demoted = new Set(tunings.demote.filter((d) => d.platform === platform).map((d) => d.check));
+  if (!demoted.size) return results;
+  return results.map((r) => (r.status === 'fail' && demoted.has(r.name)) ? { ...r, status: 'warn', reason: `${r.reason} [auto-demoted by dogfood tuning]` } : r);
+}
+
 async function run(env, opts = {}) {
   env = env || defaultEnv();
   const tasks = [
@@ -209,9 +231,11 @@ async function run(env, opts = {}) {
     withTimeout('dual-stack', () => checkDualStack(env, opts.dualStack), 3500),
     withTimeout('clock', () => checkClock(env, opts.clock), 3500),
   ];
-  const results = await Promise.all(tasks);
+  const rawResults = await Promise.all(tasks);
+  const tunings = loadTunings(env);
+  const results = applyTunings(rawResults, tunings, env.platform);
   const verdict = results.some((r) => r.status === 'fail') ? 'fail' : results.some((r) => r.status === 'warn') ? 'warn' : 'ok';
-  return { verdict, results, totalMs: Math.max(...results.map((r) => r.durationMs)), startedAt: env.now() };
+  return { verdict, results, totalMs: Math.max(...results.map((r) => r.durationMs)), startedAt: env.now(), tuningsApplied: tunings ? tunings.demote.length : 0 };
 }
 
 function cachePath(dataDir, appVersion) { return path.join(dataDir, `preflight-${appVersion}.json`); }
@@ -246,4 +270,5 @@ module.exports = {
   checkOs, checkResources, checkAppdataWritable, checkSecurityBlock, checkSystemLibs,
   checkNetwork, checkGpu, checkDualStack, checkClock,
   run, cachePath, readCache, writeCache, pruneOldCaches,
+  loadTunings, applyTunings,
 };
