@@ -1,6 +1,6 @@
 name: Dogfood (preflight verdict vs reality)
 
-# Runs verify-dogfood every 6 hours across the matrix plus on push. Each leg
+# Runs verify-dogfood on build-affecting pushes plus manual dispatch. Each leg
 # launches the packaged app, captures the [preflight2] verdict, INDEPENDENTLY
 # verifies boot success, and asserts they agree. Mismatches (false-positive,
 # false-negative, or missing line) fail the leg red. The aggregator job
@@ -10,11 +10,11 @@ name: Dogfood (preflight verdict vs reality)
 # blocks the v* tag until every required platform has 12 consecutive clean runs.
 
 on:
-  schedule:
-    - cron: '0 */2 * * *'   # every 2 hours; 12 runs/day; 12 consecutive clean ~= 24h of dogfood
-  # The cron is the readiness-accumulation engine. The push trigger is gated to
-  # artifact-affecting code only (not docs/gitignore/CI-meta), so a trivial push
-  # does not spend a full packaged-app build + dogfood matrix.
+  # No cron: dogfood runs only on pushes to eric/lock that touch build-affecting
+  # code (not docs/gitignore/CI-meta) plus manual dispatch, so it never spends a
+  # full packaged-app build every 2 hours just to tick. Release-readiness now
+  # accrues from these push/dispatch runs instead of a clock; if the consecutive-
+  # clean streak is short before a release, fire workflow_dispatch a few times.
   push:
     branches: [eric/lock]
     paths:
