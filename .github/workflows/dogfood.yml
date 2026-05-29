@@ -49,9 +49,32 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
-        with: { node-version: '20.18.1' }
+        with:
+          node-version: '20.18.1'
+          cache: npm
+          cache-dependency-path: |
+            electron/package-lock.json
+            frontend/package-lock.json
       - uses: actions/setup-python@v5
         with: { python-version: '3.13' }
+
+      # Reuse the heavy build inputs (shares keys with e2e.yml so the two warm
+      # each other's caches); the build script skips any input already on disk.
+      - name: Cache bundled Python env
+        uses: actions/cache@v4
+        with:
+          path: electron/python-env
+          key: pyenv-win-${{ hashFiles('scripts/build-python-env-win.ps1', 'backend/requirements.txt') }}
+      - name: Cache uv binaries
+        uses: actions/cache@v4
+        with:
+          path: backend/uv-bin
+          key: uvbin-win-${{ hashFiles('scripts/build-app-win.ps1') }}
+      - name: Cache MCP bundles
+        uses: actions/cache@v4
+        with:
+          path: backend/mcp-bundles
+          key: mcpbundles-win-${{ hashFiles('scripts/build-app-win.ps1') }}
 
       - name: Build packaged app (Windows)
         shell: pwsh

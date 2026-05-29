@@ -1,38 +1,26 @@
 name: E2E (packaged app, Windows)
 
-# Builds the UNSIGNED packaged app on each OS, then runs the FULL deterministic
-# gate against the real artifact plus the Playwright smoke. Signing/notarization +
-# release upload are handled separately by release-windows.yml / release-macos.yml.
+# Fast-feedback packaged-app gate, Windows-only. Split into parallel jobs so the
+# push wall-clock stays well under ~10 min:
+#   gate        - cheap pure-node selftests (no build): mutation gate + preflight
+#                 Layers 1-5. Fails the "tests that test the tests" fast.
+#   verify      - build the UNPACKED app (electron-builder --dir, which skips the
+#                 slow ~2min NSIS LZMA compression) and run the deterministic
+#                 verify-all gate against win-unpacked\OpenSwarm.exe.
+#   playwright  - build the unpacked app and run the renderer-level Playwright e2e.
+#   installer   - full NSIS build + destructive install->verify->uninstall. The
+#                 heaviest leg, so it runs only on PR-to-main / dispatch (NOT on
+#                 routine pushes); release-windows.yml covers it on v* tags.
+# verify + playwright run concurrently; both reuse cached heavy build inputs
+# (bundled Python env, uv, MCP bundles, npm) so warm builds are fast - the build
+# script skips any input already on disk.
 #
-# The gate, per leg:
-#   1. selftest-gate.js  - "test the tests": mutation-checks the gate's own logic
-#      so a weakened guard fails loudly (runs first, no build needed).
-#   2. build the packaged app.
-#   3. verify-all.js     - boot/paint/serve/provenance + signature state +
-#      resilience (locked-port, double-launch) + network/auth/9router. Provenance
-#      goes GREEN here because the build is AT the checked-out commit.
-#   4. mcp/selftest.js   - proves the Playwright "GUI hand" can launch + drive +
-#      read the real app.
-#   5. playwright npm test - the renderer-level smoke.
-#   6. (windows) verify-installer --destructive - the runner is a CLEAN box with no
-#      prior install, so the real install -> verify -> uninstall cycle is safe here
-#      (it refuses to run where an install already exists).
-#
-# Matrix: windows-latest (Win Server 2022) only. The macOS legs were removed -
-# GitHub's scarce mac runners left them perpetually queued/starved and surfaced
-# mac-only failures we cannot triage from the Windows dev box, so the whole
-# matrix read red. Re-add macos-14/macos-13 (matrix edit + workflow_dispatch)
-# when a Mac maintainer can own them. GitHub retired windows-2019 and ships no
-# Win10 client image, so true Win10 coverage needs the SELF-HOSTED e2e-win10 job
-# (activates when a runner labeled [self-hosted, windows, win10] exists and repo
-# var WIN10_SELF_HOSTED=true).
+# macOS legs were removed (runner starvation + untriageable mac-only failures);
+# re-add when a Mac maintainer can own them. Real Win10 coverage still needs the
+# SELF-HOSTED e2e-win10 job (repo var WIN10_SELF_HOSTED=true + a
+# [self-hosted, windows, win10] runner).
 
 on:
-  # This is the EXPENSIVE leg (packaged-app build + e2e matrix). Gate it so it only
-  # runs when code that actually affects the built artifact changes - not docs,
-  # .gitignore, or unrelated CI meta - plus on PRs into main and on demand. The
-  # cheap gates (hermetic phase-tests, gitleaks) keep running on every push via
-  # their own workflows, so every push still gets fast signal.
   push:
     branches: [eric/lock]
     paths: &build-paths
@@ -41,8 +29,8 @@ on:
       - 'backend/**'
       - 'e2e/**'
       - 'scripts/build-app**'
-      - 'scripts/fetch-router**'
       - 'scripts/build-python-env**'
+      - 'scripts/fetch-router**'
       - 'scripts/ci/**'
       - '.github/workflows/e2e.yml'
   pull_request:
@@ -53,37 +41,24 @@ on:
 permissions:
   contents: read
 
+env:
+  CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+  GOOGLE_OAUTH_CLIENT_ID: 'e2e-placeholder.apps.googleusercontent.com'
+  GOOGLE_OAUTH_CLIENT_SECRET: 'e2e-placeholder-secret'
+
 jobs:
-  e2e:
-    strategy:
-      fail-fast: false
-      matrix:
-        # Windows-only. macOS legs removed: runner starvation + untriageable
-        # mac-only failures kept the matrix red. Re-add macos-14/macos-13 here
-        # (with workflow_dispatch) when a Mac maintainer can own them.
-        os: [windows-latest]
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 90
-    env:
-      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
-      GOOGLE_OAUTH_CLIENT_ID: 'e2e-placeholder.apps.googleusercontent.com'
-      GOOGLE_OAUTH_CLIENT_SECRET: 'e2e-placeholder-secret'
+  # Pure-node, no build: cheap enough to always run and fail fast.
+  gate:
+    runs-on: windows-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '20.18.1'
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.13'
-
-      # Test the tests first: cheap, pure, no build. If a guard stopped
-      # discriminating good from broken, fail before spending a build.
       - name: Gate selftest (mutation)
         shell: bash
         run: node scripts/ci/selftest-gate.js
-
-      # Preflight Layer 1+2+3+4 (unit, hang fuzz, failure rigs, race) - pure node, ~5s.
       - name: Preflight selftest (Layers 1+2)
         shell: bash
         run: node scripts/ci/selftest-preflight.js
@@ -96,76 +71,159 @@ jobs:
       - name: Pairwise generator selftest (covering-array math)
         shell: bash
         run: node scripts/ci/selftest-pairwise.js
+      - name: Preflight matrix (normal + hostile-env scenarios)
+        shell: bash
+        run: |
+          node scripts/ci/verify-preflight.js
+          OPENSWARM_TEST_NETWORK=blocked node scripts/ci/verify-preflight.js
+          OPENSWARM_TEST_APPDATA=readonly node scripts/ci/verify-preflight.js
+          OPENSWARM_TEST_LANG=de-DE node scripts/ci/verify-preflight.js
 
-      # Preflight Layer 5: hostile-env scenarios. Each leg asserts the verdict
-      # matches the expected envelope for that scenario; network=blocked
-      # producing 'fail' instead of 'warn' is the false-positive bug class.
-      - name: Preflight matrix (normal)
-        shell: bash
-        run: node scripts/ci/verify-preflight.js
-      - name: Preflight matrix (network=blocked must -> warn)
-        shell: bash
-        env: { OPENSWARM_TEST_NETWORK: blocked }
-        run: node scripts/ci/verify-preflight.js
-      - name: Preflight matrix (appdata=readonly must -> fail)
-        shell: bash
-        env: { OPENSWARM_TEST_APPDATA: readonly }
-        run: node scripts/ci/verify-preflight.js
-      - name: Preflight matrix (lang=de-DE must stay -> ok)
-        shell: bash
-        env: { OPENSWARM_TEST_LANG: de-DE }
-        run: node scripts/ci/verify-preflight.js
-
-      - name: Build packaged app (Windows)
+  # Build the unpacked app + run the deterministic gate.
+  verify:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20.18.1'
+          cache: npm
+          cache-dependency-path: |
+            electron/package-lock.json
+            frontend/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Cache bundled Python env
+        uses: actions/cache@v4
+        with:
+          path: electron/python-env
+          key: pyenv-win-${{ hashFiles('scripts/build-python-env-win.ps1', 'backend/requirements.txt') }}
+      - name: Cache uv binaries
+        uses: actions/cache@v4
+        with:
+          path: backend/uv-bin
+          key: uvbin-win-${{ hashFiles('scripts/build-app-win.ps1') }}
+      - name: Cache MCP bundles
+        uses: actions/cache@v4
+        with:
+          path: backend/mcp-bundles
+          key: mcpbundles-win-${{ hashFiles('scripts/build-app-win.ps1') }}
+      - name: Build packaged app (unpacked, no installer)
         shell: pwsh
-        run: pwsh -NoProfile -File scripts/build-app-win.ps1
-
+        run: pwsh -NoProfile -File scripts/build-app-win.ps1 -DirOnly
       - name: Deterministic gate (verify-all)
         shell: bash
         run: node scripts/ci/verify-all.js
 
+  # Build the unpacked app + run the Playwright renderer suite, concurrently with verify.
+  playwright:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20.18.1'
+          cache: npm
+          cache-dependency-path: |
+            electron/package-lock.json
+            frontend/package-lock.json
+            e2e/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Cache bundled Python env
+        uses: actions/cache@v4
+        with:
+          path: electron/python-env
+          key: pyenv-win-${{ hashFiles('scripts/build-python-env-win.ps1', 'backend/requirements.txt') }}
+      - name: Cache uv binaries
+        uses: actions/cache@v4
+        with:
+          path: backend/uv-bin
+          key: uvbin-win-${{ hashFiles('scripts/build-app-win.ps1') }}
+      - name: Cache MCP bundles
+        uses: actions/cache@v4
+        with:
+          path: backend/mcp-bundles
+          key: mcpbundles-win-${{ hashFiles('scripts/build-app-win.ps1') }}
+      - name: Build packaged app (unpacked, no installer)
+        shell: pwsh
+        run: pwsh -NoProfile -File scripts/build-app-win.ps1 -DirOnly
       - name: Install e2e deps
         shell: bash
         working-directory: e2e
         env:
           PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
         run: npm ci
-
       - name: GUI hand selftest (MCP)
         shell: bash
         working-directory: e2e
         run: node mcp/selftest.js
-
       - name: Run E2E (Playwright)
         shell: bash
         working-directory: e2e
         run: npm test
-
-      - name: Installer cycle (Windows, clean runner)
-        if: startsWith(matrix.os, 'windows')
-        shell: pwsh
-        run: node scripts/ci/verify-installer.js --destructive
-
       - name: Upload E2E results
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: e2e-results-${{ matrix.os }}
+          name: e2e-results
           path: e2e/results.json
           if-no-files-found: ignore
           retention-days: 14
-
-      # Per-test traces: playwright-trace.zip (open via `npx playwright show-trace`),
-      # events.jsonl (unified timestamped stream), mousepath.jsonl, backend.log.tail.
-      # Always-upload so a failed run is debuggable without re-running.
+      # Per-test traces: playwright-trace.zip, events.jsonl, mousepath.jsonl,
+      # backend.log.tail - always uploaded so a failed run is debuggable.
       - name: Upload E2E visibility traces
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: e2e-traces-${{ matrix.os }}
+          name: e2e-traces
           path: e2e/traces/
           if-no-files-found: ignore
           retention-days: 14
+
+  # Heaviest leg: full NSIS installer + destructive install->verify->uninstall on
+  # a clean runner. Skip on routine pushes; run on PRs into main + manual dispatch.
+  installer:
+    if: github.event_name != 'push'
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20.18.1'
+          cache: npm
+          cache-dependency-path: |
+            electron/package-lock.json
+            frontend/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Cache bundled Python env
+        uses: actions/cache@v4
+        with:
+          path: electron/python-env
+          key: pyenv-win-${{ hashFiles('scripts/build-python-env-win.ps1', 'backend/requirements.txt') }}
+      - name: Cache uv binaries
+        uses: actions/cache@v4
+        with:
+          path: backend/uv-bin
+          key: uvbin-win-${{ hashFiles('scripts/build-app-win.ps1') }}
+      - name: Cache MCP bundles
+        uses: actions/cache@v4
+        with:
+          path: backend/mcp-bundles
+          key: mcpbundles-win-${{ hashFiles('scripts/build-app-win.ps1') }}
+      - name: Build packaged app (full NSIS installer)
+        shell: pwsh
+        run: pwsh -NoProfile -File scripts/build-app-win.ps1
+      - name: Installer cycle (clean runner)
+        shell: pwsh
+        run: node scripts/ci/verify-installer.js --destructive
 
   # Real Windows 10 coverage. Skipped unless a self-hosted Win10 runner exists
   # and WIN10_SELF_HOSTED=true (repo variable). Mirrors the windows steps above.

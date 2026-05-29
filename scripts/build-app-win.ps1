@@ -11,6 +11,10 @@
 param(
     [switch]$Sign,
     [switch]$Publish,
+    # Fast CI gate path: build only the unpacked win-unpacked\ dir (no NSIS
+    # installer, no LZMA compression of the ~1GB tree - the slowest packaging
+    # phase). verify-all + Playwright drive the unpacked OpenSwarm.exe directly.
+    [switch]$DirOnly,
     # Phase 7 A/B: build a Squirrel.Windows installer instead of the default
     # NSIS one, from the SAME staged tree / SAME commit. Opt-in only; NSIS stays
     # the default and shipped target until Squirrel is proven faster AND its
@@ -434,7 +438,13 @@ try {
         $env:CSC_IDENTITY_AUTO_DISCOVERY = 'false'
     }
 
-    if ($Publish) {
+    if ($DirOnly) {
+        # Unpacked-only build for the fast CI gate. afterPack (router node_modules)
+        # and locale-pak filtering still run during the pack phase, so the produced
+        # win-unpacked\OpenSwarm.exe is fully functional; only the NSIS installer +
+        # update feed are skipped (verify-update-feed skips cleanly when absent).
+        & npx electron-builder --win --x64 --dir @TargetOverride --publish never
+    } elseif ($Publish) {
         # Safety check: warn if the matching Mac release isn't on GitHub yet.
         # Mac and Windows publishes don't conflict (different asset names,
         # different latest*.yml manifests), but a Windows-only release means
