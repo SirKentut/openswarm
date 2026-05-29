@@ -83,9 +83,19 @@ export async function launchApp(): Promise<ElectronApplication> {
   // appends a Chromium switch the preload reads to set window.__OPENSWARM_E2E__
   // before bundle.js parses, so the production store-on-window gate fires
   // deterministically (no addInitScript race).
+  // Diagnostic: OPENSWARM_E2E_DISABLE_GPU=1 launches with GPU/compositing off, to
+  // tell apart a real renderer crash from a headless-GPU-context 0xC0000005 that
+  // only reproduces under automated launch. Not used by default.
+  const extraArgs = process.env.OPENSWARM_E2E_DISABLE_GPU === '1'
+    ? ['--disable-gpu', '--disable-gpu-compositing', '--disable-software-rasterizer']
+    : [];
+  // Diagnostic: pass --js-flags=--no-opt on the launch command line (guaranteed
+  // to reach the RENDERER V8, unlike main.js appendSwitch which may only affect
+  // the main process). Used to confirm whether the renderer crash is the V8 bug.
+  if (process.env.OPENSWARM_E2E_NOOPT === '1') extraArgs.push('--js-flags=--no-opt');
   const app = await electron.launch({
     executablePath: packagedAppPath(),
-    args: [],
+    args: extraArgs,
     env: { ...process.env, OPENSWARM_E2E: '1' },
   });
   // Belt-and-braces: addInitScript ALSO sets the flag in case a future Electron

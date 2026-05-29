@@ -103,39 +103,16 @@ const INIT_SCRIPT = `
     const id = setInterval(() => { if (installReduxHook() || ++tries > 200) clearInterval(id); }, 50);
   }
 
-  // IPC bridge instrumentation. The preload exposes window.openswarm; we wrap
-  // every function so each invoke is timestamped with args+result. Avoids any
-  // production preload change.
-  const installIpcHook = () => {
-    const api = (window).openswarm;
-    if (!api || api.__ipc_wrapped__) return false;
-    for (const key of Object.keys(api)) {
-      const orig = api[key];
-      if (typeof orig !== 'function') continue;
-      api[key] = function(...args) {
-        const t0 = performance.now();
-        let r;
-        try { r = orig.apply(api, args); } catch (e) {
-          buf.push({ ts: performance.now(), kind: 'ipc-throw', payload: { name: key, durationMs: performance.now() - t0, error: String(e) } });
-          throw e;
-        }
-        if (r && typeof r.then === 'function') {
-          return r.then(
-            (v) => { buf.push({ ts: performance.now(), kind: 'ipc', payload: { name: key, durationMs: performance.now() - t0, ok: true } }); return v; },
-            (e) => { buf.push({ ts: performance.now(), kind: 'ipc', payload: { name: key, durationMs: performance.now() - t0, ok: false, error: String(e) } }); throw e; },
-          );
-        }
-        buf.push({ ts: performance.now(), kind: 'ipc', payload: { name: key, durationMs: performance.now() - t0, ok: true, sync: true } });
-        return r;
-      };
-    }
-    api.__ipc_wrapped__ = true;
-    return true;
-  };
-  if (!installIpcHook()) {
-    let tries = 0;
-    const id = setInterval(() => { if (installIpcHook() || ++tries > 200) clearInterval(id); }, 50);
-  }
+  // NOTE: page-side IPC wrapping is NOT possible. window.openswarm is exposed via
+  // contextBridge.exposeInMainWorld, which deep-freezes the object in the main
+  // world, so reassigning api[key] from here is a silent no-op (verified: it
+  // captured 0 events on every run). We deliberately do NOT instrument IPC here
+  // rather than ship code that pretends to. IPC's observable effects ARE captured
+  // through the channels that do work: page.on('request'/'response') for HTTP
+  // round-trips, page.on('websocket') for the agent protocol, and the live
+  // backend.log tail for server-side handling. Real per-call IPC timing would
+  // need a preload-side wrapper gated on __OPENSWARM_E2E__ (a packaged-build
+  // change), tracked as a follow-up.
   const push = (kind, payload) => {
     try { buf.push({ ts: performance.now(), kind, payload }); }
     catch (e) { /* never throw out of an event listener */ }
@@ -155,9 +132,16 @@ const INIT_SCRIPT = `
     push('keydown', { key: e.key, code: e.code, mod: { c: e.ctrlKey, s: e.shiftKey, a: e.altKey, m: e.metaKey } });
   }, { capture: true, passive: true });
   document.addEventListener('click', (e) => {
+    // Walk up to the nearest identifiable control: a raw click usually lands on
+    // an inner text node (SPAN/P) that carries no id, so reading attributes off
+    // e.target alone records "SPAN" instead of the button that was hit.
     const t = e.target;
-    const id = (t && t.getAttribute && (t.getAttribute('data-onboarding') || t.getAttribute('aria-label') || t.getAttribute('data-select-id'))) || (t && t.tagName);
-    push('click', { x: e.clientX, y: e.clientY, target: id });
+    const ctrl = (t && t.closest) ? t.closest('[data-onboarding],[aria-label],[data-select-id],button,[role="button"],a') : null;
+    const id =
+      (ctrl && (ctrl.getAttribute('data-onboarding') || ctrl.getAttribute('aria-label') || ctrl.getAttribute('data-select-id'))) ||
+      (ctrl && ctrl.tagName) ||
+      (t && t.tagName);
+    push('click', { x: e.clientX, y: e.clientY, target: id, raw: t && t.tagName });
   }, { capture: true, passive: true });
   // Surface any long task (>50ms blocking the main thread) so we see where
   // input responsiveness craters.
@@ -374,19 +358,29 @@ export async function startVisibility(
         const css = await page.coverage.stopCSSCoverage();
         fs.writeFileSync(path.join(dir, 'coverage-css.json'), JSON.stringify(css));
       } catch (e) { log('coverage-stop-skip', { reason: 'css', error: String(e) }); }
-      // Stop CDP Chromium tracing and drain stream to disk.
+      // Stop CDP Chromium tracing and drain stream to disk. The stream handle is
+      // delivered by the Tracing.tracingComplete EVENT, not the Tracing.end
+      // response (which is empty); reading result.stream off end() was always
+      // undefined, so nothing was ever written. Listen for the event instead.
       if (cdp && tracingActive) {
         try {
-          const result: any = await cdp.send('Tracing.end' as any);
-          if (result?.stream) {
+          const completed: any = await new Promise((resolve, reject) => {
+            const to = setTimeout(() => reject(new Error('tracingComplete timed out')), 20000);
+            cdp.once('Tracing.tracingComplete' as any, (e: any) => { clearTimeout(to); resolve(e); });
+            cdp.send('Tracing.end' as any).catch((e) => { clearTimeout(to); reject(e); });
+          });
+          const streamHandle = completed?.stream;
+          if (streamHandle) {
             const out = fs.createWriteStream(path.join(dir, 'chromium-trace.json'));
             for (;;) {
-              const piece: any = await cdp.send('IO.read' as any, { handle: result.stream, size: 64 * 1024 } as any);
-              if (piece?.data) out.write(piece.data);
+              const piece: any = await cdp.send('IO.read' as any, { handle: streamHandle, size: 256 * 1024 } as any);
+              if (piece?.data) out.write(piece.base64Encoded ? Buffer.from(piece.data, 'base64') : piece.data);
               if (piece?.eof) break;
             }
             await new Promise<void>((r) => out.end(() => r()));
-            await cdp.send('IO.close' as any, { handle: result.stream } as any).catch(() => {});
+            await cdp.send('IO.close' as any, { handle: streamHandle } as any).catch(() => {});
+          } else {
+            log('cdp-tracing-stop-skip', { reason: 'tracingComplete carried no stream handle' });
           }
         } catch (e) { log('cdp-tracing-stop-skip', { error: String(e) }); }
       }

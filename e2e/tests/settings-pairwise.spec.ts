@@ -25,6 +25,12 @@ function crashCount(): number {
   catch { return 0; }
 }
 
+// Cross-tab coverage: the first block is the General tab's switches + theme; the
+// second block reaches the Models tab (model selection, connection mode) and the
+// agent defaults (thinking level) + privacy (analytics) that live on other tabs,
+// so the matrix exercises pairwise interactions ACROSS tabs, not just within
+// General. All values round-trip cleanly through pydantic in THROUGH_BACKEND mode
+// (default_model/default_mode are free-form strings; the rest are enums/bools).
 const PARAMS: Params = {
   auto_select_mode_on_new_agent: [false, true],
   expand_new_chats_in_dashboard: [false, true],
@@ -32,6 +38,10 @@ const PARAMS: Params = {
   dev_mode: [false, true],
   allow_experimental_updates: [false, true],
   theme: ['light', 'dark'],
+  default_model: ['sonnet', 'opus'],
+  default_thinking_level: ['auto', 'high'],
+  connection_mode: ['own_key', 'openswarm-pro'],
+  analytics_opt_in: [false, true],
 };
 
 const EXHAUSTIVE = process.env.OPENSWARM_E2E_EXHAUSTIVE === '1';

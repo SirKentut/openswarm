@@ -1015,6 +1015,10 @@ function createWindow() {
       nodeIntegration: false,
       contextIsolation: true,
       webviewTag: true,
+      // E2E: additionalArguments lands in the renderer process.argv, which the
+      // preload reads to expose the Redux store deterministically. No-op for
+      // normal launches (env var unset).
+      ...(process.env.OPENSWARM_E2E === '1' ? { additionalArguments: ['--openswarm-e2e=1'] } : {}),
     },
   });
 
