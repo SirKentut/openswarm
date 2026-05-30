@@ -72,6 +72,32 @@ function _squirrelUpdate(args) {
   if (sq === '--squirrel-obsolete') { process.exit(0); }
 })();
 
+// NSIS->Squirrel migration cleanup. The first time this Squirrel build runs after
+// an existing NSIS OpenSwarm was updated into it, silently uninstall that legacy
+// NSIS copy so the user isn't left with two installs + two shortcuts. Found via
+// the HKCU Uninstall entry whose UninstallString is the NSIS uninstaller (NOT
+// Squirrel's Update.exe). Deferred to quit so the NSIS uninstaller's taskkill of
+// OpenSwarm.exe can't kill this live session (same exe name). Best-effort +
+// detached: a failure just leaves the old install (never bricks); NSIS
+// deleteAppDataOnUninstall=false keeps the user's data across the swap.
+function _removeLegacyNsisInstall() {
+  if (process.platform !== 'win32') return;
+  const ps =
+    "$ErrorActionPreference='SilentlyContinue';" +
+    "$e = Get-ChildItem 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall' |" +
+    " ForEach-Object { Get-ItemProperty $_.PSPath } |" +
+    " Where-Object { $_.DisplayName -eq 'OpenSwarm' -and $_.UninstallString -and ($_.UninstallString -notmatch 'Update\\.exe') } |" +
+    " Select-Object -First 1;" +
+    "if ($e) { if ($e.QuietUninstallString) { $u = $e.QuietUninstallString } else { $u = $e.UninstallString + ' /S' };" +
+    " Start-Process -FilePath cmd.exe -ArgumentList '/c', $u -WindowStyle Hidden }";
+  try {
+    spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', ps], { detached: true, stdio: 'ignore', windowsHide: true }).unref();
+  } catch (_) {}
+}
+if (process.platform === 'win32' && process.argv.includes('--squirrel-firstrun')) {
+  try { app.once('before-quit', _removeLegacyNsisInstall); } catch (_) {}
+}
+
 // Phase 0 boot instrumentation. Records four ordered milestones as parseable
 // lines so the packaged-build timing test (and any future perf-regression
 // gate) can read them straight out of backend.log without a separate file.
