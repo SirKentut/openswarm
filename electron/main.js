@@ -44,6 +44,24 @@ const getPort = require('get-port');
 const http = require('http');
 const affiliateTracking = require('./affiliateTracking');
 
+// Squirrel makes the APP create its own shortcuts: on --squirrel-install it must
+// call Update.exe --createShortcut and exit, else the user finds only Setup.exe
+// and no app to click. NSIS never passes these args, so it's a no-op there. The
+// prewarm-touch the old Squirrel build did here is omitted: it hung silent installs.
+function _squirrelUpdate(args) {
+  try {
+    const updateExe = path.resolve(path.dirname(process.execPath), '..', 'Update.exe');
+    execFileSync(updateExe, [...args, path.basename(process.execPath)], { timeout: 20000, stdio: 'ignore', windowsHide: true });
+  } catch (_) {}
+}
+(function handleSquirrelEvents() {
+  if (process.platform !== 'win32' || process.argv.length < 2) return;
+  const sq = process.argv[1];
+  if (sq === '--squirrel-install' || sq === '--squirrel-updated') { _squirrelUpdate(['--createShortcut']); process.exit(0); }
+  if (sq === '--squirrel-uninstall') { _squirrelUpdate(['--removeShortcut']); process.exit(0); }
+  if (sq === '--squirrel-obsolete') { process.exit(0); }
+})();
+
 // Phase 0 boot instrumentation. Records four ordered milestones as parseable
 // lines so the packaged-build timing test (and any future perf-regression
 // gate) can read them straight out of backend.log without a separate file.
