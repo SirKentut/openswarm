@@ -574,11 +574,25 @@ async function handleEvaluate(wv: BrowserWebview, params: Record<string, any>): 
   }
 }
 
+// The registry is renderer-local and a card briefly unregisters on remount /
+// tab-switch; a command landing in that gap shouldn't hard-fail. Wait a bounded
+// window for (re)registration before giving up, so the error stays a real
+// "card is gone" signal rather than a transient race.
+async function awaitWebview(browserId: string, tabId?: string): Promise<BrowserWebview | undefined> {
+  const deadline = Date.now() + 2000;
+  let wv = getWebview(browserId, tabId);
+  while (!wv && Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 100));
+    wv = getWebview(browserId, tabId);
+  }
+  return wv;
+}
+
 async function handleBrowserCommand(data: Record<string, any>) {
   const { request_id, action, browser_id, tab_id, params = {} } = data;
   if (!request_id) return;
 
-  const wv = getWebview(browser_id, tab_id || undefined);
+  const wv = await awaitWebview(browser_id, tab_id || undefined);
   if (!wv) {
     dashboardWs.send('browser:result', {
       request_id,
