@@ -25,13 +25,6 @@ const TetherLayer: React.FC<TetherLayerProps> = ({ tethers, c }) => {
       }}
     >
       <defs>
-        <filter id="tether-glow-f" x="-50%" y="-50%" width="200%" height="200%">
-          <feGaussianBlur in="SourceGraphic" stdDeviation="6" result="blur" />
-          <feMerge>
-            <feMergeNode in="blur" />
-            <feMergeNode in="SourceGraphic" />
-          </feMerge>
-        </filter>
         <marker
           id="tether-arrow"
           viewBox="0 0 10 10"
@@ -44,10 +37,6 @@ const TetherLayer: React.FC<TetherLayerProps> = ({ tethers, c }) => {
           <path d="M 0 1 L 10 5 L 0 9 z" fill={c.accent.primary} opacity={0.8} />
         </marker>
       </defs>
-      <style>{`
-        @keyframes tether-flow { to { stroke-dashoffset: -16; } }
-        @keyframes tether-pulse { 0%, 100% { opacity: 0.6; } 50% { opacity: 1; } }
-      `}</style>
       {tethers.map((t) => (
         <g
           key={t.key}
@@ -56,15 +45,18 @@ const TetherLayer: React.FC<TetherLayerProps> = ({ tethers, c }) => {
             transition: `opacity ${TETHER_FADE_MS}ms ease-out`,
           }}
         >
+          {/* Soft halo from a plain wide translucent stroke, no SVG blur filter:
+              the filter re-rasterized every frame and the marching-ants + pulse
+              that justified it are gone, so a static double-stroke is the cheap,
+              calm version of the same glow. */}
           <path
             d={t.path}
             fill="none"
             stroke={c.accent.primary}
-            strokeWidth={8}
+            strokeWidth={6}
             strokeLinecap="round"
             strokeLinejoin="round"
-            opacity={0.2}
-            filter="url(#tether-glow-f)"
+            opacity={0.12}
           />
           <path
             d={t.path}
@@ -73,20 +65,8 @@ const TetherLayer: React.FC<TetherLayerProps> = ({ tethers, c }) => {
             strokeWidth={2}
             strokeLinecap="round"
             strokeLinejoin="round"
-            opacity={0.65}
+            opacity={0.75}
             markerEnd="url(#tether-arrow)"
-            style={{ animation: 'tether-pulse 2s ease-in-out infinite' }}
-          />
-          <path
-            d={t.path}
-            fill="none"
-            stroke={c.accent.primary}
-            strokeWidth={1.5}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeDasharray="8 8"
-            opacity={0.9}
-            style={{ animation: 'tether-flow 0.6s linear infinite' }}
           />
           {t.label && (
             <g transform={`translate(${t.labelX},${t.labelY})`}>
