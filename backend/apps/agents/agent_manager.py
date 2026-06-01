@@ -1530,7 +1530,7 @@ class AgentManager:
                 env = {
                     "ANTHROPIC_API_KEY": "9router",
                     "ANTHROPIC_BASE_URL": "http://localhost:20128",
-                    "ENABLE_TOOL_SEARCH": "1",
+                    "ENABLE_TOOL_SEARCH": "auto",
                 }
                 if cp:
                     # Local OpenAI-compatible servers (LM Studio, Ollama, ...)
@@ -1600,7 +1600,7 @@ class AgentManager:
                     env["CLAUDE_CODE_SUBAGENT_MODEL"] = "openrouter/anthropic/claude-sonnet-4.5"
                     env["ANTHROPIC_SMALL_FAST_MODEL"] = "openrouter/anthropic/claude-haiku-4.5"
                     env["ANTHROPIC_DEFAULT_HAIKU_MODEL"] = "openrouter/anthropic/claude-haiku-4.5"
-                env["ENABLE_TOOL_SEARCH"] = "1"
+                env["ENABLE_TOOL_SEARCH"] = "auto"
                 options_kwargs["env"] = env
                 logger.info(f"[MCP-DEBUG] Using OpenRouter for {session.model}")
             elif api_type == "anthropic" and not resolved_is_9router and getattr(global_settings, "connection_mode", "own_key") == "openswarm-pro":
@@ -1676,7 +1676,7 @@ class AgentManager:
                 # Anthropic networks. "auto" eagerly loads tools when schema
                 # budget fits in ~10% of context. Don't pass --bare, sets
                 # CLAUDE_CODE_SIMPLE=1 which strips the system prompt scaffolding.
-                env["ENABLE_TOOL_SEARCH"] = "1"
+                env["ENABLE_TOOL_SEARCH"] = "auto"
                 options_kwargs["env"] = env
                 logger.info(f"[MCP-DEBUG] Using 9Router (api_type={api_type})")
             else:
