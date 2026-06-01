@@ -114,11 +114,12 @@ BUILTIN_MODELS: dict[str, list[dict[str, Any]]] = {
     # but tools and thinking work). 3-pro / 3-flash route via Antigravity when
     # the AG OAuth lane is active; gc/ otherwise.
     "Google": [
-        # Gemini 3.5 Flash (GA 2026-05-19): Google's current recommended flash, most
-        # intelligent for sustained agentic/coding work. New flagship flash slot.
-        {"value": "gemini-3.5-flash", "label": "Gemini 3.5 Flash",
-         "context_window": 1_000_000, "router_model_id": "gc/gemini-3.5-flash",
-         "api": "gemini-cli", "subscription_only": True, "reasoning": True},
+        # Gemini 3.5 Flash (GA 2026-05-19) is offered on the API-key route ONLY (see
+        # the api entry below). Its gc/ subscription entry was pulled because the
+        # pinned 9Router 0.3.60 registry has no gemini-3.5-flash and the gc/ route
+        # allowlists (every other shipped Gemini sub model IS in 0.3.60), so gc/
+        # gemini-3.5-flash would 404. Re-add the gc/ entry once 9Router is bumped
+        # past 0.3.60 (gated by the WebSearch-translation regression; see CLAUDE.md).
         {"value": "gemini-3.1-pro", "label": "Gemini 3.1 Pro",
          "context_window": 1_000_000, "router_model_id": "gc/gemini-3.1-pro-preview",
          "api": "gemini-cli", "subscription_only": True, "reasoning": True},
