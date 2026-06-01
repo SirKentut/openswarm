@@ -1249,6 +1249,19 @@ function createWindow() {
     console.log(`[renderer:${tag}] ${message}${src ? ` (${src}:${line})` : ''}`);
   });
 
+  // DevTools shortcut. Windows/Linux hide the menu bar, so the default View >
+  // Toggle Developer Tools route is unreachable there (Mac keeps its menu);
+  // wire F12 and Ctrl/Cmd+Shift+I directly so support can grab logs anywhere.
+  mainWindow.webContents.on('before-input-event', (event, input) => {
+    if (input.type !== 'keyDown') return;
+    const key = (input.key || '').toLowerCase();
+    const isInspect = (input.control || input.meta) && input.shift && key === 'i';
+    if (key === 'f12' || isInspect) {
+      mainWindow.webContents.toggleDevTools();
+      event.preventDefault();
+    }
+  });
+
   isCreatingMainWindow = false;
   console.log('[diag][main] createWindow end, ua=', mainWindow.webContents.getUserAgent());
 }
