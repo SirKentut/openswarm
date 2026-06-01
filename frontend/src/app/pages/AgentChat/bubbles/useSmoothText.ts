@@ -24,17 +24,9 @@ import { useEffect, useRef, useState } from 'react';
  * very first frame content exists.
  */
 
-// Reading-paced reveal. CRUISE is the steady speed when we're keeping up: ~40
-// chars/sec is a touch faster than comfortable reading (~25-30 cps) but not a
-// blur. Models generate faster than that, so on a long answer the buffer grows;
-// CATCHUP_LAG_S caps how far behind we allow before speeding up, and MAX_CPS is
-// the hard ceiling so a giant paste still resolves without the old 1000 cps
-// firehose. Net: normal answers read at a calm pace, long ones stay within a
-// few seconds of the model, nothing ever blasts.
-const CRUISE_CPS = 40;       // steady comfortable reveal speed
-const CATCHUP_LAG_S = 4;     // never fall more than this far behind the model
-const MAX_CPS = 180;         // ceiling for catch-up bursts (was 1000 = too fast)
-const RATE_SMOOTH_S = 0.30;  // how fast the reveal speed eases toward its target
+const TARGET_LAG_S = 0.35;   // stay this far behind = the buffer that prevents stalls
+const RATE_SMOOTH_S = 0.25;  // how fast the reveal speed eases toward its target
+const MAX_CPS = 1000;        // cap so a huge paste/burst still reveals smoothly, not instantly
 const MAX_DT_S = 0.05;       // clamp elapsed after a frame drop / tab switch so we don't leap
 
 export function useSmoothText(target: string, enabled: boolean): string {
@@ -71,9 +63,7 @@ export function useSmoothText(target: string, enabled: boolean): string {
       const dt = dtRaw > MAX_DT_S ? MAX_DT_S : dtRaw;
 
       const backlog = Math.max(0, full - posRef.current);
-      // Cruise at a readable pace; only speed up past it when we'd otherwise
-      // fall more than CATCHUP_LAG_S behind. Zero when fully caught up.
-      const desired = backlog <= 0 ? 0 : Math.max(CRUISE_CPS, backlog / CATCHUP_LAG_S);
+      const desired = backlog / TARGET_LAG_S;            // speed that holds the lag steady (0 when caught up)
       const k = Math.min(1, dt / RATE_SMOOTH_S);
       let cps = cpsRef.current + (desired - cpsRef.current) * k; // EMA-smooth the speed itself, both up and down
       if (cps > MAX_CPS) cps = MAX_CPS;
