@@ -89,16 +89,9 @@ BUILTIN_MODELS: dict[str, list[dict[str, Any]]] = {
         {"value": "gpt-5.4-mini", "label": "GPT-5.4 Mini",
          "context_window": 400_000, "router_model_id": "cx/gpt-5.4-mini",
          "api": "codex", "subscription_only": True, "reasoning": True},
-        # -high / -xhigh are distinct codex tunes (xhigh = max quality, slowest).
-        {"value": "gpt-5.3-codex", "label": "GPT-5.3 Codex",
-         "context_window": 400_000, "router_model_id": "cx/gpt-5.3-codex",
-         "api": "codex", "subscription_only": True, "reasoning": True},
-        {"value": "gpt-5.3-codex-high", "label": "GPT-5.3 Codex High",
-         "context_window": 400_000, "router_model_id": "cx/gpt-5.3-codex-high",
-         "api": "codex", "subscription_only": True, "reasoning": True},
-        {"value": "gpt-5.3-codex-xhigh", "label": "GPT-5.3 Codex Extra High",
-         "context_window": 400_000, "router_model_id": "cx/gpt-5.3-codex-xhigh",
-         "api": "codex", "subscription_only": True, "reasoning": True},
+        # gpt-5.3-codex (+ high/xhigh) removed: superseded by GPT-5.5 as OpenAI's
+        # recommended Codex model, and high/xhigh were never separate models (just
+        # reasoning-effort variants), so they were redundant clutter.
         # API-key entries: route through 9Router's `cp-openai` provider-node
         # (registered by sync_openai_api_key) so 9Router's translator
         # dispatches to our local openai-passthrough proxy. The passthrough
@@ -114,15 +107,6 @@ BUILTIN_MODELS: dict[str, list[dict[str, Any]]] = {
          "api": "openai", "reasoning": True, "route": "api"},
         {"value": "gpt-5.4-mini-api", "label": "GPT-5.4 Mini (API key)",
          "context_window": 400_000, "router_model_id": "cp-openai/gpt-5.4-mini", "model_id": "gpt-5.4-mini",
-         "api": "openai", "reasoning": True, "route": "api"},
-        {"value": "gpt-5.3-codex-api", "label": "GPT-5.3 Codex (API key)",
-         "context_window": 400_000, "router_model_id": "cp-openai/gpt-5.3-codex", "model_id": "gpt-5.3-codex",
-         "api": "openai", "reasoning": True, "route": "api"},
-        {"value": "gpt-5.3-codex-high-api", "label": "GPT-5.3 Codex High (API key)",
-         "context_window": 400_000, "router_model_id": "cp-openai/gpt-5.3-codex-high", "model_id": "gpt-5.3-codex-high",
-         "api": "openai", "reasoning": True, "route": "api"},
-        {"value": "gpt-5.3-codex-xhigh-api", "label": "GPT-5.3 Codex Extra High (API key)",
-         "context_window": 400_000, "router_model_id": "cp-openai/gpt-5.3-codex-xhigh", "model_id": "gpt-5.3-codex-xhigh",
          "api": "openai", "reasoning": True, "route": "api"},
     ],
     # Google: Gemini 3.x thoughtSignature continuity is bypassed via 9Router's
@@ -420,9 +404,6 @@ COST_PER_1M_TOKENS: dict[tuple[str, str], tuple[float, float]] = {
     ("OpenAI", "gpt-5.5"): (0.0, 0.0),
     ("OpenAI", "gpt-5.4"): (0.0, 0.0),
     ("OpenAI", "gpt-5.4-mini"): (0.0, 0.0),
-    ("OpenAI", "gpt-5.3-codex"): (0.0, 0.0),
-    ("OpenAI", "gpt-5.3-codex-high"): (0.0, 0.0),
-    ("OpenAI", "gpt-5.3-codex-xhigh"): (0.0, 0.0),
     # Google; Gemini CLI subscription path, user pays nothing per token
     ("Google", "gemini-3.5-flash"): (0.0, 0.0),
     ("Google", "gemini-3.1-pro"): (0.0, 0.0),
