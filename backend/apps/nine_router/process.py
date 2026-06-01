@@ -27,22 +27,31 @@ NINE_ROUTER_URL = f"http://localhost:{NINE_ROUTER_PORT}"
 NINE_ROUTER_API = f"{NINE_ROUTER_URL}/api"
 NINE_ROUTER_V1 = f"{NINE_ROUTER_URL}/v1"
 
-# Pinned 9router npm package version. Using 0.3.60 to match exactly what
-# openswarm-ai v1.0.25 (last known-good production release) vendored via
-# `9router/package.json`. Versions between 0.3.60 and 0.3.96 regressed
-# cross-provider WebSearch: the CLI's WebSearch call from Codex/Gemini
-# primaries used to route cleanly through 9Router's translator and hit
-# Anthropic's server-side web_search (returning real results), but later
-# translator changes broke that path; non-Claude primaries now see
-# "claude-haiku-4-5-20251001 unavailable" or hallucinated output.
-# Pinning to 0.3.60 restores v1.0.25 behavior.
+# Pinned 9router npm package version.
+#
+# TEST BUMP (eric/hardening): 0.3.60 -> 0.4.66 to evaluate whether the newer
+# router (a) fixes the cross-provider WebSearch regression and (b) unlocks the
+# subscription routes 0.3.60 can't serve. Confirmed empirically on a booted
+# 0.4.66 instance: it exposes cc/claude-opus-4-8 and cx/gpt-5.5 (the latter
+# 404'd on 0.3.60), and it reworked WebSearch behind a NEW /api/v1/search route
+# that didn't exist in 0.3.x. Gemini 3.5 Flash is Antigravity-only there
+# (ag/gemini-3.5-flash-low), not on the gc/ Gemini-CLI lane.
+#
+# The original reason for the 0.3.60 pin (kept for history): versions between
+# 0.3.60 and 0.3.96 regressed cross-provider WebSearch, so a Codex/Gemini
+# primary delegating WebSearch saw "claude-haiku-4-5-20251001 unavailable" or
+# hallucinated output. That note only ever covered up to 0.3.96; 0.4.x was
+# never tested, and the /api/v1/search rework may well have fixed it. DO NOT
+# ship this bump to prod until WebSearch is verified live on a non-Claude
+# primary (run.sh + a connected Codex/Gemini sub); revert to "0.3.60" if it
+# still misbehaves.
 #
 # Note: 0.3.60-0.4.20 ALL emit `max_tokens` (not max_completion_tokens)
-# when translating Anthropic→OpenAI, which OpenAI's GPT-5 family rejects.
+# when translating Anthropic->OpenAI, which OpenAI's GPT-5 family rejects.
 # The fix lives in our /api/openai-passthrough proxy; see core/openai_passthrough.py
 # and sync_openai_api_key for how the translation lane is rerouted via an
 # `openai-compatible` provider-node that honors `baseUrl`.
-NINE_ROUTER_NPM_VERSION = "0.3.60"
+NINE_ROUTER_NPM_VERSION = "0.4.66"
 
 _process: subprocess.Popen | None = None
 
