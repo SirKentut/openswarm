@@ -454,6 +454,32 @@ const AgentChat: React.FC<AgentChatProps> = ({ sessionId: sessionIdProp, onClose
     // so AgentChat stays dormant during the 30Hz delta storm.
   }, [session?.messages.length, streamingMessageId, stickToBottomIfNeeded]);
 
+  // Stream-end re-stick. When a stream finishes, the live bubble (smooth-revealed
+  // text) is replaced by the committed bubble rendering FULL markdown, whose code
+  // blocks / tables lay out in a later pass and grow the height AFTER the normal
+  // stick already ran, stranding the view above the new bottom. If the user was
+  // following the bottom, force one more scroll-to-bottom after layout settles.
+  // Skipped entirely if the user had scrolled up (isAtBottomRef false), per the
+  // "unless the user scrolls away" rule.
+  const prevStreamingIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    const prev = prevStreamingIdRef.current;
+    prevStreamingIdRef.current = streamingMessageId;
+    if (prev && !streamingMessageId && isAtBottomRef.current) {
+      // Two passes: ~70ms catches synchronous markdown, a second rAF catches
+      // async highlighter/layout that lands a frame or two later.
+      const settle = () => {
+        const el = scrollContainerRef.current;
+        if (el && isAtBottomRef.current) {
+          el.scrollTop = el.scrollHeight;
+          lastScrollHeightRef.current = el.scrollHeight;
+        }
+      };
+      const t = setTimeout(() => { settle(); requestAnimationFrame(settle); }, 70);
+      return () => clearTimeout(t);
+    }
+  }, [streamingMessageId]);
+
   useEffect(() => () => {
     if (scrollRafRef.current != null) {
       cancelAnimationFrame(scrollRafRef.current);
