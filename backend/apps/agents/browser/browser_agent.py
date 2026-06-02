@@ -194,11 +194,31 @@ async def run_browser_agent(
         "session": session.model_dump(mode="json"),
     })
 
+    # Perception we prefetch on a known starting page so the model can ACT on
+    # turn 1 instead of spending turns 0-2 orienting (screenshot/get_elements).
+    # Pure speed: it's the same reads the agent would do anyway, just front-loaded.
+    preloaded_perception = ""
     if initial_url:
         nav_result = await execute_browser_tool(
             "BrowserNavigate", {"url": initial_url}, browser_id, tab_id,
         )
         logger.info(f"Browser agent {session_id}: navigated to {initial_url}: {nav_result.get('text', nav_result.get('error', ''))}")
+        try:
+            li = await execute_browser_tool("BrowserListInteractives", {}, browser_id, tab_id)
+            gt = await execute_browser_tool("BrowserGetText", {}, browser_id, tab_id)
+            parts = []
+            if li.get("text") and "error" not in li:
+                parts.append("Interactive elements already on the page:\n" + str(li["text"]))
+            if gt.get("text") and "error" not in gt:
+                parts.append("Visible page text (truncated):\n" + str(gt["text"])[:2000])
+            if parts:
+                preloaded_perception = (
+                    "\n\n[Page already loaded and inspected for you, act directly; "
+                    "no need to screenshot or list elements again unless it changes]\n"
+                    + "\n\n".join(parts)
+                )
+        except Exception as e:
+            logger.debug(f"[browser-perf] perception prefetch skipped: {e}")
 
     from backend.apps.settings.settings import load_settings
     from backend.apps.settings.credentials import get_anthropic_client_for_model
@@ -269,7 +289,11 @@ async def run_browser_agent(
         )
         clear_browser_history(browser_id)
         prior_messages = []
-    messages: list[dict] = list(prior_messages) + [{"role": "user", "content": task}]
+    # Front-load the prefetched perception into the first user turn so the model
+    # can act immediately (only when this is a fresh conversation; a resumed one
+    # already knows the page). The visible task text stays clean.
+    first_user_content = task + preloaded_perception if (preloaded_perception and not prior_messages) else task
+    messages: list[dict] = list(prior_messages) + [{"role": "user", "content": first_user_content}]
     action_log: list[dict] = []
     final_screenshot: str | None = None
     metrics_started_at = time.time()  # wall-clock start for per-task timing

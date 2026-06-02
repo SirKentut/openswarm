@@ -268,6 +268,24 @@ def test_replay_falls_back_to_full_agent_when_a_step_fails(monkeypatch):
     assert len(primary.calls) > 0, "fell back to the full LLM agent"
 
 
+def test_perception_is_frontloaded_into_first_turn(monkeypatch):
+    # With a known start URL, the agent should prefetch the element list + page
+    # text and put them in the FIRST user message, so the model can act on turn 1
+    # instead of spending early turns orienting.
+    BH._browser_history.clear(); BH._domain_notes.clear()
+    primary = FakeLLM([Resp([Blk("text", "done")], stop_reason="end_turn")])
+    aux = FakeAux()
+    _install(monkeypatch, primary, aux)
+    asyncio.run(BA.run_browser_agent(
+        task="click submit", browser_id="bp", model="sonnet", initial_url=DOC_URL,
+    ))
+    first_user = primary.calls[0]["messages"][0]["content"]
+    text = first_user if isinstance(first_user, str) else json.dumps(first_user)
+    # the fake list_interactives returns a "[1]<button ...>" listing
+    assert "Interactive elements already on the page" in text
+    assert "act directly" in text
+
+
 def test_prompt_caching_markers_present(monkeypatch):
     # The fixed system+tools prefix must carry cache_control so it's cached
     # across turns (the first-run speed/cost win). Without the marker the
