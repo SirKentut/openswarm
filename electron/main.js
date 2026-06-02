@@ -1863,6 +1863,10 @@ app.on('web-contents-created', (_event, contents) => {
       contents.debugger.on('detach', (_e, reason) => {
         console.log(`[cdp] detach on wcId ${contents.id}: ${reason}`);
         cdpAxIndexCache.delete(contents.id);
+        // Clear stale child sessions but KEEP the map object + the wired guard:
+        // the 'message' listener stays bound to wc.debugger across detach, so
+        // dropping the guard here would stack a duplicate listener on reattach.
+        cdpChildSessions.get(contents.id)?.clear();
       });
     } catch (e) {
       // Older Electron may not have the listener API; non-fatal.
@@ -1871,11 +1875,15 @@ app.on('web-contents-created', (_event, contents) => {
     contents.on('destroyed', () => {
       cdpAxIndexCache.delete(contents.id);
       cdpQueueByWcId.delete(contents.id);
+      cdpChildSessions.delete(contents.id);
+      cdpAutoAttachWired.delete(contents.id);
     });
 
     contents.on('render-process-gone', () => {
       cdpAxIndexCache.delete(contents.id);
       cdpQueueByWcId.delete(contents.id);
+      cdpChildSessions.delete(contents.id);
+      cdpAutoAttachWired.delete(contents.id);
     });
 
     // WebAuthn/passkey shim. Injected on every dom-ready in the main world
@@ -2224,8 +2232,45 @@ ipcMain.handle('get-install-state', () => {
 // The renderer calls window.openswarm.sendCdpCommand(wcId, method, params),
 // which routes through this handler to webContents.debugger.sendCommand().
 
-const cdpAxIndexCache = new Map(); // wcId -> Map<index, backendNodeId>
+const cdpAxIndexCache = new Map(); // wcId -> map of index -> {backendNodeId, sessionId}
 const cdpQueueByWcId = new Map();  // wcId -> Promise (serialization tail)
+
+// OOPIF support: cross-origin iframes are out-of-process, so their nodes never
+// show up in the root frame's accessibility tree (this is the Google Docs
+// "share dialog" blind spot). With flatten auto-attach we get a CDP session per
+// child frame and can query + click into them. Tracks, per webContents, every
+// attached child-frame session and where it sits in the frame tree.
+const cdpChildSessions = new Map();   // wcId -> Map<sessionId, {frameId, parentSessionId, url}>
+const cdpAutoAttachWired = new Set(); // wcIds whose 'message' listener is attached
+
+function wireChildSessions(wc) {
+  const wcId = wc.id;
+  if (cdpAutoAttachWired.has(wcId)) return;
+  cdpAutoAttachWired.add(wcId);
+  cdpChildSessions.set(wcId, new Map());
+  wc.debugger.on('message', (_e, method, params, sessionId) => {
+    const sessions = cdpChildSessions.get(wcId);
+    if (!sessions) return;
+    if (method === 'Target.attachedToTarget') {
+      const info = params.targetInfo || {};
+      if (info.type !== 'iframe') return;
+      // The event's own sessionId is the PARENT session (empty = root frame).
+      sessions.set(params.sessionId, {
+        frameId: info.targetId,
+        parentSessionId: sessionId || null,
+        url: info.url || '',
+      });
+      // Enable perception domains and propagate auto-attach into nested OOPIF.
+      const sid = params.sessionId;
+      wc.debugger.sendCommand('Accessibility.enable', {}, sid).catch(() => {});
+      wc.debugger.sendCommand('DOM.enable', {}, sid).catch(() => {});
+      wc.debugger.sendCommand('Target.setAutoAttach',
+        { autoAttach: true, waitForDebuggerOnStart: false, flatten: true }, sid).catch(() => {});
+    } else if (method === 'Target.detachedFromTarget') {
+      sessions.delete(params.sessionId);
+    }
+  });
+}
 
 function getWebContentsById(wcId) {
   // webContents is exposed as a top-level Electron API
@@ -2244,9 +2289,16 @@ async function ensureDebuggerAttached(wc) {
     // Re-raise as a clean error string for the renderer.
     throw new Error(`debugger.attach failed: ${err.message || err}`);
   }
+  // Auto-attach to cross-origin child frames so the agent can see/click into
+  // them. Non-fatal if it fails; single-frame perception still works.
+  wireChildSessions(wc);
+  try {
+    await wc.debugger.sendCommand('Target.setAutoAttach',
+      { autoAttach: true, waitForDebuggerOnStart: false, flatten: true });
+  } catch (_) {}
 }
 
-async function sendCdpCommandSerialized(wcId, method, params) {
+async function sendCdpCommandSerialized(wcId, method, params, sessionId) {
   // Chain on the per-wcId queue so concurrent renderer calls run in order.
   const prev = cdpQueueByWcId.get(wcId) || Promise.resolve();
   const next = prev
@@ -2257,7 +2309,9 @@ async function sendCdpCommandSerialized(wcId, method, params) {
         throw new Error(`webContents ${wcId} not found or destroyed`);
       }
       await ensureDebuggerAttached(wc);
-      return await wc.debugger.sendCommand(method, params || {});
+      // sessionId undefined routes to the root frame; a child-frame sessionId
+      // routes into that OOPIF.
+      return await wc.debugger.sendCommand(method, params || {}, sessionId);
     });
   cdpQueueByWcId.set(wcId, next);
   try {
@@ -2270,9 +2324,9 @@ async function sendCdpCommandSerialized(wcId, method, params) {
   }
 }
 
-ipcMain.handle('send-cdp-command', async (_event, wcId, method, params) => {
+ipcMain.handle('send-cdp-command', async (_event, wcId, method, params, sessionId) => {
   try {
-    const result = await sendCdpCommandSerialized(wcId, method, params);
+    const result = await sendCdpCommandSerialized(wcId, method, params, sessionId);
     return { ok: true, result };
   } catch (err) {
     return { ok: false, error: err && err.message ? err.message : String(err) };
@@ -2294,6 +2348,14 @@ ipcMain.handle('cdp-cache-get', (_event, wcId) => {
 ipcMain.handle('cdp-cache-clear', (_event, wcId) => {
   cdpAxIndexCache.delete(wcId);
   return { ok: true };
+});
+
+// Returns the attached OOPIF child-frame sessions for a webContents so the
+// renderer can query their AX trees and compose click coordinates.
+ipcMain.handle('cdp-child-sessions-get', (_event, wcId) => {
+  const m = cdpChildSessions.get(wcId);
+  if (!m) return [];
+  return [...m.entries()].map(([sessionId, info]) => ({ sessionId, ...info }));
 });
 
 ipcMain.handle('connect-slack', async () => {
