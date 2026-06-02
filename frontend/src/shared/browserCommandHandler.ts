@@ -57,10 +57,26 @@ export function getActionLabel(action: string): string {
 }
 
 async function handleScreenshot(wv: BrowserWebview): Promise<Record<string, any>> {
-  const nativeImage = await wv.capturePage();
-  const dataUrl = nativeImage.toDataURL();
-  const base64 = dataUrl.replace(/^data:image\/\w+;base64,/, '');
-  return { image: base64, url: wv.getURL(), title: wv.getTitle() };
+  // capturePage throws UnknownVizError if the webview hasn't composited a frame
+  // yet (the Viz compositor races the first paint, reliably bit turn-0 captures).
+  // Retry a few times with a short backoff so a cold first screenshot succeeds
+  // instead of burning a whole agent turn on a transient error.
+  let lastErr: any;
+  for (let attempt = 0; attempt < 4; attempt++) {
+    try {
+      const nativeImage = await wv.capturePage();
+      if (!nativeImage.isEmpty()) {
+        const dataUrl = nativeImage.toDataURL();
+        const base64 = dataUrl.replace(/^data:image\/\w+;base64,/, '');
+        return { image: base64, url: wv.getURL(), title: wv.getTitle() };
+      }
+      lastErr = new Error('capturePage returned an empty image (frame not painted yet)');
+    } catch (err: any) {
+      lastErr = err;
+    }
+    await new Promise((r) => setTimeout(r, 250 * (attempt + 1)));
+  }
+  return { error: `Screenshot failed after retries: ${lastErr?.message || String(lastErr)}` };
 }
 
 async function handleGetText(wv: BrowserWebview): Promise<Record<string, any>> {

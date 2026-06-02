@@ -11,6 +11,7 @@ export interface BrowserWebview extends HTMLElement {
   capturePage: (rect?: { x: number; y: number; width: number; height: number }) => Promise<{
     toDataURL: () => string;
     toPNG: () => Buffer;
+    isEmpty: () => boolean;
   }>;
   executeJavaScript: (code: string) => Promise<any>;
   sendInputEvent: (event: any) => void;
