@@ -7,6 +7,18 @@ from backend.apps.agents.core.seq_log import TERMINAL_STATUSES, seq_log
 
 logger = logging.getLogger(__name__)
 
+# Per-action browser-command timeouts (seconds). A hung tab makes EVERY command
+# block to its timeout, so these bound how fast a freeze surfaces. Reads/clicks
+# operate on an already-loaded page and should be quick; navigation legitimately
+# loads the network so it gets a longer leash. Was a flat 30s, which let one
+# wedged page spin for ~20 minutes across retries.
+_BROWSER_CMD_TIMEOUT_DEFAULT = 12.0
+_BROWSER_CMD_TIMEOUTS = {
+    "navigate": 20.0,     # a real page load can be slow
+    "replay_route": 20.0, # an API fetch can be slow
+    "wait": 12.0,         # smart-wait already caps itself well under this
+}
+
 
 class ConnectionManager:
     """Manages WebSocket connections and HITL approval bridging; events flow through seq_log so reconnects can replay."""
@@ -242,7 +254,14 @@ class ConnectionManager:
         })
 
         try:
-            result = await asyncio.wait_for(future, timeout=30.0)
+            # Bound each command so a wedged tab can't block for 30s (the cost
+            # that turned one hung LinkedIn page into a 20-minute spin). Navigation
+            # legitimately takes longer than reads/clicks on an already-loaded page,
+            # so it gets a longer leash; everything else fails fast. A one-off slow
+            # command just times out and the next success resets the agent's streak,
+            # so only a SUSTAINED hang trips the fast-fail abort.
+            timeout = _BROWSER_CMD_TIMEOUTS.get(action, _BROWSER_CMD_TIMEOUT_DEFAULT)
+            result = await asyncio.wait_for(future, timeout=timeout)
             return result
         except asyncio.TimeoutError:
             return {"error": "Browser command timed out"}
