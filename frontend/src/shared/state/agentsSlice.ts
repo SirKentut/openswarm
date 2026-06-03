@@ -82,6 +82,9 @@ export interface AgentSession {
   dashboard_id?: string;
   browser_id?: string | null;
   parent_session_id?: string | null;
+  /** Browser memory signals that drive the subtle "Remembered"/"Learned" card chip. */
+  memory_recalled?: boolean;
+  memory_learned?: boolean;
   thinking_level?: 'off' | 'low' | 'medium' | 'high' | 'auto';
   active_mcps?: string[];
   ctx_used_pct?: number;

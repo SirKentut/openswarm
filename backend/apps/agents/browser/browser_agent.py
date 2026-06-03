@@ -405,11 +405,18 @@ async def run_browser_agent(
     # picking up where it left off, not figuring the site out cold again. Only
     # when strategy was actually seeded, so it's honest, never noise.
     if pb_seeded and _pb_host:
+        session.memory_recalled = True  # drives the subtle "Remembered" card chip
         _recall_msg = Message(role="assistant",
                               content=f"Picking up what I learned about {_pb_host} from a previous visit.")
         session.messages.append(_recall_msg)
         await ws_manager.send_to_session(session_id, "agent:message", {
             "session_id": session_id, "message": _recall_msg.model_dump(mode="json"),
+        })
+        # Push the session so the "Remembered" chip shows WHILE it works (the
+        # high-value moment), not just on the finished card.
+        await ws_manager.send_to_session(session_id, "agent:status", {
+            "session_id": session_id, "status": session.status,
+            "session": session.model_dump(mode="json"),
         })
 
     async def _cancellable(coro):
@@ -1150,6 +1157,7 @@ async def run_browser_agent(
                     # sees the agent got a little smarter for next time. Only when
                     # it genuinely learned something, so it stays honest + rare.
                     if changed:
+                        session.memory_learned = True  # drives the subtle "Learned" card chip
                         _learn_msg = Message(role="assistant",
                                              content=f"Noted what worked on {pb_host} so I'm faster here next time.")
                         session.messages.append(_learn_msg)

@@ -116,6 +116,10 @@ class AgentSession(BaseModel):
     dashboard_id: Optional[str] = None
     browser_id: Optional[str] = None
     parent_session_id: Optional[str] = None
+    # Browser memory signals, drive the subtle "remembered/learned" card chip so
+    # the user feels the agent getting smarter without lifting a finger.
+    memory_recalled: bool = False
+    memory_learned: bool = False
     needs_fork: bool = False
     # Stronger than needs_fork: drop resume= and replay history into a fresh sdk_session_id; fork_session alone won't re-read mcp_servers.
     needs_fresh_session: bool = False

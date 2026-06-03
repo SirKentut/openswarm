@@ -5,6 +5,8 @@ import Chip from '@mui/material/Chip';
 import IconButton from '@mui/material/IconButton';
 import Button from '@mui/material/Button';
 import Tooltip from '@mui/material/Tooltip';
+import Fade from '@mui/material/Fade';
+import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import CheckIcon from '@mui/icons-material/Check';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import CancelIcon from '@mui/icons-material/Cancel';
@@ -766,6 +768,29 @@ const AgentCard: React.FC<Props> = ({
                 flexShrink: 0,
               }}
             />
+            {/* Calm, zero-click signal: the agent recalled or built up memory of
+                this site, so the user feels it getting smarter on its own. */}
+            <Fade in={session.memory_recalled || session.memory_learned} timeout={{ enter: 200, exit: 220 }} unmountOnExit>
+              <Tooltip title={session.memory_learned
+                ? 'Saved what worked here, so it is faster next time'
+                : 'Using what it learned here on a past visit'}>
+                <Chip
+                  icon={<AutoAwesomeIcon sx={{ fontSize: 13, color: `${accentColor} !important` }} />}
+                  label={session.memory_learned ? 'Learned' : 'Remembered'}
+                  size="small"
+                  sx={{
+                    bgcolor: c.bg.secondary,
+                    color: accentColor,
+                    border: `1px solid ${accentColor}33`,
+                    fontWeight: 600,
+                    fontSize: '0.68rem',
+                    height: 22,
+                    flexShrink: 0,
+                    '& .MuiChip-icon': { ml: '4px' },
+                  }}
+                />
+              </Tooltip>
+            </Fade>
           </Box>
           <Box
             onPointerDown={(e) => e.stopPropagation()}
