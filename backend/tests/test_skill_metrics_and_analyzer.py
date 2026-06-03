@@ -32,11 +32,12 @@ def _log():
     ]
 
 
-def _task_row(sig, path, dur_s):
+def _task_row(sig, path, dur_s, turns=None, playbook_seeded=False):
     # started_at in the past makes record_task compute a realistic total_ms.
-    bm.record_task("s-" + sig + path, "b", sig, "completed",
-                   time.time() - dur_s, 0 if path == "replay" else 3,
-                   _log(), {"input": 10, "output": 5}, path=path, task_sig=sig)
+    bm.record_task("s-" + sig + path + str(turns) + str(playbook_seeded), "b", sig, "completed",
+                   time.time() - dur_s, turns if turns is not None else (0 if path == "replay" else 3),
+                   _log(), {"input": 10, "output": 5}, path=path, task_sig=sig,
+                   playbook_seeded=playbook_seeded)
 
 
 def test_skill_events_are_emitted_for_each_transition(_metrics_dir):
@@ -111,6 +112,31 @@ def test_analyzer_reports_composition(_metrics_dir, capsys):
     assert "composition:" in out
     assert "built on a proven sub-skill" in out
     assert "1 dependent(s) re-proofed" in out
+
+
+def test_analyzer_reports_playbook_cutting_exploration_turns(_metrics_dir, capsys):
+    # tier-2 win: a cold run on a host takes many turns; once strategy is seeded,
+    # the same kind of task takes fewer. The analyzer must report HELPS.
+    sig = sk._sig("find people")
+    _task_row(sig, "llm", 60.0, turns=14, playbook_seeded=False)   # cold
+    _task_row(sig, "llm", 40.0, turns=8, playbook_seeded=True)     # seeded -> fewer turns
+    mod = _load_analyzer()
+    tasks = mod._load(os.path.join(_metrics_dir, "tasks.jsonl"))
+    mod.playbook_report(tasks)
+    out = capsys.readouterr().out
+    assert "STRATEGIC PLAYBOOK" in out and "HELPS" in out and "NOT HELPING" not in out
+
+
+def test_analyzer_flags_playbook_that_does_not_help(_metrics_dir, capsys):
+    # anti-ghost: memory is active (seeded) but seeded runs are NOT cheaper -> flag.
+    sig = sk._sig("stubborn task")
+    _task_row(sig, "llm", 60.0, turns=10, playbook_seeded=False)
+    _task_row(sig, "llm", 60.0, turns=12, playbook_seeded=True)    # seeded but MORE turns
+    mod = _load_analyzer()
+    tasks = mod._load(os.path.join(_metrics_dir, "tasks.jsonl"))
+    mod.playbook_report(tasks)
+    out = capsys.readouterr().out
+    assert "NOT HELPING" in out
 
 
 # --- helpers ---------------------------------------------------------------

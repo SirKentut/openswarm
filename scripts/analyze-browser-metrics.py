@@ -141,6 +141,35 @@ def skill_layer_report(tasks, skill_events):
               f"{kinds.get('invalidate', 0)} dependent(s) re-proofed after a foundation changed")
 
 
+def playbook_report(tasks):
+    """Does the tier-2 strategy playbook actually make judgment tasks cheaper over
+    time? Compare LLM-path runs on a host BEFORE a playbook existed (cold) vs once
+    it was seeded. The win is fewer exploration turns; flag a host where seeded
+    runs are NOT cheaper (the 'memory looks active but doesn't help' ghost)."""
+    from collections import defaultdict
+    by_host = defaultdict(lambda: {"cold": [], "seeded": []})
+    for t in tasks:
+        if t.get("path") not in ("llm", "llm_fallback") or not t.get("completed"):
+            continue
+        host = (t.get("task_sig") or "").split(" ")[0] or t.get("browser_id", "?")
+        bucket = "seeded" if t.get("playbook_seeded") else "cold"
+        by_host[host][bucket].append(t.get("turns", 0) or 0)
+    rows = {h: v for h, v in by_host.items() if v["cold"] and v["seeded"]}
+    if not any(t.get("playbook_seeded") for t in tasks):
+        return  # nothing seeded yet, no measurement to make
+    print("\n=== STRATEGIC PLAYBOOK (does learned site-strategy cut exploration?) ===")
+    seeded_total = sum(1 for t in tasks if t.get("playbook_seeded"))
+    print(f"  runs seeded with a playbook: {seeded_total}")
+    if not rows:
+        print("  (no host yet has BOTH a cold and a seeded run to compare)")
+        return
+    for h, v in rows.items():
+        cold = sum(v["cold"]) / len(v["cold"])
+        seeded = sum(v["seeded"]) / len(v["seeded"])
+        verdict = "HELPS" if seeded < cold else "⚠️ NOT HELPING"
+        print(f"    {h[:40]:40} cold avg {cold:.1f} turns -> seeded avg {seeded:.1f} turns  {verdict}")
+
+
 def main():
     d = sys.argv[1] if len(sys.argv) > 1 else _default_dir()
     events = _load(os.path.join(d, "events.jsonl"))
@@ -207,6 +236,7 @@ def main():
               f"(completed minus ghosts)")
 
     skill_layer_report(tasks, skill_events)
+    playbook_report(tasks)
 
 
 if __name__ == "__main__":

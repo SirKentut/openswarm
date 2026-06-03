@@ -375,11 +375,13 @@ async def run_browser_agent(
     # Tier-2 memory: seed the DURABLE strategy playbook for this host (distilled
     # from past successful runs) so the model skips re-discovery. Advisory text,
     # re-verified by the agent, never auto-run. Keyed by full host like skills.
+    pb_seeded = False  # whether tier-2 strategy was injected, for measuring its effect
     _pb_host = browser_skills.host_of(initial_url or current_url or "")
     if _pb_host:
         _pb_block = browser_playbook.format_for_prompt(_pb_host)
         if _pb_block:
             run_system_prompt = run_system_prompt + _pb_block
+            pb_seeded = True
 
     # Prompt-caching shapes built once: system as a single cached text block,
     # and the last tool carrying the cache_control marker (Anthropic keys on the
@@ -1093,7 +1095,8 @@ async def run_browser_agent(
         browser_metrics.record_task(session_id, browser_id, task, final_status,
                                     metrics_started_at, turn + 1, action_log, session.tokens,
                                     path="llm_fallback" if replay_attempted else "llm",
-                                    task_sig=browser_skills._sig(skill_key_task))
+                                    task_sig=browser_skills._sig(skill_key_task),
+                                    playbook_seeded=pb_seeded)
         # Learn this task ONLY from a genuinely successful run whose deliverable a
         # deterministic replay can actually reproduce. We skip recording when the
         # run was dishonest (ghost) OR when its answer was gathered/judged content

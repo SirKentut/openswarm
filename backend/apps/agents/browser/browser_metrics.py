@@ -119,7 +119,7 @@ def record_skill_event(kind, host, task_sig, rev=0, state="", extra=None) -> Non
 
 
 def record_task(session_id, browser_id, task, status, started_at, turns,
-                action_log, tokens, path="llm", task_sig="") -> dict:
+                action_log, tokens, path="llm", task_sig="", playbook_seeded=False) -> dict:
     """One summary line per finished task: completion, total time, per-tier
     latency, token cost, and the recurring-error rollup. `path` records HOW the
     task finished (replay = no-LLM fast path, llm = full agent, llm_fallback =
@@ -147,6 +147,7 @@ def record_task(session_id, browser_id, task, status, started_at, turns,
         "task": (task or "")[:200],
         "task_sig": task_sig,
         "path": path,
+        "playbook_seeded": bool(playbook_seeded),
         "status": status,
         "completed": status == "completed",
         "total_ms": total_ms,
