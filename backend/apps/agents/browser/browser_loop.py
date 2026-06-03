@@ -213,6 +213,22 @@ def card_is_unavailable(result: dict) -> bool:
     return any(m in err for m in _CARD_GONE_MARKERS)
 
 
+# Actions that DIRTY the page so replay-from-here is no longer equivalent to a
+# clean dispatch. Navigation and reads don't dirty anything (they just get us to
+# the page), so the deferred replay re-check is allowed after only those.
+_REPLAY_DIRTYING_TOOLS = {
+    "BrowserType", "BrowserClick", "BrowserClickIndex",
+    "BrowserPressKey", "BrowserScroll", "BrowserBatch",
+}
+
+
+def replay_recheck_is_safe(action_log: list[dict]) -> bool:
+    """True if nothing in the run so far has mutated page state, so switching to
+    a learned-skill replay now is equivalent to replaying from a clean dispatch
+    (the agent only navigated / looked around to get to the right host)."""
+    return not any(a.get("tool") in _REPLAY_DIRTYING_TOOLS for a in action_log)
+
+
 def completion_is_honest(action_log: list[dict]) -> tuple[bool, str]:
     """Reality-check a run the model declared done. Returns (honest, reason).
 

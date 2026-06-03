@@ -34,6 +34,7 @@ from backend.apps.agents.browser.browser_loop import (
     advance_stagnation,
     card_is_unavailable,
     completion_is_honest,
+    replay_recheck_is_safe,
     stagnation_exhausted,
 )
 from backend.apps.agents.browser.browser_validator import adjudicate_stuck
@@ -425,39 +426,39 @@ async def run_browser_agent(
     # i.e. faster than a human. Robust by construction: clicks re-resolve by
     # (role,name), every step is verified, and ANY miss aborts to the full LLM
     # agent below (which re-records), so a changed page can never ghost-succeed.
-    replay_host = browser_skills.host_of(initial_url) if initial_url else ""
-    if not replay_host and current_url:
-        replay_host = browser_skills.host_of(current_url)  # live URL of an existing card
-    if not replay_host:
-        m = re.search(r"https?://\S+", task)
-        if m:
-            replay_host = browser_skills.host_of(m.group(0))
-    skill = browser_skills.find_skill(replay_host, skill_key_task) if replay_host else None
-    # Fill any parameter slots from THIS task's quoted values (so one learned
-    # skill serves "do the same thing with a different input"). If a slot can't
-    # be filled, concrete_steps is None and we run the full agent instead.
-    concrete_steps = browser_skills.rehydrate(skill, skill_key_task) if skill else None
-    if skill and not concrete_steps:
-        logger.info(f"[browser-skills] skill matched on {replay_host} but slots unfillable from task; running full agent")
-        skill = None
     replay_attempted = False
-    if skill and concrete_steps:
+
+    async def _try_replay(host: str, turns_spent: int) -> dict | None:
+        """Run a learned skill for the stable task key on `host` with zero LLM
+        calls. Returns a completed-result dict on full success, or None to fall
+        through to the LLM agent (no skill, unfillable slots, cancel, or any step
+        miss). Updates skill trust on every attempt. Used at dispatch AND, when
+        the card started on the wrong host, again after the first navigation
+        lands us somewhere a skill exists (the deferred re-check)."""
+        nonlocal final_screenshot, last_seen_url, replay_attempted
+        if not host:
+            return None
+        sk_obj = browser_skills.find_skill(host, skill_key_task)
+        steps = browser_skills.rehydrate(sk_obj, skill_key_task) if sk_obj else None
+        if sk_obj and not steps:
+            logger.info(f"[browser-skills] skill matched on {host} but slots unfillable from task; running full agent")
+            return None
+        if not (sk_obj and steps):
+            return None
         replay_attempted = True
-        logger.info(f"[browser-skills] REPLAY attempt: {len(concrete_steps)} steps on {replay_host}")
-        replay_log: list[dict] = []
-        replay_ok = True
-        for step in concrete_steps:
+        logger.info(f"[browser-skills] REPLAY attempt: {len(steps)} steps on {host} (after {turns_spent} LLM turn(s))")
+        rlog: list[dict] = []
+        ok = True
+        for step in steps:
             if cancel_event.is_set():
-                replay_ok = False
-                break
+                return None
             st = time.time()
             res = await _cancellable(execute_browser_tool(step["tool"], step.get("params", {}), browser_id, tab_id))
             if res is None:
-                replay_ok = False
-                break
+                return None
             el_ms = int((time.time() - st) * 1000)
             step_ok = "error" not in res
-            replay_log.append({
+            rlog.append({
                 "tool": step["tool"], "input": step.get("params", {}),
                 "result_summary": str(res.get("text", res.get("error", "")))[:200],
                 "elapsed_ms": el_ms, "ok": step_ok,
@@ -469,18 +470,18 @@ async def run_browser_agent(
             )
             if not step_ok:
                 logger.info(f"[browser-skills] replay step failed ({step['tool']}: {res.get('error')}), falling back to full agent")
-                replay_ok = False
+                ok = False
                 break
             if res.get("url"):
                 last_seen_url = res["url"]
-        if replay_ok and replay_log:
-            browser_skills.mark_replay_succeeded(replay_host, skill_key_task)
+        if ok and rlog:
+            browser_skills.mark_replay_succeeded(host, skill_key_task)
             summary = browser_metrics.record_task(
                 session_id, browser_id, task, "completed", metrics_started_at,
-                0, replay_log, session.tokens,
+                turns_spent, rlog, session.tokens,
                 path="replay", task_sig=browser_skills._sig(skill_key_task),
             )
-            logger.info(f"[browser-skills] REPLAY SUCCEEDED in {summary['total_ms']}ms with 0 LLM calls")
+            logger.info(f"[browser-skills] REPLAY SUCCEEDED in {summary['total_ms']}ms ({turns_spent} LLM turn(s))")
             try:
                 ss = await execute_browser_tool("BrowserScreenshot", {}, browser_id, tab_id)
                 if ss.get("image"):
@@ -495,17 +496,34 @@ async def run_browser_agent(
             })
             return {
                 "session_id": session_id, "browser_id": browser_id,
-                "summary": f"Completed via learned skill replay ({len(concrete_steps)} steps, no LLM).",
-                "action_log": replay_log, "final_screenshot": final_screenshot,
+                "summary": f"Completed via learned skill replay ({len(steps)} steps, no LLM).",
+                "action_log": rlog, "final_screenshot": final_screenshot,
                 "replayed": True,
             }
-        # Replay didn't fully succeed. Update the skill's trust BEFORE falling
-        # through: an unproven skill that failed gets quarantined (never replayed
-        # again -> pure-LLM baseline), a proven one tolerates a transient miss.
-        # The full agent below then re-records edit-aware (new steps -> new rev).
+        # Replay didn't fully succeed. Update the skill's trust: an unproven skill
+        # that failed gets quarantined (never replayed again -> pure-LLM baseline),
+        # a proven one tolerates a transient miss. The full agent re-records edit-
+        # aware (new steps -> new rev).
         if not cancel_event.is_set():
-            verdict = browser_skills.mark_replay_failed(replay_host, skill_key_task)
+            verdict = browser_skills.mark_replay_failed(host, skill_key_task)
             logger.info(f"[browser-skills] replay fell back to full agent (trust verdict: {verdict})")
+        return None
+
+    replay_host = browser_skills.host_of(initial_url) if initial_url else ""
+    if not replay_host and current_url:
+        replay_host = browser_skills.host_of(current_url)  # live URL of an existing card
+    if not replay_host:
+        m = re.search(r"https?://\S+", task)
+        if m:
+            replay_host = browser_skills.host_of(m.group(0))
+    # The card might have started on the WRONG host (the orchestrator often opens
+    # a fresh card on google and only navigates to the target later); if so, this
+    # dispatch check misses and the deferred re-check inside the loop catches it
+    # after the first navigation.
+    replay_rechecked = False
+    _dispatch_replay = await _try_replay(replay_host, 0)
+    if _dispatch_replay is not None:
+        return _dispatch_replay
 
     text_parts = []  # initialized before loop so post-loop summary (line ~1294) has a default
     # Circuit breaker for ReportProgress violations. Some models get stuck
@@ -862,6 +880,20 @@ async def run_browser_agent(
                 if result.get("url"):
                     last_seen_url = result["url"]
                 card_gone_streak = card_gone_streak + 1 if card_is_unavailable(result) else 0
+
+                # Deferred replay re-check: the orchestrator often opens a fresh
+                # card on the wrong host, so the dispatch-time replay missed. Once
+                # a navigation lands us on a host that DOES have a matching skill,
+                # and nothing has dirtied the page yet, switch to replay (still
+                # verified per-step, still trust-gated). Fires at most once.
+                if (not replay_rechecked and tu.name == "BrowserNavigate"
+                        and replay_recheck_is_safe(action_log)):
+                    cur_host = browser_skills.host_of(last_seen_url)
+                    if cur_host and cur_host != replay_host:
+                        replay_rechecked = True
+                        _deferred = await _try_replay(cur_host, turn + 1)
+                        if _deferred is not None:
+                            return _deferred
 
                 if tu.name == "BrowserScreenshot" and result.get("image"):
                     final_screenshot = result["image"]

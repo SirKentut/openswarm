@@ -269,6 +269,83 @@ def test_replay_falls_back_to_full_agent_when_a_step_fails(monkeypatch):
     assert len(primary.calls) > 0, "fell back to the full LLM agent"
 
 
+def test_deferred_replay_fires_after_navigating_to_the_right_host(monkeypatch):
+    # The #30 fix: the orchestrator opens a fresh card on the WRONG host (google),
+    # so the dispatch-time replay check misses. Once the agent navigates to the
+    # host that DOES have a skill, and nothing has dirtied the page yet, the
+    # deferred re-check must switch to replay instead of grinding the LLM loop.
+    import backend.apps.agents.browser.browser_skills as SK
+    SK.clear()
+    BH._browser_history.clear()
+    SK.record_skill("docs.google.com", "click the Submit button", [
+        {"tool": "BrowserClickIndex", "input": {}, "ok": True,
+         "clicked_role": "button", "clicked_name": "Submit"},
+    ])
+    # turn 0 navigates to the doc; the re-check should preempt everything after.
+    primary = FakeLLM([
+        Resp([_rp("go to the doc"), _tu("BrowserNavigate", url=DOC_URL)]),
+        Resp([_rp("now click"), _tu("BrowserClick", selector=".submit")]),
+        Resp([Blk("text", "done")], stop_reason="end_turn"),
+    ])
+    sent = _install(monkeypatch, primary, FakeAux())
+    GOOGLE = "https://www.google.com/"
+    orig = BA.ws_manager.send_browser_command
+
+    async def _cmd(request_id, action, browser_id, params, tab_id=""):
+        # perception + reads report GOOGLE (so the DISPATCH replay misses there),
+        # navigation + clicks report the doc host (so the re-check matches)
+        if action in ("list_interactives", "get_text"):
+            return {"text": "stuff", "url": GOOGLE}
+        return await orig(request_id, action, browser_id, params, tab_id)
+    monkeypatch.setattr(BA.ws_manager, "send_browser_command", _cmd, raising=False)
+
+    # NO initial_url -> dispatch perceives google -> dispatch replay misses.
+    r = asyncio.run(BA.run_browser_agent(
+        task="Please click the Submit button", browser_id="b1", model="sonnet",
+    ))
+    assert r.get("replayed") is True, "deferred re-check must replay after the navigation"
+    assert any(c["action"] == "click_by_name" for c in sent), "replay re-resolved by name"
+    assert len(primary.calls) == 1, "only the navigate turn ran; the re-check preempted the rest"
+    # and the deferred replay still promotes the skill through the trust gate
+    assert SK.find_skill("docs.google.com", "click the Submit button")["state"] == SK._TRUSTED
+
+
+def test_deferred_replay_does_not_fire_after_the_page_was_dirtied(monkeypatch):
+    # Safety guard: if the agent already typed/clicked before reaching the right
+    # host, replaying from here is NOT equivalent to a clean dispatch (the page
+    # state is dirty), so the re-check must stay disabled and the LLM finishes.
+    import backend.apps.agents.browser.browser_skills as SK
+    SK.clear()
+    BH._browser_history.clear()
+    SK.record_skill("docs.google.com", "click the Submit button", [
+        {"tool": "BrowserClickIndex", "input": {}, "ok": True,
+         "clicked_role": "button", "clicked_name": "Submit"},
+    ])
+    # turn 0 TYPES (dirties the page), THEN turn 1 navigates to the doc host.
+    primary = FakeLLM([
+        Resp([_rp("type first"), _tu("BrowserType", selector="#x", text="hi")]),
+        Resp([_rp("now go"), _tu("BrowserNavigate", url=DOC_URL)]),
+        Resp([Blk("text", "All done.")], stop_reason="end_turn"),
+    ])
+    sent = _install(monkeypatch, primary, FakeAux())
+    GOOGLE = "https://www.google.com/"
+    orig = BA.ws_manager.send_browser_command
+
+    async def _cmd(request_id, action, browser_id, params, tab_id=""):
+        if action in ("list_interactives", "get_text"):
+            return {"text": "stuff", "url": GOOGLE}
+        return await orig(request_id, action, browser_id, params, tab_id)
+    monkeypatch.setattr(BA.ws_manager, "send_browser_command", _cmd, raising=False)
+
+    r = asyncio.run(BA.run_browser_agent(
+        task="Please click the Submit button", browser_id="b1", model="sonnet",
+    ))
+    # a dirtied page must NOT trigger the deferred replay; the LLM ran to the end
+    assert not r.get("replayed"), "must not replay from a dirtied page state"
+    assert not any(c["action"] == "click_by_name" for c in sent)
+    assert len(primary.calls) >= 3, "the LLM loop finished normally"
+
+
 def test_replay_resolves_host_from_live_page_when_no_initial_url(monkeypatch):
     # The real-flow fix: the parent often delegates to an EXISTING browser card
     # with no initial_url (and the backend doesn't track where that card
