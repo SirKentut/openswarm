@@ -23,6 +23,7 @@ export interface BrowserWebview extends HTMLElement {
   canGoForward: () => boolean;
   getURL: () => string;
   getTitle: () => string;
+  isLoading: () => boolean;
   capturePage: (rect?: { x: number; y: number; width: number; height: number }) => Promise<ElectronNativeImage>;
   executeJavaScript: (code: string) => Promise<any>;
   sendInputEvent: (event: any) => void;
@@ -63,4 +64,20 @@ export function findBrowserByWebContentsId(wcId: number): string | undefined {
     }
   }
   return undefined;
+}
+
+// True if ANY registered webview is mid-navigation. Capturing the dashboard
+// (which composites live webview pixels) while a webview's GPU surface is being
+// recycled crashes the renderer (SharedImage 'non-existent mailbox' -> V8
+// ToLocalChecked), so the thumbnail capture must wait until they've settled.
+export function anyWebviewLoading(): boolean {
+  for (const wv of registry.values()) {
+    try {
+      if (typeof wv.isLoading === 'function' && wv.isLoading()) return true;
+    } catch {
+      // a torn-down webview can throw; treat as "not safe to capture"
+      return true;
+    }
+  }
+  return false;
 }

@@ -2206,8 +2206,20 @@ ipcMain.handle('install-update', async () => {
 });
 
 ipcMain.handle('capture-page', async (event, rect) => {
-  const image = await event.sender.capturePage(rect || undefined);
-  return image.toDataURL();
+  // Capturing a webContents whose GPU surface is mid-recycle (a webview navigating
+  // a heavy SPA) can crash the renderer (SharedImage 'non-existent mailbox' ->
+  // V8 ToLocalChecked). The caller now waits for webviews to settle, but guard
+  // here too: skip a gone/crashed/loading sender and never encode an empty image,
+  // returning null so the dashboard keeps its last good preview instead of dying.
+  try {
+    const wc = event.sender;
+    if (!wc || wc.isDestroyed() || wc.isCrashed() || wc.isLoading()) return null;
+    const image = await wc.capturePage(rect || undefined);
+    if (!image || image.isEmpty()) return null;
+    return image.toDataURL();
+  } catch {
+    return null;
+  }
 });
 
 ipcMain.handle('open-external', (_event, url) => {
