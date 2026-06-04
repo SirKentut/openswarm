@@ -553,8 +553,10 @@ SYSTEM_PROMPT = (
     "When you have a known sequence of actions; typing then pressing Enter, "
     "swiping multiple times, clicking through pagination; emit them all in a "
     "single BrowserBatch call instead of one tool per turn. The batch executes "
-    "sub-actions sequentially and aborts if the URL changes mid-batch (so you "
-    "won't operate on stale state). Max 5 sub-actions per batch.\n"
+    "sub-actions sequentially and aborts at the first sub-action that FAILS or if "
+    "the URL changes mid-batch (so you won't operate on stale state). Because of "
+    "that, never put a maybe-failing step (like dismissing a popup that might not "
+    "be there) before a must-do step in the same batch. Max 5 sub-actions per batch.\n"
     "Use BrowserBatch when:\n"
     "- You're doing the same action repeatedly (5 swipes, 3 scrolls)\n"
     "- You have a deterministic flow (type query → press Enter → click first result)\n"
@@ -607,7 +609,9 @@ SYSTEM_PROMPT = (
     "- BrowserPressKey: native key events (preferred for shortcuts).\n"
     "- BrowserEvaluate: arbitrary JS for everything else, including text-based element "
     "search and reading state. Avoid for scrolling and keyboard events.\n"
-    "- BrowserWait: 1-3s after navigation, 0.5s after most clicks.\n\n"
+    "- BrowserWait: returns as soon as the page's network goes quiet, so pass a "
+    "generous cap (e.g. 3000-4000) and you usually get control back in a few hundred "
+    "ms; but if what you need is already on screen, skip the wait and just act.\n\n"
 
     "Complete the task autonomously and report a clear, brief summary."
 )
