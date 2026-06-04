@@ -29,7 +29,6 @@ const OnboardingRoot: React.FC = () => {
   const store = useStore<RootState>() as Store<RootState>;
   const tokens = useClaudeTokens();
   const progress = useAppSelector((s) => s.onboardingProgress);
-  const userId = useAppSelector((s) => s.settings.data.user_id ?? null);
   const settingsLoaded = useAppSelector((s) => s.settings.loaded);
 
   useEffect(() => {
@@ -210,8 +209,7 @@ const OnboardingRoot: React.FC = () => {
     return () => onboardingDirector.detach();
   }, [store, tokens.accent.primary]);
 
-  // Wait for sign-in state so we don't render under the SignInGate's z-index.
-  if (!settingsLoaded || !userId) return null;
+  if (!settingsLoaded) return null;
   if (!progress.initialized) return null;
 
   return (

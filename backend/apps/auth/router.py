@@ -12,12 +12,7 @@ POST /api/auth/signin-activate {token, signin_method, email?}
 
 POST /api/auth/signout
   Calls cloud /api/auth/signout to revoke the bearer, then clears local
-  identity fields. Brings the user back to the sign-in gate.
-
-POST /api/auth/identity-status {install_id?}
-  Local proxy to cloud /api/me/identity-status; drives the gate's
-  soft-vs-hard decision. Wraps it in our local backend so the renderer
-  doesn't need to know the cloud URL.
+  identity fields.
 """
 
 from __future__ import annotations
@@ -90,7 +85,7 @@ async def signin_activate(body: SigninActivateRequest):
     POSTs to this endpoint after a Google OAuth or magic-link flow. We
     re-validate the bearer with the cloud; never just trust whatever
     arrives at the localhost endpoint; then write user_id + email +
-    signin_method to settings so the renderer can dismiss the gate.
+    signin_method to settings so the renderer flips to signed-in.
     """
     if not body.token or len(body.token) < 16:
         raise HTTPException(status_code=400, detail="Invalid token")
@@ -240,56 +235,3 @@ async def signout():
     await save_settings_async(settings_obj)
     _sync_identity_to_service(settings_obj)
     return {"ok": True}
-
-
-# ---------------------------------------------------------------------------
-# GET /api/auth/identity-status
-# ---------------------------------------------------------------------------
-
-@auth.router.get("/identity-status")
-async def identity_status():
-    """Returns gate-state for the renderer.
-
-    The renderer's SignInGateLoader calls this on mount to decide between
-    soft gate (banner) vs hard gate (modal). Local-side authoritative
-    field is settings.user_id; the cloud answers install age + grace
-    deadline.
-    """
-    settings_obj = load_settings()
-    user_id = getattr(settings_obj, "user_id", None)
-    if user_id:
-        return {
-            "authed": True,
-            "user_id": user_id,
-            "email": getattr(settings_obj, "user_email", None),
-            "signin_method": getattr(settings_obj, "signin_method", None),
-            "hard_gate": False,
-        }
-
-    # Not signed in; defer to cloud for install-age + grace-window math.
-    install_id = getattr(settings_obj, "installation_id", None)
-    if not install_id:
-        # No install_id yet (very fresh install before first sync); hard gate.
-        return {"authed": False, "hard_gate": True, "install_age_days": 0, "deadline_ts": None}
-
-    proxy = _proxy_url()
-    try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            r = await client.get(
-                f"{proxy}/api/me/identity-status",
-                params={"install_id": install_id},
-            )
-        if r.status_code == 200:
-            data = r.json()
-            return {
-                "authed": False,
-                "hard_gate": bool(data.get("hard_gate", True)),
-                "install_age_days": int(data.get("install_age_days", 0)),
-                "deadline_ts": data.get("deadline_ts"),
-            }
-    except httpx.HTTPError as e:
-        logger.debug("identity-status cloud fetch failed: %s", e)
-
-    # Cloud unreachable; fail open with soft gate so a flaky network
-    # doesn't lock the user out. Renderer will retry on next mount.
-    return {"authed": False, "hard_gate": False, "install_age_days": 0, "deadline_ts": None}

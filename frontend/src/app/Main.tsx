@@ -33,7 +33,6 @@ const Analytics = React.lazy(() => import('./pages/Analytics/Analytics'));
 const OnboardingRoot = React.lazy(() =>
   import('./components/Onboarding').then((m) => ({ default: m.OnboardingRoot })),
 );
-const SignInGate = React.lazy(() => import('./components/overlays/SignInGate'));
 
 if (typeof window !== 'undefined') {
   // Diagnostic global error capture. The packaged bundle has no source maps, so without these handlers the only thing that reaches main-process stderr is "Uncaught TypeError: ... (bundle.js:2)" with zero stack context. Forward error.stack and Redux action.type when available so we can pinpoint the offender across the chat-spawn / workflow rendering paths even in minified prod.
@@ -250,34 +249,9 @@ const SettingsLoader: React.FC<{ children: React.ReactNode }> = ({ children }) =
     if (!loaded) return;
     (window as any).openswarm?.setAllowPrerelease?.(allowExperimentalUpdates);
   }, [loaded, allowExperimentalUpdates]);
+  // Hold paint until settings land so the user's theme renders first; Electron's ready-to-show relies on this.
+  if (!loaded) return null;
   return <>{children}</>;
-};
-
-/** Mandatory sign-in gate; first thing shown when settings lack a user_id or bearer. */
-const SignInGateLoader: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const dispatch = useAppDispatch();
-  const settings = useAppSelector((s) => s.settings.data);
-  const settingsLoaded = useAppSelector((s) => s.settings.loaded);
-
-  const alreadySignedIn = Boolean(settings.user_id || settings.openswarm_bearer_token);
-
-  useEffect(() => {
-    if (!settingsLoaded || alreadySignedIn) return;
-    const id = setInterval(() => { dispatch(fetchSettings()); }, 2000);
-    return () => clearInterval(id);
-  }, [dispatch, settingsLoaded, alreadySignedIn]);
-
-  if (!settingsLoaded) return null;
-  if (alreadySignedIn) return <>{children}</>;
-
-  return (
-    <>
-      {children}
-      <Suspense fallback={null}>
-        <SignInGate />
-      </Suspense>
-    </>
-  );
 };
 
 const DEFAULT_MODEL_PRIORITY: string[] = [
@@ -488,7 +462,6 @@ const ThemedApp: React.FC = () => {
         <RouteTrackerMount />
         <ShortcutsProvider>
           <SettingsLoader>
-            <SignInGateLoader>
             <DefaultModelGuard>
             <UpdateListener>
               <CrashRecoveryChip />
@@ -519,7 +492,6 @@ const ThemedApp: React.FC = () => {
               </DeepLinkListener>
             </UpdateListener>
             </DefaultModelGuard>
-            </SignInGateLoader>
           </SettingsLoader>
         </ShortcutsProvider>
       </HashRouter>
