@@ -89,6 +89,36 @@ BROWSER_TOOLS_SCHEMA = [
         },
     },
     {
+        "name": "BrowserExtract",
+        "description": (
+            "Pull STRUCTURED data off the current page in one call: say what you "
+            "want (and optionally the JSON shape) and a fast helper model reads "
+            "the page text for you, returning just the JSON. Use this instead of "
+            "BrowserGetText whenever you need specific fields (each result's name "
+            "+ headline + URL, a listing's price/title/rating, table rows): the "
+            "page's 15k chars stay out of your context, so it's faster and "
+            "cheaper than reading it yourself. Read-only. If the data isn't on "
+            "the page you get {\"not_found\": true}, never a guess."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "instruction": {
+                    "type": "string",
+                    "description": (
+                        "What to extract, concretely (e.g. 'every search result: "
+                        "full name, headline, profile URL')."
+                    ),
+                },
+                "schema": {
+                    "type": "object",
+                    "description": "Optional JSON schema describing the exact output shape.",
+                },
+            },
+            "required": ["instruction"],
+        },
+    },
+    {
         "name": "BrowserGetConsole",
         "description": (
             "Read the page's OWN recent JavaScript console warnings and errors "
@@ -201,7 +231,12 @@ BROWSER_TOOLS_SCHEMA = [
             "(Tinder, Instagram, TikTok) where CSS selectors fail because the page "
             "uses unlabeled <div>s; the accessibility tree sees roles and names "
             "even when raw HTML doesn't expose them. Much more reliable than "
-            "BrowserGetElements (which uses CSS selectors)."
+            "BrowserGetElements (which uses CSS selectors). Numbers are STABLE "
+            "across looks (same number = same element as your previous list, so "
+            "you can act on a remembered index without re-listing if the page "
+            "hasn't changed). When several rows share a label, each carries "
+            "ctx=\"...\" naming the card/section it sits in, so pick the row whose "
+            "ctx matches your target (the right person's \"Message\" button)."
         ),
         "input_schema": {
             "type": "object",
@@ -608,6 +643,12 @@ SYSTEM_PROMPT = (
     "`[2]<link \"Settings\">`), then BrowserClickIndex with the number. A `*` after the "
     "number marks an element that appeared since your previous look; right after a click "
     "that opened a dialog or menu, the `*` rows are almost always the ones to act on. "
+    "Numbers are STABLE between looks: the same number always means the same element, so "
+    "when you already know the index from your previous list and the page hasn't changed, "
+    "click it directly, don't re-list. When several rows share the same label (eight "
+    "\"Message\" buttons in search results), each carries ctx=\"...\" naming the card or "
+    "section it belongs to; match ctx against your target instead of guessing or clicking "
+    "into profiles to disambiguate. "
     "The click uses "
     "native OS-level mouse events so it works where DOM .click() doesn't. THIS IS YOUR "
     "GO-TO STRATEGY for unlabeled or hostile sites; try this BEFORE BrowserGetElements. "
@@ -664,7 +705,11 @@ SYSTEM_PROMPT = (
     "- To RE-READ data you already loaded once (search results, a list, a detail page), "
     "check BrowserListRoutes and use BrowserReplayRoute to fetch it straight from the "
     "site's API instead of re-navigating and re-scraping; it's much faster. This is for "
-    "reading only, never for actions that change data (those go through the UI).\n\n"
+    "reading only, never for actions that change data (those go through the UI).\n"
+    "- To pull SPECIFIC FIELDS off a page (names + links from results, prices, table "
+    "rows), call BrowserExtract with what you want; a helper model reads the page and "
+    "hands you just the JSON. One call replaces BrowserGetText plus you reading 15k "
+    "chars, so prefer it whenever you know the fields you're after.\n\n"
 
     "## When you genuinely cannot proceed\n"
     "Use RequestHumanIntervention for:\n"

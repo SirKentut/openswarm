@@ -475,3 +475,11 @@ def test_replay_safety_refuses_send_steps_and_passes_reads():
     ):
         ok, why = sk.replay_safety(bad)
         assert ok is False and "irreversible" in why
+
+
+def test_extract_first_json_strips_fences_and_prose():
+    from backend.apps.agents.browser.browser_extract import _first_json
+    assert _first_json('```json\n{"a": 1}\n```') == '{"a": 1}'
+    assert _first_json('Here you go: [{"n": "x"}] hope that helps') == '[{"n": "x"}]'
+    assert _first_json("no json here") == ""
+    assert _first_json('{"broken": ') == ""

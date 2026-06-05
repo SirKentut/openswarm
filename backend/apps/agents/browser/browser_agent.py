@@ -40,6 +40,7 @@ from backend.apps.agents.browser.browser_loop import (
 )
 from backend.apps.agents.browser.browser_validator import adjudicate_stuck
 from backend.apps.agents.browser import browser_batch_replay
+from backend.apps.agents.browser import browser_extract
 from backend.apps.agents.browser import browser_metrics
 from backend.apps.agents.browser import browser_playbook
 from backend.apps.agents.browser import browser_skills
@@ -849,6 +850,54 @@ async def run_browser_agent(
                                      if ok else f"No matching shortcut \"{target}\" found to remove.")
                     tool_results.append({"type": "tool_result", "tool_use_id": tu.id, "content": [{"type": "text", "text": meta_text}]})
                     result_msg = Message(role="tool_result", content={"text": meta_text, "tool_name": tu.name, "elapsed_ms": 0})
+                    session.messages.append(result_msg)
+                    await ws_manager.send_to_session(session_id, "agent:message", {
+                        "session_id": session_id, "message": result_msg.model_dump(mode="json"),
+                    })
+                    continue
+
+                # Schema extract (backend-inline): the aux model reads the page
+                # text so the main model gets just the JSON it asked for, never
+                # the 15k raw chars. Read-only; falls back honest on any miss.
+                if tu.name == "BrowserExtract":
+                    instruction = str(tu.input.get("instruction", "")).strip()
+                    st = time.time()
+                    ex_ok = False
+                    if not instruction:
+                        ex_text = "BrowserExtract needs an instruction saying what to pull from the page."
+                    else:
+                        page = await _cancellable(execute_browser_tool("BrowserGetText", {}, browser_id, tab_id))
+                        if page is None:
+                            ex_text = "Cancelled."
+                        elif page.get("error"):
+                            ex_text = f"Could not read the page: {page['error']}"
+                        else:
+                            if page.get("url"):
+                                last_seen_url = page["url"]
+                            aux_client, aux_model = await _get_aux_client()
+                            data = await browser_extract.extract_structured(
+                                aux_client, aux_model, str(page.get("text", "")),
+                                instruction, tu.input.get("schema"),
+                            )
+                            ex_text = data or (
+                                "Extraction unavailable right now; use BrowserGetText and read the page yourself."
+                            )
+                            ex_ok = bool(data)
+                    # every attempt is logged (the completion gate cross-examines
+                    # this; a successful extract IS the productive read of a task)
+                    action_log.append({
+                        "tool": "BrowserExtract", "input": {"instruction": instruction[:200]},
+                        "result_summary": ex_text[:200],
+                        "elapsed_ms": int((time.time() - st) * 1000), "ok": ex_ok,
+                    })
+                    browser_metrics.record_tool(
+                        session_id, browser_id, turn, "BrowserExtract",
+                        int((time.time() - st) * 1000), ok=ex_ok,
+                        error="" if ex_ok else ex_text[:160], is_loop=False,
+                        stagnation_streak=0, result_len=len(ex_text),
+                    )
+                    tool_results.append({"type": "tool_result", "tool_use_id": tu.id, "content": [{"type": "text", "text": ex_text}]})
+                    result_msg = Message(role="tool_result", content={"text": ex_text, "tool_name": tu.name, "elapsed_ms": 0})
                     session.messages.append(result_msg)
                     await ws_manager.send_to_session(session_id, "agent:message", {
                         "session_id": session_id, "message": result_msg.model_dump(mode="json"),
