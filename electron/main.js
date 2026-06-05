@@ -351,6 +351,12 @@ if (process.platform === 'darwin') _disabledFeatures.push('MacWebContentsOcclusi
 app.commandLine.appendSwitch('disable-features', _disabledFeatures.join(','));
 // disableHardwareAcceleration() was tried as a fallback but did not stop the 0xC0000005 crashes, confirming the segfault is not GPU-side. Dev mode (http origin) never crashed, packaged (file:// origin) always crashed, so the embedded localhost HTTP server (see startFrontendServer below) is the real fix and we keep GPU acceleration on.
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
+// Agent-driven webviews must keep executing while the window is hidden or
+// occluded; macOS App Nap was suspending guest renderers, so every
+// executeJavaScript read (get_text, evaluate, wait probes) hung to its
+// timeout the moment the user looked away. Same lever VS Code ships with.
+app.commandLine.appendSwitch('disable-renderer-backgrounding');
+app.commandLine.appendSwitch('disable-background-timer-throttling');
 
 let mainWindow = null;
 let backendProcess = null;
