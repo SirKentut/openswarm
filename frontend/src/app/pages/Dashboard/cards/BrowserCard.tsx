@@ -1037,7 +1037,7 @@ const BrowserCard: React.FC<Props> = ({
               }}
               data-tab-id={tab.id}
               src="about:blank"
-              allowpopups="true"
+              {...({ allowpopups: 'true' } as any) /* React drops boolean-valued unknown attrs, so string it stays; @types/react wrongly says boolean */}
               useragent={chromeUserAgent}
               {...(webviewPreloadPath ? { preload: webviewPreloadPath } : {})}
               webpreferences="plugins=yes, autoplayPolicy=no-user-gesture-required"
