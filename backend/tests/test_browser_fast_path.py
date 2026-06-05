@@ -92,3 +92,15 @@ def test_text_normalizes_to_message_without_phone_number():
     assert _normalize_for_classifier(sms) == sms
     count = "count messages containing the exact text r10-os"
     assert "message r10-os" in _normalize_for_classifier(count)
+
+
+def test_dispatch_refused_instantly_when_no_dashboard_connected():
+    import asyncio
+    from backend.apps.agents.browser.browser_agent import run_browser_agents
+    from backend.apps.agents.core.ws_manager import ws_manager
+
+    assert not ws_manager.global_connections
+    results = asyncio.run(run_browser_agents(tasks=[{"task": "go to example.com"}], model="sonnet"))
+    assert len(results) == 1
+    assert results[0]["summary"].startswith("Error: no dashboard window is connected")
+    assert dispatch_failed(results[0]["summary"])

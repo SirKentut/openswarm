@@ -1596,6 +1596,19 @@ async def run_browser_agents(
     """
     pass  # Browser agent launch captured via session dump
 
+    # No dashboard renderer means every browser command is dead on arrival;
+    # failing here saves the 2-5 LLM turns a sub burns narrating timeouts at a
+    # corpse before card-gone detection trips.
+    if not ws_manager.global_connections:
+        logger.warning("[browser-agent] dispatch refused: no dashboard connected")
+        return [{
+            "summary": (
+                "Error: no dashboard window is connected, so browser tools cannot run. "
+                "Tell the user to open the OpenSwarm window and try again; do not retry until they do."
+            ),
+            "action_log": [], "final_screenshot": None,
+        } for _ in tasks]
+
     pre_selected = set(pre_selected_browser_ids or [])
 
     async def _run_one(task_def: dict) -> dict:

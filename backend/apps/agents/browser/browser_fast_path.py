@@ -125,6 +125,12 @@ def dispatch_failed(summary: str) -> bool:
     return not ("OUTCOME: DONE" in s.upper() or "learned skill replay" in s)
 
 
+NO_DASHBOARD_REPLY = (
+    "I can't drive a browser right now because no OpenSwarm window is connected. "
+    "Open the app window and send this again."
+)
+
+
 def recovery_task(prompt: str, first_report: str) -> str:
     """One informed retry, replacing the orchestrator's recovery role. Verify-
     first wording keeps a maybe-already-sent irreversible step from repeating."""

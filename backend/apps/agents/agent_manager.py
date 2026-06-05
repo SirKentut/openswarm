@@ -3386,8 +3386,13 @@ class AgentManager:
             if not text:
                 text = await _dispatch(browser_fast_path.compose_task(prompt, brief))
                 if browser_fast_path.dispatch_failed(text):
-                    logger.info(f"[browser-fast-path] first dispatch failed for {session_id}; one recovery dispatch")
-                    text = await _dispatch(browser_fast_path.recovery_task(prompt, text))
+                    # Retry only transient failures; a dead dashboard fails the
+                    # retry identically, so skip it and tell the user instead.
+                    if ws_manager.global_connections:
+                        logger.info(f"[browser-fast-path] first dispatch failed for {session_id}; one recovery dispatch")
+                        text = await _dispatch(browser_fast_path.recovery_task(prompt, text))
+                    else:
+                        text = browser_fast_path.NO_DASHBOARD_REPLY
                 if not text:
                     text = "The browser agent couldn't complete this and gave no report."
         except asyncio.CancelledError:
