@@ -79,3 +79,53 @@ def test_keep_recent_is_tunable():
     prune_old_screenshots(msgs, keep_first=False, keep_recent=1)
     # only the most recent survives
     assert _count_images(msgs) == 1
+
+
+def _tool_use_msg(tu_id, name):
+    return {"role": "assistant", "content": [
+        {"type": "tool_use", "id": tu_id, "name": name, "input": {}},
+    ]}
+
+
+def _tool_result_msg(tu_id, text):
+    return {"role": "user", "content": [
+        {"type": "tool_result", "tool_use_id": tu_id,
+         "content": [{"type": "text", "text": text}]},
+    ]}
+
+
+def test_prune_stale_page_state_keeps_last_two_attachments():
+    from backend.apps.agents.browser.browser_history import (
+        PAGE_STATE_MARKER, prune_stale_page_state,
+    )
+    msgs = []
+    for i in range(4):
+        msgs.append(_tool_use_msg(f"t{i}", "BrowserClickIndex"))
+        msgs.append(_tool_result_msg(
+            f"t{i}", f"Clicked [{i}]\n\n{PAGE_STATE_MARKER}\n[1]<button \"A{i}\">",
+        ))
+    pruned = prune_stale_page_state(msgs)
+    assert pruned == 2
+    texts = [m["content"][0]["content"][0]["text"] for m in msgs if m["role"] == "user"]
+    assert PAGE_STATE_MARKER not in texts[0] and "Clicked [0]" in texts[0]
+    assert PAGE_STATE_MARKER not in texts[1]
+    assert PAGE_STATE_MARKER in texts[2] and PAGE_STATE_MARKER in texts[3]
+    # idempotent: a second pass finds nothing new to prune
+    assert prune_stale_page_state(msgs) == 0
+
+
+def test_prune_stale_page_state_collapses_old_heavy_reads_only():
+    from backend.apps.agents.browser.browser_history import prune_stale_page_state
+    big = "28 interactive elements\n" + "\n".join(f"[{i}]<button \"x\">" for i in range(60))
+    msgs = []
+    for i in range(3):
+        msgs.append(_tool_use_msg(f"r{i}", "BrowserListInteractives"))
+        msgs.append(_tool_result_msg(f"r{i}", big))
+    msgs.append(_tool_use_msg("nav", "BrowserNavigate"))
+    msgs.append(_tool_result_msg("nav", "Navigated to https://example.com"))
+    pruned = prune_stale_page_state(msgs)
+    assert pruned == 1
+    first = msgs[1]["content"][0]["content"][0]["text"]
+    assert first.startswith("28 interactive elements") and "pruned" in first
+    assert msgs[3]["content"][0]["content"][0]["text"] == big
+    assert msgs[7]["content"][0]["content"][0]["text"] == "Navigated to https://example.com"

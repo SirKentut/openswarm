@@ -94,6 +94,62 @@ def prune_old_screenshots(messages: list[dict], keep_first: bool = True, keep_re
     return collapsed
 
 
+# Sentinel prefixing the auto-attached element list on mutating action results.
+# Lives here so the attacher (browser_agent) and the pruner share one spelling.
+PAGE_STATE_MARKER = "[page state after action]"
+_STATE_STUB = "[stale page state pruned; see the latest action result for current state]"
+_HEAVY_READ_TOOLS = {"BrowserListInteractives", "BrowserGetText"}
+_HEAVY_READ_MIN_CHARS = 600
+
+
+def prune_stale_page_state(messages: list[dict], keep_recent: int = 2) -> int:
+    """Collapse superseded page-state attachments and heavy read results, in place.
+
+    Auto-attached element lists arrive with EVERY mutating action, so without
+    this the model re-reads each stale copy every turn (same failure shape as
+    screenshots, just in text). Keep the `keep_recent` newest of each pool;
+    older attachments lose only the state suffix (the action's own result text
+    stays), older heavy reads keep their first line as a breadcrumb.
+    Returns how many blocks were collapsed.
+    """
+    id_to_name: dict[str, str] = {}
+    for msg in messages:
+        if msg.get("role") == "assistant" and isinstance(msg.get("content"), list):
+            for b in msg["content"]:
+                if isinstance(b, dict) and b.get("type") == "tool_use" and b.get("id"):
+                    id_to_name[b["id"]] = b.get("name", "")
+    attached: list[dict] = []
+    heavy: list[dict] = []
+    for msg in messages:
+        if msg.get("role") != "user" or not isinstance(msg.get("content"), list):
+            continue
+        for b in msg["content"]:
+            if not (isinstance(b, dict) and b.get("type") == "tool_result"):
+                continue
+            inner = b.get("content")
+            if not isinstance(inner, list):
+                continue
+            tool = id_to_name.get(b.get("tool_use_id"), "")
+            for ib in inner:
+                if not (isinstance(ib, dict) and ib.get("type") == "text"):
+                    continue
+                txt = ib.get("text") or ""
+                if PAGE_STATE_MARKER in txt:
+                    attached.append(ib)
+                elif tool in _HEAVY_READ_TOOLS and len(txt) >= _HEAVY_READ_MIN_CHARS:
+                    heavy.append(ib)
+    pruned = 0
+    for ib in attached[:-keep_recent] if keep_recent else attached:
+        txt = ib["text"]
+        ib["text"] = txt[: txt.index(PAGE_STATE_MARKER)] + _STATE_STUB
+        pruned += 1
+    for ib in heavy[:-keep_recent] if keep_recent else heavy:
+        head = (ib["text"] or "").splitlines()[0][:100]
+        ib["text"] = f"{head}\n[stale read output pruned; re-run the tool if you need it again]"
+        pruned += 1
+    return pruned
+
+
 def _validate_message_pairing(messages: list[dict]) -> bool:
     """Verify every tool_result references a tool_use_id from a prior assistant
     message in the same list. Returns False if there's an orphan, which means
