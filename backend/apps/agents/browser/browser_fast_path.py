@@ -41,17 +41,24 @@ _CLASSIFIER_SYSTEM = (
     "When a website or web app is the context, 'text/message/DM someone' means "
     "sending the message inside that site, which is browsing. Treat 'text' as SMS "
     "only when a phone number is given or no site is involved.\n"
-    "Answer YES if browsing alone fully completes the request.\n"
-    "Answer NO if any part clearly needs something a browser cannot do: local files "
-    "or folders, writing or running code, a terminal, creating documents or "
-    "spreadsheets, SMS to a phone number, or other desktop apps.\n"
-    "Plain conversation or questions answerable without visiting any site: NO.\n"
+    "Line 1 of your reply: YES if browsing alone fully completes the request. NO if "
+    "any part clearly needs something a browser cannot do: local files or folders, "
+    "writing or running code, a terminal, creating documents or spreadsheets, SMS "
+    "to a phone number, or other desktop apps. NO for plain conversation or "
+    "questions answerable without visiting any site.\n"
     "Examples:\n"
     "'go to maya's linkedin and text her thanks' -> YES\n"
     "'open hacker news and tell me the top story' -> YES\n"
     "'find the report on stripe.com and save it to my desktop' -> NO\n"
     "'text 555-0102 that I'm late' -> NO\n"
-    "Output exactly one word: YES or NO."
+    "If line 1 is NO, reply with exactly the word NO and nothing else.\n"
+    "If line 1 is YES, follow it with a short browsing brief:\n"
+    "ENTRY: the best starting URL; use a direct deep/search URL when the site's "
+    "pattern is well known (LinkedIn people search is "
+    "https://www.linkedin.com/search/results/people/?keywords=NAME).\n"
+    "Then 3-6 numbered steps, one short action each.\n"
+    "Copy any text the user wants typed, sent, or posted EXACTLY, character for "
+    "character. Never invent names, values, or wording the user did not give."
 )
 
 
@@ -72,8 +79,44 @@ def fast_path_eligible(
     return bool(_BROWSY_RE.search(prompt))
 
 
-def _parse_verdict(text: str) -> bool:
-    return text.strip().upper().startswith("YES")
+def _parse_verdict_and_brief(text: str) -> tuple[bool, str]:
+    """Line 1 carries the YES/NO; the rest is the optional routing brief."""
+    lines = (text or "").strip().splitlines()
+    if not lines or not lines[0].strip().upper().startswith("YES"):
+        return False, ""
+    brief = "\n".join(line for line in lines[1:] if line.strip()).strip()
+    return True, brief[:700]
+
+
+def compose_task(prompt: str, brief: str) -> str:
+    """User's words first and authoritative; the brief is advisory routing.
+    Skill replay keys on the parent's user message, so brief variance is safe."""
+    if not brief:
+        return prompt
+    return (
+        f"{prompt}\n\n"
+        "[routing brief from a fast pre-pass; follow it unless the live page disagrees]\n"
+        f"{brief}"
+    )
+
+
+def dispatch_failed(summary: str) -> bool:
+    s = (summary or "").strip()
+    return not s or s.startswith("Error:") or "OUTCOME: NOT DONE" in s.upper()
+
+
+def recovery_task(prompt: str, first_report: str) -> str:
+    """One informed retry, replacing the orchestrator's recovery role. Verify-
+    first wording keeps a maybe-already-sent irreversible step from repeating."""
+    report = (first_report or "").strip()[:600] or "no report (the browser died)"
+    return (
+        "A previous browser attempt at this task did not finish. It reported:\n"
+        f"{report}\n\n"
+        f"Finish the task: {prompt}\n\n"
+        "If that attempt may have already performed an irreversible step "
+        "(send/submit/post/pay), FIRST verify on the page whether it happened; "
+        "if it did, do NOT repeat it, report DONE with that proof."
+    )
 
 
 def _normalize_for_classifier(prompt: str) -> str:
@@ -85,8 +128,9 @@ def _normalize_for_classifier(prompt: str) -> str:
     return re.sub(r"\btext(ing|ed|s)?\b", "message", prompt, flags=re.I)
 
 
-async def classify_browser_only(prompt: str, settings, primary_api: str | None) -> bool:
-    """One cheap aux call, timeboxed; any failure means NO (normal path)."""
+async def classify_and_brief(prompt: str, settings, primary_api: str | None) -> tuple[bool, str]:
+    """One cheap aux call returns the YES/NO verdict plus a routing brief (entry
+    URL + step outline), timeboxed; any failure means NO (normal path)."""
     try:
         from backend.apps.settings.credentials import get_anthropic_client_for_model
         from backend.apps.agents.providers.registry import resolve_aux_model
@@ -98,17 +142,17 @@ async def classify_browser_only(prompt: str, settings, primary_api: str | None) 
         resp = await asyncio.wait_for(
             client.messages.create(
                 model=aux_model,
-                max_tokens=4,
+                max_tokens=250,
                 temperature=0,
                 system=_CLASSIFIER_SYSTEM,
                 messages=[{"role": "user", "content": _normalize_for_classifier(prompt[:2000])}],
             ),
-            timeout=5.0,
+            timeout=8.0,
         )
         from backend.apps.agents.core.aux_llm import _safe_resp_text
-        verdict = _parse_verdict(_safe_resp_text(resp))
-        logger.info(f"[browser-fast-path] classifier: {'YES' if verdict else 'NO'}")
-        return verdict
+        verdict, brief = _parse_verdict_and_brief(_safe_resp_text(resp))
+        logger.info(f"[browser-fast-path] classifier: {'YES' if verdict else 'NO'} brief={len(brief)}ch")
+        return verdict, brief
     except Exception as e:
         logger.warning(f"[browser-fast-path] classifier unavailable, normal path: {e}")
-        return False
+        return False, ""

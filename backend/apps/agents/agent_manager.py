@@ -3326,6 +3326,7 @@ class AgentManager:
         # outcome). Conservative gates + a cheap aux classifier; any miss or
         # error falls through to the normal loop.
         use_fast_path = False
+        fast_brief = ""
         if not hidden:
             try:
                 from backend.apps.agents.browser import browser_fast_path
@@ -3335,22 +3336,23 @@ class AgentManager:
                     prompt, session.mode or "", session.dashboard_id, is_first_message, _extras,
                 ):
                     from backend.apps.agents.providers.registry import get_api_type
-                    use_fast_path = await browser_fast_path.classify_browser_only(
+                    use_fast_path, fast_brief = await browser_fast_path.classify_and_brief(
                         prompt, load_settings(), get_api_type(session.model),
                     )
             except Exception as e:
                 logger.warning(f"[browser-fast-path] gate error, normal path: {e}")
 
         if use_fast_path:
-            task = asyncio.create_task(self._run_browser_fast_path(session_id, prompt, selected_browser_ids))
+            task = asyncio.create_task(self._run_browser_fast_path(session_id, prompt, selected_browser_ids, fast_brief))
         else:
             task = asyncio.create_task(self._run_agent_loop(session_id, prompt, images=images, context_paths=context_paths, forced_tools=forced_tools, attached_skills=attached_skills, selected_browser_ids=selected_browser_ids))
         self.tasks[session_id] = task
 
-    async def _run_browser_fast_path(self, session_id: str, prompt: str, selected_browser_ids: list[str] | None):
+    async def _run_browser_fast_path(self, session_id: str, prompt: str, selected_browser_ids: list[str] | None, brief: str = ""):
         """Dispatch the browser sub-agent directly and reply with its outcome;
-        the orchestrator LLM never runs. stop_agent still works: it cancels
-        this task and the browser-agent child sessions it spawned."""
+        the orchestrator LLM never runs. A failed first dispatch gets ONE
+        informed recovery dispatch (the orchestrator's old retry role).
+        stop_agent still works: it cancels this task and the children."""
         session = self.sessions.get(session_id)
         if not session:
             return
@@ -3358,21 +3360,26 @@ class AgentManager:
         text = ""
         try:
             from backend.apps.agents.browser.browser_agent import run_browser_agents
+            from backend.apps.agents.browser import browser_fast_path
             selected = [b for b in (selected_browser_ids or []) if b]
-            results = await run_browser_agents(
-                tasks=[{"task": prompt, "browser_id": selected[0] if selected else "", "url": ""}],
-                model=session.model,
-                dashboard_id=session.dashboard_id,
-                pre_selected_browser_ids=selected,
-                parent_session_id=session_id,
-            )
-            r = results[0] if results else {}
-            if isinstance(r, dict):
-                text = (r.get("summary") or "").strip()
-                if not text:
-                    text = f"The browser agent couldn't complete this: {r.get('error') or 'unknown error'}"
-            else:
-                text = f"The browser agent couldn't complete this: {r}"
+
+            async def _dispatch(task_text: str) -> str:
+                results = await run_browser_agents(
+                    tasks=[{"task": task_text, "browser_id": selected[0] if selected else "", "url": ""}],
+                    model=session.model,
+                    dashboard_id=session.dashboard_id,
+                    pre_selected_browser_ids=selected,
+                    parent_session_id=session_id,
+                )
+                r = results[0] if results else {}
+                return (r.get("summary") or "").strip() if isinstance(r, dict) else str(r or "")
+
+            text = await _dispatch(browser_fast_path.compose_task(prompt, brief))
+            if browser_fast_path.dispatch_failed(text):
+                logger.info(f"[browser-fast-path] first dispatch failed for {session_id}; one recovery dispatch")
+                text = await _dispatch(browser_fast_path.recovery_task(prompt, text))
+            if not text:
+                text = "The browser agent couldn't complete this and gave no report."
         except asyncio.CancelledError:
             raise
         except Exception as e:

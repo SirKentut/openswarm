@@ -1,7 +1,10 @@
 from backend.apps.agents.browser.browser_fast_path import (
     _normalize_for_classifier,
-    _parse_verdict,
+    _parse_verdict_and_brief,
+    compose_task,
+    dispatch_failed,
     fast_path_eligible,
+    recovery_task,
 )
 
 
@@ -27,11 +30,36 @@ def test_non_browsy_or_gated_messages_fall_through():
 
 
 def test_verdict_parsing_is_strict():
-    assert _parse_verdict("YES")
-    assert _parse_verdict("yes, this is browser-only")
-    assert not _parse_verdict("NO")
-    assert not _parse_verdict("Maybe")
-    assert not _parse_verdict("")
+    ok, brief = _parse_verdict_and_brief("YES\nENTRY: https://news.ycombinator.com\n1. read top story")
+    assert ok and brief.startswith("ENTRY:") and "top story" in brief
+    assert _parse_verdict_and_brief("yes") == (True, "")
+    assert _parse_verdict_and_brief("NO") == (False, "")
+    assert _parse_verdict_and_brief("Maybe\nENTRY: x") == (False, "")
+    assert _parse_verdict_and_brief("") == (False, "")
+    long_brief = "YES\n" + "x" * 2000
+    assert len(_parse_verdict_and_brief(long_brief)[1]) == 700
+
+
+def test_compose_task_keeps_user_words_first():
+    assert compose_task("go to hn", "") == "go to hn"
+    composed = compose_task("go to hn", "ENTRY: https://news.ycombinator.com")
+    assert composed.startswith("go to hn\n\n[routing brief")
+    assert composed.endswith("ENTRY: https://news.ycombinator.com")
+
+
+def test_dispatch_failure_detection():
+    assert dispatch_failed("")
+    assert dispatch_failed("Error: browser card was deleted")
+    assert dispatch_failed("Could not find the thread. OUTCOME: NOT DONE - login wall")
+    assert not dispatch_failed("Sent it. OUTCOME: DONE - bubble visible at 12:05 PM")
+
+
+def test_recovery_task_verifies_before_repeating():
+    t = recovery_task("text bob 'hi' on linkedin", "OUTCOME: NOT DONE - hung before confirming send")
+    assert "text bob 'hi' on linkedin" in t
+    assert "hung before confirming" in t
+    assert "do NOT repeat it" in t
+    assert "no report (the browser died)" in recovery_task("go to hn", "")
 
 
 def test_text_normalizes_to_message_without_phone_number():
