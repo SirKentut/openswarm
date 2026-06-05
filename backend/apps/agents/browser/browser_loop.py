@@ -8,6 +8,7 @@ prevents the model from burning the entire turn budget on a failing approach.
 """
 
 import json
+import re
 
 # Tools that are read-only / idempotent and should NOT count toward loop
 # detection. Repeating these is normal (scrolling through a feed, taking
@@ -247,17 +248,40 @@ def replay_recheck_is_safe(action_log: list[dict]) -> bool:
     return not any(a.get("tool") in _REPLAY_DIRTYING_TOOLS for a in action_log)
 
 
-def deliverable_is_informational(summary: str) -> bool:
+# What the user ASKED FOR outranks how the sub narrated it: an info ask can
+# never replay (the answer must be fresh), an action ask can.
+_INFO_ASK_RE = re.compile(
+    r"\b(tell me|what(?:'s| is| are)|how (?:many|much)|count|list|summari[sz]e|"
+    r"extract|find out|read (?:me|the)|get the|give me|which|who (?:is|are)|report back)\b",
+    re.I,
+)
+_ACTION_ASK_RE = re.compile(
+    r"\b(open|go to|navigate|click|send|post|submit|fill|type|search for|log ?in|"
+    r"sign ?in|upload|download|book|order|buy|add|create|delete|message|dm|text)\b",
+    re.I,
+)
+
+
+def deliverable_is_informational(summary: str, task: str = "") -> bool:
     """True if the run's final answer is GATHERED CONTENT (a list/report the model
     extracted or judged), not a short action confirmation. A deterministic replay
     reproduces clicks and navigations but CANNOT regenerate judged/collected
     information, so recording a skill for such a run would make a thin shortcut
     that replays the mechanical scaffolding and then falsely claims the whole task
-    is done (the 'find me 10 X' ghost). Tool counts can't separate this from a
-    legit search (measured: both look read-heavy), but the deliverable shape can.
-    Conservative + FAIL-SAFE: when in doubt we DON'T record, so the worst case is
-    a lost speedup (re-run via the LLM), never a ghost completion."""
+    is done (the 'find me 10 X' ghost). The task's ask decides when it's clear
+    (mixed asks count as informational); the summary's shape breaks ties, with the
+    mandatory OUTCOME line stripped first since boilerplate made every summary
+    look like a report and silently stopped all recording. Conservative +
+    FAIL-SAFE: when in doubt we DON'T record, so the worst case is a lost speedup
+    (re-run via the LLM), never a ghost completion."""
+    t = (task or "").strip()
+    if t:
+        if _INFO_ASK_RE.search(t):
+            return True
+        if _ACTION_ASK_RE.search(t):
+            return False
     s = (summary or "").strip()
+    s = re.sub(r"OUTCOME:.*$", "", s, flags=re.S).strip()
     if len(s) > 300:
         return True
     if s.count("\n") >= 2:  # 3+ lines reads as a list/report, not a one-liner

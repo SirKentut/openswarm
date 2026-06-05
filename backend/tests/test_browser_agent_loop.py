@@ -1278,3 +1278,26 @@ def test_delta_state_reshuffle_resends_full():
     _delta_state("\n".join(f'[{i}]<button "a{i}">' for i in range(1, 11)), seen)
     new_page = "10 interactive elements:\n" + "\n".join(f'[{i}]<button "z{i}">' for i in range(1, 11))
     assert _delta_state(new_page, seen) == new_page
+
+
+def test_informational_gate_judges_the_task_ask_first():
+    from backend.apps.agents.browser.browser_loop import deliverable_is_informational
+    chatty = (
+        "The Wikipedia article on the Golden Gate Bridge is now open. The page has "
+        "loaded successfully with the full article content visible, including links "
+        "to related topics like suspension bridge, Golden Gate, and various related "
+        "articles.\n\nOUTCOME: DONE - opened the article at https://en.wikipedia.org/wiki/Golden_Gate_Bridge"
+    )
+    action_task = "go to wikipedia and search for golden gate bridge and open the article"
+    info_task = "go to hacker news and open the Ask section and tell me the title of the first question"
+    assert not deliverable_is_informational(chatty, action_task)
+    assert deliverable_is_informational("short answer", info_task)
+    assert deliverable_is_informational(chatty, "open the page and tell me how many rows it shows")
+
+
+def test_informational_gate_strips_outcome_boilerplate_on_tie_break():
+    from backend.apps.agents.browser.browser_loop import deliverable_is_informational
+    short_action = "Sent.\n\nOUTCOME: DONE - bubble visible at 12:05 PM with the exact text, composer cleared and Send greyed out which proves delivery"
+    assert not deliverable_is_informational(short_action, "")
+    listy = "Found these:\n- a\n- b\n- c"
+    assert deliverable_is_informational(listy, "")

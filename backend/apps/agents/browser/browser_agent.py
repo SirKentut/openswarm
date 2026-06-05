@@ -1419,7 +1419,8 @@ async def run_browser_agent(
         # run was dishonest (ghost) OR when its answer was gathered/judged content
         # (a list/report): replay can redo the clicks but not regenerate the
         # judgment, so recording it would create a thin shortcut that later ghosts.
-        informational = deliverable_is_informational(summary)
+        informational = deliverable_is_informational(summary, skill_key_task)
+        logger.info(f"[browser-skills] record gate: honest={honest} informational={informational}")
         if honest and not informational:
             try:
                 rec_host = browser_skills.host_of(last_seen_url)
