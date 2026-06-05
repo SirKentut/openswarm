@@ -600,7 +600,6 @@ const BrowserCard: React.FC<Props> = ({
 
   const accentColor = c.accent.primary;
   const accentHover = c.accent.hover;
-  const accentRgb = accentColor.replace('#', '').match(/.{2}/g)?.map(h => parseInt(h, 16)).join(',') || '189,100,57';
 
   const glowingBrowserCards = useAppSelector((s) => s.dashboardLayout.glowingBrowserCards);
   const isGlowingFromRedux = !!glowingBrowserCards[browserId];
@@ -1211,29 +1210,6 @@ const BrowserCard: React.FC<Props> = ({
               />
             ))}
           </Box>
-        )}
-
-        {/* Accent inner shadow overlay for selection / streaming glow */}
-        {showGlow && !agentActive && (
-          <Box
-            sx={{
-              position: 'absolute',
-              inset: 0,
-              zIndex: 14,
-              pointerEvents: 'none',
-              borderRadius: 'inherit',
-              boxShadow: `inset 0 0 40px rgba(${accentRgb},0.35), inset 0 0 80px rgba(${accentRgb},0.15)`,
-              animation: `accent-glow-${browserId} 2s ease-in-out infinite`,
-              [`@keyframes accent-glow-${browserId}`]: {
-                '0%, 100%': {
-                  boxShadow: `inset 0 0 40px rgba(${accentRgb},0.35), inset 0 0 80px rgba(${accentRgb},0.15)`,
-                },
-                '50%': {
-                  boxShadow: `inset 0 0 50px rgba(${accentRgb},0.45), inset 0 0 100px rgba(${accentRgb},0.22)`,
-                },
-              },
-            }}
-          />
         )}
 
         {/* ===== Frosted glass overlay ===== */}
