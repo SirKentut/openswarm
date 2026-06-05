@@ -319,6 +319,32 @@ async function getChildSessions(wv: BrowserWebview): Promise<ChildSession[]> {
 }
 
 function axNodesToCandidates(nodes: any[], sessionId?: string): RankItem[] {
+  const byId = new Map<string, any>();
+  const parentOf = new Map<string, string>();
+  for (const node of nodes) {
+    if (node.nodeId != null) byId.set(String(node.nodeId), node);
+  }
+  for (const node of nodes) {
+    for (const c of node.childIds || []) parentOf.set(String(c), String(node.nodeId));
+  }
+  const isCandidate = (n: any): boolean => {
+    if (!n || n.ignored || n.backendDOMNodeId == null) return false;
+    return INTERACTIVE_ROLES.has(extractAxValue(n.role));
+  };
+  // A same-named interactive ancestor owns this hit target (a link inside a
+  // button, an icon twin inside its labeled wrapper); listing both just gives
+  // the model two indexes for one click. Names must match so a menu never
+  // swallows its menuitems.
+  const twinOfAncestor = (node: any, name: string): boolean => {
+    if (!name) return false;
+    let p = parentOf.get(String(node.nodeId));
+    while (p) {
+      const anc = byId.get(p);
+      if (isCandidate(anc)) return extractAxValue(anc.name).slice(0, 80) === name;
+      p = parentOf.get(p);
+    }
+    return false;
+  };
   const out: RankItem[] = [];
   for (const node of nodes) {
     if (node.ignored) continue;
@@ -328,7 +354,9 @@ function axNodesToCandidates(nodes: any[], sessionId?: string): RankItem[] {
     if (!name && role !== 'textbox' && role !== 'searchbox' && role !== 'combobox') continue;
     const backendNodeId = node.backendDOMNodeId;
     if (backendNodeId == null) continue;
-    out.push({ role, name: name.slice(0, 80), backendNodeId, sessionId });
+    const shortName = name.slice(0, 80);
+    if (twinOfAncestor(node, shortName)) continue;
+    out.push({ role, name: shortName, backendNodeId, sessionId });
   }
   return out;
 }
@@ -416,10 +444,26 @@ async function clickBackendNode(
   wv: BrowserWebview, backendNodeId: number, sessionId: string | undefined, label: string,
   opts: { role?: string; text?: string } = {},
 ): Promise<Record<string, any>> {
+  let resolvedObjectId: string | undefined;
   try {
-    await sendCdp(wv, 'DOM.resolveNode', { backendNodeId }, sessionId);
+    const resolved = await sendCdp(wv, 'DOM.resolveNode', { backendNodeId }, sessionId);
+    resolvedObjectId = resolved?.object?.objectId;
   } catch (err: any) {
     return { error: `${label} is no longer valid (${err.message || 'node not found'}). The page may have changed.` };
+  }
+
+  // Brief outline pulse on the element the agent chose, so a watching user
+  // sees WHAT is being acted on, not just a ripple somewhere on the page.
+  if (resolvedObjectId) {
+    sendCdp(wv, 'Runtime.callFunctionOn', {
+      objectId: resolvedObjectId,
+      functionDeclaration:
+        'function() {'
+        + ' const o = this.style.outline, f = this.style.outlineOffset;'
+        + ' this.style.outline = "3px solid rgba(77,163,255,0.9)"; this.style.outlineOffset = "2px";'
+        + ' setTimeout(() => { this.style.outline = o; this.style.outlineOffset = f; }, 450);'
+        + ' }',
+    }, sessionId).catch(() => {});
   }
 
   // A text box is focused DIRECTLY by node id, never by screen coordinates. Inside an
@@ -541,6 +585,59 @@ async function clickBackendNode(
   };
 }
 
+// Drop list rows the user literally cannot click: zero-size nodes and ones
+// whose center hits a DIFFERENT element (modal backdrop, sticky header, cookie
+// banner). Ground truth via elementFromPoint, the same predicate the click
+// path trusts. Offscreen-but-scrollable elements are kept; the page-wide list
+// is deliberately wider than the viewport. Chunked with a hard budget so a
+// heavy page degrades to an unfiltered list, never a stall.
+const _OCCLUSION_BUDGET_MS = 1500;
+const _OCCLUSION_CHUNK = 10;
+async function dropCoveredElements(
+  wv: BrowserWebview, items: RankItem[],
+): Promise<{ kept: RankItem[]; dropped: number }> {
+  const deadline = Date.now() + _OCCLUSION_BUDGET_MS;
+  const kept: RankItem[] = [];
+  let dropped = 0;
+  for (let i = 0; i < items.length; i += _OCCLUSION_CHUNK) {
+    const chunk = items.slice(i, i + _OCCLUSION_CHUNK);
+    if (Date.now() > deadline) {
+      kept.push(...items.slice(i));
+      break;
+    }
+    const verdicts = await Promise.all(chunk.map(async (el) => {
+      try {
+        const t = await sendCdp(wv, 'DOM.resolveNode', { backendNodeId: el.backendNodeId }, el.sessionId);
+        const objectId = t?.object?.objectId;
+        if (!objectId) return 'clear';
+        const r = await sendCdp(wv, 'Runtime.callFunctionOn', {
+          objectId,
+          functionDeclaration:
+            'function() {'
+            + ' const rect = this.getBoundingClientRect();'
+            + ' if (rect.width === 0 || rect.height === 0) return "hidden";'
+            + ' const cx = rect.left + rect.width / 2, cy = rect.top + rect.height / 2;'
+            + ' if (cx < 0 || cy < 0 || cx > window.innerWidth || cy > window.innerHeight) return "offscreen";'
+            + ' const root = this.getRootNode();'
+            + ' const h = (root.elementFromPoint ? root : document).elementFromPoint(cx, cy);'
+            + ' if (!h) return "clear";'
+            + ' return (this === h || this.contains(h) || h.contains(this)) ? "clear" : "covered";'
+            + ' }',
+          returnByValue: true,
+        }, el.sessionId);
+        return r?.result?.value || 'clear';
+      } catch {
+        return 'clear';
+      }
+    }));
+    chunk.forEach((el, j) => {
+      if (verdicts[j] === 'covered' || verdicts[j] === 'hidden') dropped += 1;
+      else kept.push(el);
+    });
+  }
+  return { kept, dropped };
+}
+
 async function handleListInteractives(wv: BrowserWebview, params: Record<string, any> = {}): Promise<Record<string, any>> {
   let candidates: RankItem[];
   try {
@@ -552,13 +649,32 @@ async function handleListInteractives(wv: BrowserWebview, params: Record<string,
   // Dedupe twins, rank what a human acts on first (and the current goal
   // highest), cap the long tail.
   const goal = typeof params?.goal === 'string' ? params.goal : '';
-  const { shown, truncated } = rankAndCapInteractives(candidates, { goal });
-  const interactives: InteractiveElement[] = shown.map((el, i) => ({
+  const { shown: ranked, truncated } = rankAndCapInteractives(candidates, { goal });
+  const { kept: shown, dropped: covered } = await dropCoveredElements(wv, ranked);
+
+  // Mark elements that weren't in the PREVIOUS list: after a click that opened
+  // a dialog or menu, the * rows are almost always the ones that matter.
+  let prevIds: Set<string> | null = null;
+  try {
+    const cacheBridge = (window as any).openswarm?.cdpCacheGet;
+    const prev = cacheBridge ? await cacheBridge(wv.getWebContentsId()) : null;
+    if (prev && typeof prev === 'object') {
+      prevIds = new Set(
+        Object.values(prev).map((e: any) =>
+          `${(typeof e === 'object' && e?.sessionId) || ''}:${typeof e === 'number' ? e : e?.backendNodeId}`),
+      );
+    }
+  } catch { /* no previous list; nothing gets a marker */ }
+  const isNew = (el: RankItem) =>
+    !!prevIds && prevIds.size > 0 && !prevIds.has(`${el.sessionId || ''}:${el.backendNodeId}`);
+
+  const interactives: (InteractiveElement & { isNew: boolean })[] = shown.map((el, i) => ({
     index: i + 1,
     role: el.role,
     name: el.name,
     backendNodeId: el.backendNodeId,
     sessionId: el.sessionId,
+    isNew: isNew(el),
   }));
 
   // Cache in main-process so click_index can resolve across separate WS commands.
@@ -576,15 +692,18 @@ async function handleListInteractives(wv: BrowserWebview, params: Record<string,
   }
 
   const lines = interactives.map(
-    (el) => `[${el.index}]<${el.role} "${el.name}">`,
+    (el) => `[${el.index}]${el.isNew ? '*' : ''}<${el.role} "${el.name}">`,
   );
   let text: string;
   if (lines.length === 0) {
     text = 'No interactive elements found on this page.';
   } else {
-    text = `${lines.length} interactive elements:\n${lines.join('\n')}`;
+    text = `${lines.length} interactive elements (* = appeared since your last look):\n${lines.join('\n')}`;
     if (truncated > 0) {
       text += `\n... ${truncated} more not shown; scroll or scope with BrowserGetElements to reach them.`;
+    }
+    if (covered > 0) {
+      text += `\n(${covered} elements hidden behind overlays were omitted; close the overlay to reach them.)`;
     }
   }
 
@@ -1063,10 +1182,33 @@ async function awaitWebview(browserId: string, tabId?: string): Promise<BrowserW
   return wv;
 }
 
+// The backend re-broadcasts unanswered commands to heal a dead-socket gap, so
+// a duplicate request_id must never run twice (a re-sent click would double-click).
+const inflightCommands = new Set<string>();
+const completedCommands = new Map<string, Record<string, any>>();
+const _COMPLETED_CACHE_MAX = 50;
+
 async function handleBrowserCommand(data: Record<string, any>) {
   const { request_id, action, browser_id, tab_id, params = {} } = data;
   if (!request_id) return;
+  if (inflightCommands.has(request_id)) return;
+  const cached = completedCommands.get(request_id);
+  if (cached) {
+    dashboardWs.send('browser:result', { request_id, ...cached });
+    return;
+  }
+  inflightCommands.add(request_id);
+  try {
+    await runBrowserCommand(request_id, action, browser_id, tab_id, params);
+  } finally {
+    inflightCommands.delete(request_id);
+  }
+}
 
+async function runBrowserCommand(
+  request_id: string, action: string, browser_id: string, tab_id: string | undefined,
+  params: Record<string, any>,
+) {
   const wv = await awaitWebview(browser_id, tab_id || undefined);
   if (!wv) {
     dashboardWs.send('browser:result', {
@@ -1161,6 +1303,10 @@ async function handleBrowserCommand(data: Record<string, any>) {
   }
 
   setActivity(browser_id, null);
+  completedCommands.set(request_id, result);
+  if (completedCommands.size > _COMPLETED_CACHE_MAX) {
+    completedCommands.delete(completedCommands.keys().next().value as string);
+  }
   dashboardWs.send('browser:result', { request_id, ...result });
 }
 
