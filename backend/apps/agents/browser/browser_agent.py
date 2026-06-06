@@ -63,6 +63,7 @@ from backend.apps.agents.browser import browser_wait
 from backend.apps.agents.browser import browser_schema
 from backend.apps.agents.browser.browser_schema import (
     _ACTION_TOOLS_REQUIRING_REPORT,
+    _LEVERS_ON,
     ACTION_MAP,
     BROWSER_TOOLS_SCHEMA,
     MAX_TURNS,
@@ -802,7 +803,7 @@ async def run_browser_agent(
     # wording), but a similar verified route may exist; hand it to the model as
     # advisory text so it follows a known path instead of re-exploring.
     route_hint_keys: list[tuple] = []
-    if not replay_prefix_note:
+    if _LEVERS_ON and not replay_prefix_note:
         _h_skill, _h_score = browser_skills.find_similar_skill(replay_host, skill_key_task)
         if _h_skill:
             _hint, route_hint_keys = browser_skills.render_route_hint(_h_skill, skill_key_task, _h_score)
@@ -816,7 +817,7 @@ async def run_browser_agent(
     # Pre-nav landed on a results page (the cold entry case): scan it NOW so the
     # model's very first turn can pick a candidate instead of read-then-decide.
     _start_url = (current_url or initial_url or "").split("#")[0]
-    if _start_url and _RESULTS_URL_RE.search(_start_url):
+    if _LEVERS_ON and _start_url and _RESULTS_URL_RE.search(_start_url):
         auto_scanned_urls.add(_start_url)
         _scan_json, _sc_ms = await _scan_results(task)
         if _scan_json:
@@ -1442,7 +1443,7 @@ async def run_browser_agent(
                 # per URL, only on the tight throwaway-dismiss vocabulary that
                 # never sits on a task-needed control, so it can't close anything
                 # required. After closing, re-list so the model sees the page beneath.
-                if tu.name in _AUTO_STATE_TOOLS and "error" not in result:
+                if _LEVERS_ON and tu.name in _AUTO_STATE_TOOLS and "error" not in result:
                     _pop_url = (result.get("url") or last_seen_url or "").split("#")[0]
                     if _pop_url and _pop_url not in dismissed_popup_urls:
                         _close = interstitial_dismiss_target("\n".join(attached_state_seen))
@@ -1464,7 +1465,7 @@ async def run_browser_agent(
                 # costs a read-then-decide turn pair; the cheap aux model reads it
                 # now so the pick happens on this same turn. Capped, per-URL,
                 # fail-silent (a miss just means the old two-turn dance).
-                if (tu.name in _AUTO_STATE_TOOLS and "error" not in result
+                if (_LEVERS_ON and tu.name in _AUTO_STATE_TOOLS and "error" not in result
                         and auto_scan_count < _AUTO_SCAN_MAX_PER_RUN):
                     _scan_url = (result.get("url") or last_seen_url or "").split("#")[0]
                     if _scan_url and _scan_url not in auto_scanned_urls and _RESULTS_URL_RE.search(_scan_url):
@@ -1513,7 +1514,7 @@ async def run_browser_agent(
                         if replay_prefix_note:
                             result["text"] = f"{result.get('text') or ''}{replay_prefix_note}"
                             replay_prefix_note = ""
-                        elif not route_hint_keys:
+                        elif _LEVERS_ON and not route_hint_keys:
                             _h_skill, _h_score = browser_skills.find_similar_skill(cur_host, skill_key_task)
                             if _h_skill:
                                 _hint, route_hint_keys = browser_skills.render_route_hint(_h_skill, skill_key_task, _h_score)

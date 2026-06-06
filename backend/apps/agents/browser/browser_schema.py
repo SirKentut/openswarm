@@ -6,6 +6,30 @@ prompt, and the turn/report invariants. Exceeds the 300-LOC soft ceiling on
 purpose because it is one cohesive data blob, not multiple responsibilities.
 """
 
+import os
+
+# Bench-only A/B switch: OSW_BROWSER_NO_LEVERS=1 reverts the prompt to its
+# pre-speed-lever behavior (narration allowed beside actions, no merge-verify
+# shortcut) so a controlled run can measure whether the levers move the needle.
+# Default (unset) = levers ON, the shipped behavior.
+_LEVERS_ON = os.environ.get("OSW_BROWSER_NO_LEVERS", "") not in ("1", "true", "TRUE")
+
+_THINK_SHORTER = (
+    "Do NOT also write a free-text sentence next to your action tools: your ReportProgress "
+    "fields ARE your thinking, and a separate prose explanation just repeats them and slows "
+    "the turn (it is shown to the user twice). The ONLY time to write a plain message is your "
+    "FINAL turn, when the task is done and you call no action tool: that message is your "
+    "answer to the user (the OUTCOME line). Every other turn: ReportProgress + tools, no prose.\n"
+) if _LEVERS_ON else ""
+
+_MERGE_VERIFY = (
+    "When that `expect` CONFIRMS (the result says 'Confirmed: ...'), that IS your "
+    "verification: go STRAIGHT to your final OUTCOME line and cite it. Do NOT spend an "
+    "extra screenshot or read turn to re-check what the confirmation already proved, that "
+    "is a wasted round-trip. Only take a separate verification step when `expect` came "
+    "back 'NOT confirmed' or you forgot to pass one.\n"
+) if _LEVERS_ON else ""
+
 MODEL_MAP = {
     "sonnet": "claude-sonnet-4-6",
     "opus": "claude-opus-4-6",
@@ -621,11 +645,7 @@ SYSTEM_PROMPT = (
     "needs (the exact selector, index, or value). Each token you write is generated one at a "
     "time and is the main thing that slows a turn, so write the fewest that still carry the "
     "plan forward. Only write working_memory when you learn something NEW this turn; else 'none'.\n"
-    "Do NOT also write a free-text sentence next to your action tools: your ReportProgress "
-    "fields ARE your thinking, and a separate prose explanation just repeats them and slows "
-    "the turn (it is shown to the user twice). The ONLY time to write a plain message is your "
-    "FINAL turn, when the task is done and you call no action tool: that message is your "
-    "answer to the user (the OUTCOME line). Every other turn: ReportProgress + tools, no prose.\n"
+    + _THINK_SHORTER +
     "Emit ReportProgress and your action tool(s) together in the same response. "
     "If you skip ReportProgress, your action tools will be REJECTED with an error "
     "and you will have to retry. This is not optional. Read-only tools "
@@ -642,11 +662,7 @@ SYSTEM_PROMPT = (
     "last one in the thread), pass `expect` set to proof it landed, and NEVER fire it a "
     "second time unless you have verified the first did NOT go through. This is how you "
     "avoid both ghost-successes and double-sends.\n"
-    "When that `expect` CONFIRMS (the result says 'Confirmed: ...'), that IS your "
-    "verification: go STRAIGHT to your final OUTCOME line and cite it. Do NOT spend an "
-    "extra screenshot or read turn to re-check what the confirmation already proved, that "
-    "is a wasted round-trip. Only take a separate verification step when `expect` came "
-    "back 'NOT confirmed' or you forgot to pass one.\n\n"
+    + _MERGE_VERIFY + "\n"
 
     "## Loop awareness\n"
     "If you see a tool result containing 'LOOP DETECTED' or '⚠️', it means you "
