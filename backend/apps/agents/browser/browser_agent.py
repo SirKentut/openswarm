@@ -41,6 +41,12 @@ from backend.apps.agents.browser.browser_loop import (
 )
 from backend.apps.agents.browser.browser_validator import adjudicate_stuck
 
+# Parked: 0-for-4 on paying out (unstable recorded names, no settle between
+# replayed steps, recorder keeps exploratory detours); flip back on once
+# settle-before-step and detour-pruning land. Full replay of safe skills
+# stays on; this only gates the send-skill PREFIX path.
+_PREFIX_REPLAY_ENABLED = False
+
 # Single actions the model could have folded into one BrowserBatch turn;
 # reads, waits, and the batch tools themselves don't count toward the streak.
 _BATCHABLE_ACTION_TOOLS = {
@@ -612,7 +618,7 @@ async def run_browser_agent(
         # always run the live agent, which confirms before anything outward.
         unsafe_i, why = browser_skills.first_unsafe_step(steps)
         if unsafe_i >= 0:
-            if not (allow_prefix and unsafe_i >= 1):
+            if not (allow_prefix and _PREFIX_REPLAY_ENABLED and unsafe_i >= 1):
                 logger.info(f"[browser-skills] skill on {host} not replayed: {why}; running the full agent so the send is confirmed")
                 return None
             prefix = steps[:unsafe_i]
