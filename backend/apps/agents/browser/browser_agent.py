@@ -1471,11 +1471,16 @@ async def run_browser_agent(
                 if (_COMPOSE_HELPER and tu.name == "BrowserClickIndex"
                         and str((tu.input or {}).get("text") or "").strip()
                         and "error" not in result):
+                    # The compose Send button reliably renders a beat AFTER the text
+                    # commits (diagnosed live: absent from BOTH the AX list and a DOM
+                    # scan right after typing, then it appears in the AX list a few
+                    # seconds later). So POLL for it rather than settling once; the
+                    # AX tree surfaces it fine, our earlier single 1.5s wait was eager.
                     _send = find_send_index("\n".join(attached_state_seen))
-                    if not _send:
-                        # the Send control usually renders a beat AFTER the text
-                        # lands; settle once and re-list to catch the late paint.
-                        await browser_wait.smart_wait(_wait_exec, browser_id, tab_id, 1500)
+                    _polls = 0
+                    while not _send and _polls < 4:  # ~5s budget, then let the model take over
+                        _polls += 1
+                        await browser_wait.smart_wait(_wait_exec, browser_id, tab_id, 1200)
                         _relist = await _cancellable(execute_browser_tool(
                             "BrowserListInteractives", {}, browser_id, tab_id))
                         if isinstance(_relist, dict) and _relist.get("text"):
@@ -1485,7 +1490,8 @@ async def run_browser_agent(
                         result["text"] = (f"{result.get('text') or ''}\n\n[send-ready] The Send "
                                           f"control is index {_si} (button '{_sn}'). To deliver, click it "
                                           f"SOLO with BrowserClickIndex + `expect` proof, do NOT press Enter.")
-                        logger.info(f"[browser-compose {session_id}] located Send at index {_si} after composer fill")
+                        logger.info(f"[browser-compose {session_id}] located Send at index {_si} "
+                                    f"after composer fill ({_polls} poll(s))")
 
                 # Auto-dismiss a blocking junk popup (cookie wall / upsell /
                 # coachmark) before it costs the model a turn. Mechanical, once
