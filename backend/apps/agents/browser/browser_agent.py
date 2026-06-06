@@ -53,6 +53,7 @@ from backend.apps.agents.browser import browser_metrics
 from backend.apps.agents.browser import browser_playbook
 from backend.apps.agents.browser import browser_skills
 from backend.apps.agents.browser import browser_wait
+from backend.apps.agents.browser import browser_schema
 from backend.apps.agents.browser.browser_schema import (
     _ACTION_TOOLS_REQUIRING_REPORT,
     ACTION_MAP,
@@ -498,7 +499,7 @@ async def run_browser_agent(
         "type": "text", "text": run_system_prompt,
         "cache_control": {"type": "ephemeral"},
     }]
-    _cached_tools = [dict(t) for t in BROWSER_TOOLS_SCHEMA]
+    _cached_tools = [dict(t) for t in browser_schema.MODEL_VISIBLE_TOOLS]
     if _cached_tools:
         _cached_tools[-1] = {**_cached_tools[-1], "cache_control": {"type": "ephemeral"}}
 
