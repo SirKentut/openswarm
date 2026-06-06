@@ -641,7 +641,12 @@ SYSTEM_PROMPT = (
     "first make sure the goal isn't already done (e.g. your message isn't already the "
     "last one in the thread), pass `expect` set to proof it landed, and NEVER fire it a "
     "second time unless you have verified the first did NOT go through. This is how you "
-    "avoid both ghost-successes and double-sends.\n\n"
+    "avoid both ghost-successes and double-sends.\n"
+    "When that `expect` CONFIRMS (the result says 'Confirmed: ...'), that IS your "
+    "verification: go STRAIGHT to your final OUTCOME line and cite it. Do NOT spend an "
+    "extra screenshot or read turn to re-check what the confirmation already proved, that "
+    "is a wasted round-trip. Only take a separate verification step when `expect` came "
+    "back 'NOT confirmed' or you forgot to pass one.\n\n"
 
     "## Loop awareness\n"
     "If you see a tool result containing 'LOOP DETECTED' or '⚠️', it means you "

@@ -1753,9 +1753,21 @@ async def run_browser_agent(
             f"auto_scans={auto_scan_count} hint_steps={len(route_hint_keys)}"
         )
         _nt = turn + 1
+        # merge-verify telemetry: read-only tool calls AFTER the last state-changing
+        # action are the redundant trailing "let me re-verify" turns the prompt now
+        # folds into the OUTCOME line; this should trend to 0 on the confirmed path.
+        _act_tools = {"BrowserType", "BrowserClickIndex", "BrowserClick", "BrowserClickByName",
+                      "BrowserPressKey", "BrowserScroll", "BrowserBatch", "BrowserNavigate"}
+        _read_tools = {"BrowserScreenshot", "BrowserGetText", "BrowserGetElements",
+                       "BrowserListInteractives", "BrowserExtract"}
+        _last_act = max((i for i, a in enumerate(action_log)
+                         if a.get("tool") in _act_tools and a.get("ok")), default=-1)
+        _trailing_reads = sum(1 for a in action_log[_last_act + 1:]
+                              if a.get("tool") in _read_tools) if _last_act >= 0 else 0
         logger.info(
             f"[browser-output {session_id}] out_tokens={out_tokens_total} "
-            f"mean_out_per_turn={out_tokens_total // max(1, _nt)} narration_turns={narration_turns}/{_nt}"
+            f"mean_out_per_turn={out_tokens_total // max(1, _nt)} narration_turns={narration_turns}/{_nt} "
+            f"trailing_reads={_trailing_reads}"
         )
         browser_metrics.record_task(session_id, browser_id, task, final_status,
                                     metrics_started_at, turn + 1, action_log, session.tokens,
