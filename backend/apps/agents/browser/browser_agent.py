@@ -472,6 +472,35 @@ async def run_browser_agent(
 
     latest_working_mem = ""  # most recent ReportProgress memory, for the tier-2 playbook distill
 
+    # auto candidate scan: aux-read results pages so pick-a-candidate happens in
+    # the same turn as the landing, not a read-then-decide pair later
+    auto_scanned_urls: set[str] = set()
+    auto_scan_count = 0
+    llm_ms_total = 0
+
+    async def _scan_results(scan_for: str) -> tuple[str, int]:
+        """Aux-model read of the current results page scored against the task.
+        Returns (json_or_empty, elapsed_ms); fail-silent by design."""
+        _t0 = time.time()
+        try:
+            async def _inner():
+                page = await _cancellable(execute_browser_tool("BrowserGetText", {}, browser_id, tab_id))
+                if not isinstance(page, dict) or page.get("error") or not page.get("text"):
+                    return ""
+                aux_client, aux_model = await _get_aux_client()
+                return await browser_extract.extract_structured(
+                    aux_client, aux_model, str(page["text"]),
+                    "These are search results. Identify which result(s) match this task: "
+                    f"{scan_for[:400]}\nFor each plausible candidate give its exact displayed name, "
+                    "the distinguishing details shown (role, company, location, etc), and why it "
+                    "does or does not match. If none clearly match, say so in `best`.",
+                    {"candidates": [{"name": "", "details": "", "match": ""}], "best": ""},
+                )
+            out = await asyncio.wait_for(_inner(), timeout=8.0)
+        except Exception:
+            out = ""
+        return out or "", int((time.time() - _t0) * 1000)
+
     # Latest goal from ReportProgress; threaded into BrowserListInteractives so
     # the frontend floats goal-matching elements to the top of the list. Seeded
     # with the task so the first listing (before any ReportProgress) is boosted.
@@ -773,6 +802,33 @@ async def run_browser_agent(
                     f"sim={_h_score:.2f} steps={len(route_hint_keys)} state={_h_skill.get('state')}"
                 )
 
+    # Pre-nav landed on a results page (the cold entry case): scan it NOW so the
+    # model's very first turn can pick a candidate instead of read-then-decide.
+    _start_url = (current_url or initial_url or "").split("#")[0]
+    if _start_url and _RESULTS_URL_RE.search(_start_url):
+        auto_scanned_urls.add(_start_url)
+        _scan_json, _sc_ms = await _scan_results(task)
+        if _scan_json:
+            auto_scan_count += 1
+            messages[-1]["content"] = (
+                f"{messages[-1]['content']}\n\n[auto candidate scan] An assistant model read "
+                f"this results page against the task:\n{_scan_json}\n"
+                "Treat it as a hint; verify on the page before acting."
+            )
+            action_log.append({
+                "tool": "BrowserExtract", "input": {"instruction": "(auto candidate scan)"},
+                "result_summary": _scan_json[:200], "elapsed_ms": _sc_ms, "ok": True,
+            })
+            logger.info(
+                f"[browser-cold {session_id}] dispatch candidate scan on {_start_url[:90]} "
+                f"in {_sc_ms}ms ({len(_scan_json)}ch)"
+            )
+        else:
+            logger.info(
+                f"[browser-cold {session_id}] dispatch candidate scan empty on "
+                f"{_start_url[:90]} after {_sc_ms}ms"
+            )
+
     text_parts = []  # initialized before loop so post-loop summary (line ~1294) has a default
     # Circuit breaker for ReportProgress violations. Some models get stuck
     # in a loop where they keep calling action tools without the brain-
@@ -794,11 +850,6 @@ async def run_browser_agent(
     multi_action_turns = 0
     batch_calls = 0
     batch_guard_blocks = 0
-    # auto candidate scan: aux-read results pages so pick-a-candidate happens in
-    # the same turn as the landing, not a read-then-decide pair later
-    auto_scanned_urls: set[str] = set()
-    auto_scan_count = 0
-    llm_ms_total = 0
     try:
         for turn in range(MAX_TURNS):
             if cancel_event.is_set():
@@ -1375,27 +1426,7 @@ async def run_browser_agent(
                     _scan_url = (result.get("url") or last_seen_url or "").split("#")[0]
                     if _scan_url and _scan_url not in auto_scanned_urls and _RESULTS_URL_RE.search(_scan_url):
                         auto_scanned_urls.add(_scan_url)
-                        _sc_t0 = time.time()
-
-                        async def _scan():
-                            page = await _cancellable(execute_browser_tool("BrowserGetText", {}, browser_id, tab_id))
-                            if not isinstance(page, dict) or page.get("error") or not page.get("text"):
-                                return ""
-                            aux_client, aux_model = await _get_aux_client()
-                            return await browser_extract.extract_structured(
-                                aux_client, aux_model, str(page["text"]),
-                                "These are search results. Identify which result(s) match this task: "
-                                f"{task[:400]}\nFor each plausible candidate give its exact displayed name, "
-                                "the distinguishing details shown (role, company, location, etc), and why it "
-                                "does or does not match. If none clearly match, say so in `best`.",
-                                {"candidates": [{"name": "", "details": "", "match": ""}], "best": ""},
-                            )
-
-                        try:
-                            _scan_json = await asyncio.wait_for(_scan(), timeout=8.0)
-                        except Exception:
-                            _scan_json = ""
-                        _sc_ms = int((time.time() - _sc_t0) * 1000)
+                        _scan_json, _sc_ms = await _scan_results(task)
                         if _scan_json:
                             auto_scan_count += 1
                             result["text"] = (
