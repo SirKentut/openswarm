@@ -14,6 +14,12 @@ import os
 # Default (unset) = levers ON, the shipped behavior.
 _LEVERS_ON = os.environ.get("OSW_BROWSER_NO_LEVERS", "") not in ("1", "true", "TRUE")
 
+# Bench experiment (default OFF): run routine discovery turns on the cheap model
+# and escalate to the primary only for the irreversible endgame (BrowserClickIndex,
+# the one solo mutator the schema exposes). Payoff is UNCERTAIN until A/B'd: the
+# per-turn speedup may be eaten by prompt-cache thrash on the big model's turns.
+_CHEAP_LAPS = os.environ.get("OSW_BROWSER_CHEAP_LAPS", "") in ("1", "true", "TRUE")
+
 _THINK_SHORTER = (
     "Do NOT also write a free-text sentence next to your action tools: your ReportProgress "
     "fields ARE your thinking, and a separate prose explanation just repeats them and slows "

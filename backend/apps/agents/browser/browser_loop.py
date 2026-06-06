@@ -67,6 +67,17 @@ def interstitial_dismiss_target(interactives_text: str) -> str | None:
     return None
 
 
+def turn_needs_big_model(response_content) -> bool:
+    """Cheap-laps escalation test: a turn that reaches the irreversible endgame
+    must run on the primary model, not the cheap one. BrowserClickIndex is the
+    only solo mutator the schema exposes (composer fill + the final send), so its
+    presence marks the endgame; routine discovery/read/batch turns stay cheap."""
+    for b in (response_content or []):
+        if getattr(b, "type", None) == "tool_use" and getattr(b, "name", None) == "BrowserClickIndex":
+            return True
+    return False
+
+
 def _hash_tool_call(tool_name: str, tool_input: dict, result: dict) -> tuple[str, str, str]:
     """Build a stable hash key for a tool call, including its result.
 

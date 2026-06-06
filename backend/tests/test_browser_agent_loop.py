@@ -1328,3 +1328,17 @@ def test_interstitial_dismiss_target_generalizable_and_safe():
     # empty / no rows
     assert interstitial_dismiss_target('') is None
     assert interstitial_dismiss_target('just some text') is None
+
+
+def test_cheap_laps_escalates_on_irreversible_endgame():
+    from backend.apps.agents.browser.browser_loop import turn_needs_big_model
+    class _B:
+        def __init__(self, type, name=None): self.type=type; self.name=name
+    # discovery/read/batch turns stay cheap
+    assert turn_needs_big_model([_B("text"), _B("tool_use", "BrowserBatch")]) is False
+    assert turn_needs_big_model([_B("tool_use", "BrowserListInteractives")]) is False
+    assert turn_needs_big_model([_B("tool_use", "ReportProgress"), _B("tool_use", "BrowserExtract")]) is False
+    # the irreversible endgame (the only solo mutator) escalates to the big model
+    assert turn_needs_big_model([_B("tool_use", "ReportProgress"), _B("tool_use", "BrowserClickIndex")]) is True
+    assert turn_needs_big_model([]) is False
+    assert turn_needs_big_model(None) is False
