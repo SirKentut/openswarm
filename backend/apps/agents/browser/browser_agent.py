@@ -1246,7 +1246,8 @@ async def run_browser_agent(
                 # Hard send-guard: an irreversible step physically cannot ride in a
                 # batch (the solo-send rule was prompt-only before; prompts drift).
                 _guard_why = (browser_batch_replay.live_batch_guard(
-                    (tool_input or {}).get("actions"), attached_state_seen)
+                    (tool_input or {}).get("actions"), attached_state_seen,
+                    composer_pending=bool(browser_batch_replay.send_payload_from_log(action_log)))
                     if tu.name == "BrowserBatch" else "")
                 if _guard_why:
                     batch_guard_blocks += 1

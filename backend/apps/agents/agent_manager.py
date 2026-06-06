@@ -3401,7 +3401,7 @@ class AgentManager:
                         text = browser_fast_path.NO_DASHBOARD_REPLY
                     else:
                         from backend.apps.agents.browser import browser_batch_replay
-                        payload = browser_batch_replay.send_payload_from_log(first.get("action_log"))
+                        payload = browser_batch_replay.send_payload_from_log(first.get("action_log"), prompt)
                         if payload:
                             # The dead attempt had already typed into a composer, so a
                             # blind retry risks a double-send: a read-only probe's

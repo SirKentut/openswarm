@@ -115,14 +115,16 @@ _LIVE_IRREVERSIBLE_RE = re.compile(
 )
 
 
-def live_batch_guard(actions, seen_lines) -> str:
+def live_batch_guard(actions, seen_lines, composer_pending: bool = False) -> str:
     """Reason string if a live BrowserBatch carries an irreversible step, else ''.
 
     The solo-send rule was prompt-only until now; this makes it physical. A
     click_index resolves to its element line from the last attached state (an
     unresolvable index passes: it fails at execution anyway), and Enter after
-    typing into a composer counts as the send it is."""
-    typed_composer = False
+    typing into a composer counts as the send it is. composer_pending arms the
+    Enter check across turns: r47 typed solo then batched [Enter, wait], which
+    slid past the within-batch check."""
+    typed_composer = composer_pending
     for i, a in enumerate(actions or []):
         if not isinstance(a, dict):
             continue
@@ -153,7 +155,7 @@ def live_batch_guard(actions, seen_lines) -> str:
     return ""
 
 
-def send_payload_from_log(action_log) -> str:
+def send_payload_from_log(action_log, prompt: str = "") -> str:
     """The text a failed run typed into a composer-ish field, '' if it never
     reached the send zone. Gates the recovery verify-first probe: r44's retry
     SAID it would verify first then didn't, so the check must be code, not prose."""
@@ -169,11 +171,15 @@ def send_payload_from_log(action_log) -> str:
         if tool == "BrowserClickIndex":
             name = str(a.get("clicked_name") or "")
             role = str(a.get("clicked_role") or "")
-            # a filter/search box also has role textbox; real messages are longer
-            if _COMPOSE_SEL_RE.search(name) or (role == "textbox" and len(text) >= 20):
+            summ = str(a.get("result_summary") or "")
+            # focus+type results carry no clicked fields (r47's live miss); the
+            # executor's own "typed the text" wording is the surviving signal
+            if _COMPOSE_SEL_RE.search(name) or (len(text) >= 20 and (
+                    role == "textbox" or "typed the text" in summ.lower())):
                 typed.append(text)
         elif tool == "BrowserType":
-            if _COMPOSE_SEL_RE.search(str(inp.get("selector") or "")):
+            sel = str(inp.get("selector") or "")
+            if _COMPOSE_SEL_RE.search(sel) or (not sel and len(text) >= 20):
                 typed.append(text)
         elif tool == "BrowserBatch":
             for sub in (inp.get("actions") or []):
@@ -181,10 +187,19 @@ def send_payload_from_log(action_log) -> str:
                     continue
                 p = sub.get("params") if isinstance(sub.get("params"), dict) else {}
                 sub_text = str(p.get("text") or "").strip()
-                if (sub.get("type") == "type" and sub_text
-                        and _COMPOSE_SEL_RE.search(str(p.get("selector") or ""))):
+                sub_sel = str(p.get("selector") or "")
+                if sub.get("type") == "type" and sub_text and (
+                        _COMPOSE_SEL_RE.search(sub_sel)
+                        or (not sub_sel and len(sub_text) >= 20)):
                     typed.append(sub_text)
-    return max(typed, key=len) if typed else ""
+    if not typed:
+        return ""
+    # the task usually quotes the message; a candidate echoed there beats a
+    # longer search query or a garbled retype
+    for t in reversed(typed):
+        if t in (prompt or ""):
+            return t
+    return typed[-1]
 
 
 def _sub(val, value: str):

@@ -252,3 +252,57 @@ def test_payload_empty_log_and_garbage_safe():
     assert br.send_payload_from_log([]) == ""
     assert br.send_payload_from_log(None) == ""
     assert br.send_payload_from_log([{"tool": "BrowserClickIndex"}, "junk"]) == ""
+
+
+def test_payload_extracted_from_focus_type_click_without_clicked_fields():
+    # r47's live miss: focus+type results carry no clickedRole/clickedName
+    log = [{
+        "tool": "BrowserClickIndex",
+        "input": {"index": 1, "text": "[test] hello world r47-os"},
+        "result_summary": 'Focused index 1 and typed the text in (via editor command). Verified: the box now contains "[test] hello world r47-os". Do NOT type it again.',
+        "clicked_role": None, "clicked_name": None,
+    }]
+    assert br.send_payload_from_log(log) == "[test] hello world r47-os"
+
+
+def test_payload_prefers_prompt_quoted_candidate_over_garbled_retype():
+    clean = "[test] hello world r47-os"
+    garbled = "[test] hello world r47-os\n[test] hello world r47-os"
+    log = [
+        {"tool": "BrowserClickIndex", "input": {"index": 1, "text": clean},
+         "result_summary": "typed the text in", "clicked_role": "textbox", "clicked_name": ""},
+        {"tool": "BrowserClickIndex", "input": {"index": 1, "text": garbled},
+         "result_summary": "typed the text in", "clicked_role": "textbox", "clicked_name": ""},
+    ]
+    prompt = f"go to tyler chen's linkedin and text him '{clean}'"
+    assert br.send_payload_from_log(log, prompt) == clean
+    assert br.send_payload_from_log(log) == garbled
+
+
+def test_payload_from_index_based_batch_type():
+    log = [{
+        "tool": "BrowserBatch",
+        "input": {"actions": [
+            {"type": "click_index", "params": {"index": 4}},
+            {"type": "type", "params": {"index": 4, "text": "[test] hello world long enough"}},
+        ]},
+    }]
+    assert br.send_payload_from_log(log) == "[test] hello world long enough"
+
+
+def test_guard_blocks_batched_enter_when_composer_pending():
+    actions = [
+        {"type": "press_key", "params": {"key": "Enter"}},
+        {"type": "wait", "params": {"milliseconds": 3000}},
+    ]
+    why = br.live_batch_guard(actions, [], composer_pending=True)
+    assert "Enter" in why
+    assert br.live_batch_guard(actions, [], composer_pending=False) == ""
+
+
+def test_guard_still_allows_search_type_enter_without_pending_composer():
+    actions = [
+        {"type": "type", "params": {"selector": "input[name=q]", "text": "tyler chen"}},
+        {"type": "press_key", "params": {"key": "Enter"}},
+    ]
+    assert br.live_batch_guard(actions, [], composer_pending=False) == ""
