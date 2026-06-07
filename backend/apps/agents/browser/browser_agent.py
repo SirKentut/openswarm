@@ -117,10 +117,18 @@ def _extract_domain(url: str) -> str | None:
         return None
 
 
+def _strip_lone_surrogates(s: str) -> str:
+    # The JS/webview hands us page text as UTF-16, so an emoji can arrive as half
+    # of its surrogate pair; Python carries the orphan but .encode('utf-8') later
+    # (the SDK serializing the request to the LLM) detonates with "surrogates not
+    # allowed" and kills the turn. Swap any orphan for the replacement char.
+    return re.sub(r"[\ud800-\udfff]", "�", s) if s else s
+
+
 def _format_tool_result(result: dict, tool_name: str) -> list[dict]:
     """Convert a browser command result dict into Anthropic API content blocks."""
     if "error" in result:
-        return [{"type": "text", "text": f"Error: {result['error']}"}]
+        return [{"type": "text", "text": _strip_lone_surrogates(f"Error: {result['error']}")}]
 
     if tool_name == "BrowserScreenshot" and result.get("image"):
         blocks = [
@@ -137,7 +145,7 @@ def _format_tool_result(result: dict, tool_name: str) -> list[dict]:
         return blocks
 
     text = result.get("text", json.dumps(result))
-    return [{"type": "text", "text": str(text)}]
+    return [{"type": "text", "text": _strip_lone_surrogates(str(text))}]
 
 
 # Mutating tools whose results get fresh page state attached (the browser-use

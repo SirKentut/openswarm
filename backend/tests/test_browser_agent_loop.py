@@ -1344,3 +1344,21 @@ def test_recoverable_tool_error_classifier():
     # no error, or an unrelated one
     assert not recoverable_tool_error("")
     assert not recoverable_tool_error("some unrelated failure")
+
+
+def test_strip_lone_surrogates():
+    from backend.apps.agents.browser.browser_agent import _strip_lone_surrogates, _format_tool_result
+    # an orphan UTF-16 surrogate (half an emoji from the webview) is what crashes
+    # the turn at .encode('utf-8'); it must be swapped, not carried through
+    out = _strip_lone_surrogates("Twitch \ud83e live")
+    assert "\ud83e" not in out and "�" in out
+    out.encode("utf-8")  # the operation that used to raise "surrogates not allowed"
+    # valid emoji (a real code point) and plain text are left alone
+    assert _strip_lone_surrogates("cheese \U0001f9c0 ok") == "cheese \U0001f9c0 ok"
+    assert _strip_lone_surrogates("Search Amazon") == "Search Amazon"
+    assert _strip_lone_surrogates("") == ""
+    # the boundary that feeds the model is sanitized for both result and error text
+    blocks = _format_tool_result({"text": "name \ud83e here"}, "BrowserListInteractives")
+    blocks[0]["text"].encode("utf-8")
+    err = _format_tool_result({"error": "bad \ud83e node"}, "BrowserClickIndex")
+    err[0]["text"].encode("utf-8")
