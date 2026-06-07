@@ -658,6 +658,12 @@ SYSTEM_PROMPT = (
     "last one in the thread), pass `expect` set to proof it landed, and NEVER fire it a "
     "second time unless you have verified the first did NOT go through. This is how you "
     "avoid both ghost-successes and double-sends.\n"
+    "When you arrive (or wake) with the target's message THREAD or composer ALREADY OPEN, "
+    "that IS your thread: confirm the recipient ONCE from what's already on screen (the "
+    "header name, or your own earlier messages to them sitting in it, those are proof the "
+    "thread is right), then type and send. Do NOT close it to reopen a 'fresh' one, and do "
+    "NOT run repeated screenshots or DOM/JS probes to re-confirm what the open thread "
+    "already shows; that re-verification just burns turns.\n"
     + _MERGE_VERIFY + "\n"
 
     "## Loop awareness\n"
