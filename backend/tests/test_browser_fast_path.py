@@ -94,12 +94,16 @@ def test_text_normalizes_to_message_without_phone_number():
     assert "message r10-os" in _normalize_for_classifier(count)
 
 
-def test_dispatch_refused_instantly_when_no_dashboard_connected():
+def test_dispatch_refused_when_no_dashboard_connected(monkeypatch):
     import asyncio
     from backend.apps.agents.browser.browser_agent import run_browser_agents
-    from backend.apps.agents.core.ws_manager import ws_manager
+    from backend.apps.agents.core import ws_manager as wsm
 
-    assert not ws_manager.global_connections
+    # Dispatch now waits briefly for a momentary WS drop to reconnect; with a
+    # genuinely-closed window that wait just elapses and it still refuses without
+    # dispatching an agent or burning a turn. Zero the wait so the test is instant.
+    monkeypatch.setattr(wsm, "_WS_RECONNECT_WAIT_S", 0.0)
+    assert not wsm.ws_manager.global_connections
     results = asyncio.run(run_browser_agents(tasks=[{"task": "go to example.com"}], model="sonnet"))
     assert len(results) == 1
     assert results[0]["summary"].startswith("Error: no dashboard window is connected")

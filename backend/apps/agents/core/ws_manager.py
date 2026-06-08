@@ -12,13 +12,33 @@ logger = logging.getLogger(__name__)
 # operate on an already-loaded page and should be quick; navigation legitimately
 # loads the network so it gets a longer leash. Was a flat 30s, which let one
 # wedged page spin for ~20 minutes across retries.
-_BROWSER_CMD_TIMEOUT_DEFAULT = 12.0
+_BROWSER_CMD_TIMEOUT_DEFAULT = 15.0   # modest load headroom; still "short" so a wedged tab fails fast
 _BROWSER_CMD_TIMEOUTS = {
-    "navigate": 20.0,     # a real page load can be slow
+    "navigate": 25.0,     # a real page load can be slow (more leash under load)
     "replay_route": 20.0, # an API fetch can be slow
     "wait": 12.0,         # smart-wait already caps itself well under this
 }
 _BROWSER_CMD_REBROADCAST_S = 3.0
+# A CPU-starved renderer can briefly drop its WS (a missed heartbeat) and the
+# frontend auto-reconnects a beat later; bridge that gap instead of hard-failing
+# a live run into it. Short enough that a genuinely-closed window still fails
+# quickly (and no LLM turns are ever burned waiting); long enough to ride out a
+# reconnect even on a loaded machine.
+_WS_RECONNECT_WAIT_S = 8.0
+
+
+async def _await_reconnect(has_conn) -> bool:
+    """Poll up to _WS_RECONNECT_WAIT_S for a dashboard socket to (re)appear.
+    `has_conn` is a 0-arg callable returning truthy when connected."""
+    if has_conn():
+        return True
+    waited = 0.0
+    while waited < _WS_RECONNECT_WAIT_S:
+        await asyncio.sleep(0.5)
+        waited += 0.5
+        if has_conn():
+            return True
+    return bool(has_conn())
 
 
 class ConnectionManager:
@@ -240,7 +260,7 @@ class ConnectionManager:
         self, request_id: str, action: str, browser_id: str, params: dict, tab_id: str = ""
     ) -> dict:
         """Send a browser command to the frontend and wait for the result."""
-        if not self.global_connections:
+        if not self.global_connections and not await _await_reconnect(lambda: bool(self.global_connections)):
             return {"error": "No dashboard is connected. Open the dashboard to use browser tools."}
 
         loop = asyncio.get_event_loop()
