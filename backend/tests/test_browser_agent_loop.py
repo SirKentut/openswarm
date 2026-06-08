@@ -1427,9 +1427,10 @@ def test_message_pairing_validator_catches_both_orphan_and_dangling():
                                       {"role": "assistant", "content": "done"}]) is True
 
 
-def test_composer_fill_detection_and_send_handoff():
-    from backend.apps.agents.browser.browser_agent import _is_composer_fill, _send_index_in_state
-    # a composer fill is detected across the three ways the model types
+def test_composer_fill_detection():
+    # detecting a composer fill is what arms the post-type wait for the Send button
+    # to render before we re-list (so the model sees it instead of hunting)
+    from backend.apps.agents.browser.browser_agent import _is_composer_fill
     assert _is_composer_fill("BrowserClickIndex", {"index": 4, "text": "hello world"})
     assert _is_composer_fill("BrowserType", {"selector": "#m", "text": "hi"})
     assert _is_composer_fill("BrowserBatch", {"actions": [
@@ -1437,12 +1438,6 @@ def test_composer_fill_detection_and_send_handoff():
     # a plain click (no text) is NOT a fill
     assert not _is_composer_fill("BrowserClickIndex", {"index": 4})
     assert not _is_composer_fill("BrowserScroll", {})
-    # the real Send button is handed over; upsells / profile links are never mistaken for it
-    page = '[1]<link "Tyler Chen">\n[33]<textbox "Write a message">\n[44]<button "Send">'
-    assert _send_index_in_state(page) == (44, "Send")
-    assert _send_index_in_state('[12]<button "Send InMail credit">') is None
-    assert _send_index_in_state('[5]<button "Send a message to Maya">') is None
-    assert _send_index_in_state("") is None
 
 
 def test_strip_lone_surrogates():

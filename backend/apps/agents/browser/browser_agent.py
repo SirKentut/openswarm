@@ -43,17 +43,6 @@ from backend.apps.agents.browser.browser_loop import (
 )
 from backend.apps.agents.browser.browser_validator import adjudicate_stuck
 
-# Send-skill PREFIX replay: replay the learned steps UP TO the irreversible Send
-# mechanically, then hand the gated Send to the live model (the Send is NEVER
-# replayed). Unlocked by first_unsafe_step now using is_replay_boundary, a
-# composer OPENER ("Message"/"DM" click) is reversible and no longer ends the
-# prefix (the r93/r94 blocker), so a clean skill replays [open composer ...] and
-# only the real Send crosses to the live agent. A still-brittle recorded name
-# self-heals: the prefix step fails, the skill quarantines, and the run falls
-# back to the full agent (send still verified). Both fixes that parked it
-# (settle-before-step, detour-pruning) already landed.
-_PREFIX_REPLAY_ENABLED = True
-
 # Single actions the model could have folded into one BrowserBatch turn;
 # reads, waits, and the batch tools themselves don't count toward the streak.
 _BATCHABLE_ACTION_TOOLS = {
@@ -207,12 +196,6 @@ def _delta_state(text: str, seen_lines: set[str]) -> str:
     )
 
 
-# A button row whose name is exactly a Send control (not "Send InMail credit" or
-# "Send a message to X"); used to hand the model the Send button after it types,
-# so it never burns turns hunting a button that's right there.
-_SEND_ROW_RE = re.compile(r'\[(\d+)\]\*?<\s*button\s+"([^"]*)"', re.I)
-
-
 def _is_composer_fill(tool_name: str, tool_input: dict) -> bool:
     """True if this action typed a message into a composer (the moment the Send
     button is about to matter). Covers the solo fill, BrowserType, and a batched
@@ -226,16 +209,6 @@ def _is_composer_fill(tool_name: str, tool_input: dict) -> bool:
             if a.get("type") in ("type", "click_index") and str(p.get("text") or "").strip():
                 return True
     return False
-
-
-def _send_index_in_state(state_text: str):
-    """(index, name) of a real Send button in an interactives list, or None.
-    Strict exact match so it never grabs an upsell or a profile 'Send a message' link."""
-    for line in (state_text or "").splitlines():
-        m = _SEND_ROW_RE.search(line)
-        if m and m.group(2).strip().lower() in ("send", "send now", "send message"):
-            return int(m.group(1)), m.group(2)
-    return None
 
 
 async def _post_action_state(
@@ -276,16 +249,7 @@ async def _post_action_state(
     if not isinstance(lst, dict) or "error" in lst or not lst.get("text"):
         return ""
     state = lst["text"] if seen_lines is None else _delta_state(lst["text"], seen_lines)
-    out = f"\n\n{PAGE_STATE_MARKER}\n{_truncate_state(state)}"
-    # Hand the Send button over so the model clicks it instead of hunting via CSS/JS.
-    if _composer_fill:
-        _si = _send_index_in_state(lst["text"])
-        if _si:
-            out = (f"\n\n[send-ready] Your message is typed and the Send button is index "
-                   f"{_si[0]} below. To deliver, click it SOLO with BrowserClickIndex + an "
-                   f"`expect` proof. Do NOT hunt for it with CSS/JS/screenshots, it is right here."
-                   ) + out
-    return out
+    return f"\n\n{PAGE_STATE_MARKER}\n{_truncate_state(state)}"
 
 
 async def _request_browser_approval(
@@ -738,7 +702,7 @@ async def run_browser_agent(
         # always run the live agent, which confirms before anything outward.
         unsafe_i, why = browser_skills.first_unsafe_step(steps)
         if unsafe_i >= 0:
-            if not (allow_prefix and _PREFIX_REPLAY_ENABLED and unsafe_i >= 1):
+            if not (allow_prefix and unsafe_i >= 1):
                 logger.info(f"[browser-skills] skill on {host} not replayed: {why}; running the full agent so the send is confirmed")
                 return None
             prefix = steps[:unsafe_i]
@@ -1122,7 +1086,7 @@ async def run_browser_agent(
                     if send_confirmed:
                         _proof = next((str(a.get("result_summary") or "") for a in reversed(action_log)
                                        if a.get("ok") and "Confirmed:" in str(a.get("result_summary") or "")), "")
-                        text_parts = ["OUTCOME: DONE - the action was completed on the page. " + _proof[:160]]
+                        text_parts = ["OUTCOME: DONE - " + (_proof[:160] or "the task completed and was confirmed on the page.")]
                     break
             else:
                 perception_stall = 0
@@ -1477,12 +1441,9 @@ async def run_browser_agent(
                         for r in (result.get("results") or []))
                     if _send_click:
                         send_confirmed = True
-                        result["text"] = (f"{result.get('text') or ''}\n\n[done] You clicked a "
-                            "send control and it ran cleanly, the message is sent (the composer "
-                            "clears on send; the sent text can render late in the thread, so do "
-                            "NOT go hunting for it to 'confirm'). The task is complete. Your NEXT "
-                            "message must be ONLY the 'OUTCOME: DONE - <result>' line with NO tool "
-                            "calls, no more screenshots, lists, or reads.")
+                        result["text"] = (f"{result.get('text') or ''}\n\n[task complete] The send "
+                            "went through (the composer cleared). Don't re-check it. Give your "
+                            "final answer now, your OUTCOME line.")
 
                 action_log.append({
                     "tool": tu.name,
