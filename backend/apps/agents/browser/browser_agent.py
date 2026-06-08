@@ -864,8 +864,9 @@ async def run_browser_agent(
     # multi-send task issues its NEXT send (an action) which resets the stall, so
     # only true spinning ends here.
     send_confirmed = False
-    post_send_stall = 0
-    _POST_SEND_STALL_LIMIT = 2
+    perception_stall = 0           # consecutive turns the model only LOOKED (no action)
+    _POST_SEND_STALL_LIMIT = 2     # once the send registered, finish fast
+    _PERCEPTION_STALL_LIMIT = 6    # backstop when we couldn't detect the send (e.g. Enter): bound the spin
     # rows already shown to the model; attached state shrinks to the delta
     attached_state_seen: set[str] = set()
     # under-batching telemetry + nudge state
@@ -1038,22 +1039,23 @@ async def run_browser_agent(
             # hard to the OUTCOME; if it spins again, end (the confirm IS the proof, the
             # completion gate re-checks the log). An action turn means real more-to-do,
             # so reset and let it continue (multi-send stays safe).
-            if send_confirmed and _turn_actions == 0:
-                post_send_stall += 1
-                if post_send_stall >= _POST_SEND_STALL_LIMIT:
+            if _turn_actions == 0:
+                perception_stall += 1
+                _stall_limit = _POST_SEND_STALL_LIMIT if send_confirmed else _PERCEPTION_STALL_LIMIT
+                if perception_stall >= _stall_limit:
                     logger.info(
-                        f"[browser-agent {session_id}] ending: send confirmed, model kept "
-                        f"re-perceiving {post_send_stall} turns instead of finishing"
+                        f"[browser-agent {session_id}] ending: {perception_stall} pure-perception "
+                        f"turns (send_confirmed={send_confirmed}); not letting it spin further"
                     )
-                    # synthesize the OUTCOME from the confirmed send so the parent
-                    # gets real proof, not a vague summary that triggers a re-dispatch
-                    _proof = next((str(a.get("result_summary") or "") for a in reversed(action_log)
-                                   if a.get("ok") and "Confirmed:" in str(a.get("result_summary") or "")), "")
-                    text_parts = ["OUTCOME: DONE - the action was completed and confirmed on the page. "
-                                  + _proof[:160]]
+                    # if the send registered, hand the parent a real DONE; otherwise just
+                    # end the spin and let the honesty gate decide from the action log
+                    if send_confirmed:
+                        _proof = next((str(a.get("result_summary") or "") for a in reversed(action_log)
+                                       if a.get("ok") and "Confirmed:" in str(a.get("result_summary") or "")), "")
+                        text_parts = ["OUTCOME: DONE - the action was completed on the page. " + _proof[:160]]
                     break
-            elif _turn_actions > 0:
-                post_send_stall = 0
+            else:
+                perception_stall = 0
 
             for tu in tool_uses_sorted:
                 if cancel_event.is_set():
@@ -1379,23 +1381,6 @@ async def run_browser_agent(
                         result["confirmed"] = bool(_conf.get("found"))
                         if _conf.get("found"):
                             result["text"] = f"{result.get('text') or ''}\nConfirmed: '{_expect}' is now present."
-                            # A confirmed IRREVERSIBLE send = the goal is met. Drive
-                            # completion now so the model stops re-verifying (the
-                            # opener-excluded check so a 'Message' open never trips it).
-                            _cn = result.get("clickedName") or ""
-                            _sub_send = any(
-                                browser_batch_replay.is_replay_boundary(
-                                    {"action": "click", "name": r.get("clickedName") or ""})
-                                for r in (result.get("results") or []))
-                            if (_sub_send or browser_batch_replay.is_replay_boundary(
-                                    {"action": "click", "name": _cn})):
-                                send_confirmed = True
-                                result["text"] = (f"{result.get('text') or ''}\n\n[done] That "
-                                    "irreversible action CONFIRMED, the proof above IS your "
-                                    "verification, the task is complete. Your NEXT message must be "
-                                    "ONLY the 'OUTCOME: DONE - <result + the proof you saw>' line "
-                                    "with NO tool calls. Do NOT screenshot, re-list, or re-read to "
-                                    "double-check, you already have the proof.")
                         else:
                             result["text"] = (
                                 f"{result.get('text') or ''}\nNOT confirmed: '{_expect}' did not appear within "
@@ -1405,6 +1390,29 @@ async def run_browser_agent(
                                 "the page before assuming success, and never re-fire an irreversible action "
                                 "(Send/Submit/Pay/Post) without first verifying the previous one did not go through."
                             )
+
+                # Send completion: a SUCCESSFUL click on a send-class control (Send/
+                # Submit/Post, opener-excluded so 'Message' never trips it) means the
+                # message went out, the composer clears instantly. We do NOT depend on
+                # the thread-text confirm here: the sent text often renders late, split
+                # across nodes, or scrolled off, so the text-probe is unreliable, which
+                # is exactly what left the model stalling to "double-check". A clean
+                # send click is proof enough; drive to the OUTCOME.
+                if not send_confirmed and "error" not in result and tu.name in _CONFIRM_TOOLS:
+                    _cn = result.get("clickedName") or ""
+                    _send_click = browser_batch_replay.is_replay_boundary(
+                        {"action": "click", "name": _cn}) or any(
+                        browser_batch_replay.is_replay_boundary(
+                            {"action": "click", "name": r.get("clickedName") or ""})
+                        for r in (result.get("results") or []))
+                    if _send_click:
+                        send_confirmed = True
+                        result["text"] = (f"{result.get('text') or ''}\n\n[done] You clicked a "
+                            "send control and it ran cleanly, the message is sent (the composer "
+                            "clears on send; the sent text can render late in the thread, so do "
+                            "NOT go hunting for it to 'confirm'). The task is complete. Your NEXT "
+                            "message must be ONLY the 'OUTCOME: DONE - <result>' line with NO tool "
+                            "calls, no more screenshots, lists, or reads.")
 
                 action_log.append({
                     "tool": tu.name,
