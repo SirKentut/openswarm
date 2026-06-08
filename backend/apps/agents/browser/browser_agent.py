@@ -856,14 +856,16 @@ async def run_browser_agent(
             )
 
     text_parts = []  # initialized before loop so post-loop summary (line ~1294) has a default
-    # Circuit breaker for ReportProgress violations. Some models get stuck
-    # in a loop where they keep calling action tools without the brain-
-    # state preamble. Each iteration of this loop pumps websocket events
-    # to the frontend, which fans out to every useSelector subscriber and
-    # tanks UI responsiveness. After N consecutive violations the agent
-    # gives up and surfaces an error instead of churning through all
-    # MAX_TURNS doing the same broken thing.
     rp_violations = 0  # turns the model acted without ReportProgress (now accepted + reminded, not rejected)
+    # Completion detection: once an irreversible SEND has confirmed, the goal is
+    # met. The model otherwise stalls re-verifying what the confirm already proved
+    # (measured: send done at turn ~11, then ~12 wasted perception turns). We drive
+    # it to the OUTCOME and, if it keeps re-perceiving, end the run. A genuine
+    # multi-send task issues its NEXT send (an action) which resets the stall, so
+    # only true spinning ends here.
+    send_confirmed = False
+    post_send_stall = 0
+    _POST_SEND_STALL_LIMIT = 2
     # rows already shown to the model; attached state shrinks to the delta
     attached_state_seen: set[str] = set()
     # under-batching telemetry + nudge state
@@ -1030,6 +1032,28 @@ async def run_browser_agent(
                 f"[browser-batching {session_id}] turn={turn} actions={_turn_actions} "
                 f"batch={_turn_has_batch} streak={single_action_streak}"
             )
+
+            # Post-send stall: the send already CONFIRMED, so a pure-perception turn
+            # now (no action, the model didn't finish) is wasted re-verification. Push
+            # hard to the OUTCOME; if it spins again, end (the confirm IS the proof, the
+            # completion gate re-checks the log). An action turn means real more-to-do,
+            # so reset and let it continue (multi-send stays safe).
+            if send_confirmed and _turn_actions == 0:
+                post_send_stall += 1
+                if post_send_stall >= _POST_SEND_STALL_LIMIT:
+                    logger.info(
+                        f"[browser-agent {session_id}] ending: send confirmed, model kept "
+                        f"re-perceiving {post_send_stall} turns instead of finishing"
+                    )
+                    # synthesize the OUTCOME from the confirmed send so the parent
+                    # gets real proof, not a vague summary that triggers a re-dispatch
+                    _proof = next((str(a.get("result_summary") or "") for a in reversed(action_log)
+                                   if a.get("ok") and "Confirmed:" in str(a.get("result_summary") or "")), "")
+                    text_parts = ["OUTCOME: DONE - the action was completed and confirmed on the page. "
+                                  + _proof[:160]]
+                    break
+            elif _turn_actions > 0:
+                post_send_stall = 0
 
             for tu in tool_uses_sorted:
                 if cancel_event.is_set():
@@ -1351,6 +1375,23 @@ async def run_browser_agent(
                         result["confirmed"] = bool(_conf.get("found"))
                         if _conf.get("found"):
                             result["text"] = f"{result.get('text') or ''}\nConfirmed: '{_expect}' is now present."
+                            # A confirmed IRREVERSIBLE send = the goal is met. Drive
+                            # completion now so the model stops re-verifying (the
+                            # opener-excluded check so a 'Message' open never trips it).
+                            _cn = result.get("clickedName") or ""
+                            _sub_send = any(
+                                browser_batch_replay.is_replay_boundary(
+                                    {"action": "click", "name": r.get("clickedName") or ""})
+                                for r in (result.get("results") or []))
+                            if (_sub_send or browser_batch_replay.is_replay_boundary(
+                                    {"action": "click", "name": _cn})):
+                                send_confirmed = True
+                                result["text"] = (f"{result.get('text') or ''}\n\n[done] That "
+                                    "irreversible action CONFIRMED, the proof above IS your "
+                                    "verification, the task is complete. Your NEXT message must be "
+                                    "ONLY the 'OUTCOME: DONE - <result + the proof you saw>' line "
+                                    "with NO tool calls. Do NOT screenshot, re-list, or re-read to "
+                                    "double-check, you already have the proof.")
                         else:
                             result["text"] = (
                                 f"{result.get('text') or ''}\nNOT confirmed: '{_expect}' did not appear within "

@@ -102,8 +102,10 @@ def _install(monkeypatch, primary, aux):
             # refused by the replay send-gate, which has its own test below
             return {"text": '1 interactive elements:\n[1]<button "Search">', "url": DOC_URL}
         if action == "click_index":
-            # frontend surfaces the clicked element's role/name for skill recording
-            return {"text": "Clicked index 1", "url": DOC_URL, "clickedRole": "button", "clickedName": "Search"}
+            # frontend surfaces the clicked element's role/name for skill recording;
+            # index 99 is the test sentinel for the irreversible "Send" button
+            _nm = "Send" if params.get("index") == 99 else "Search"
+            return {"text": f"Clicked index {params.get('index')}", "url": DOC_URL, "clickedRole": "button", "clickedName": _nm}
         if action == "click_by_name":
             return {"text": f'Clicked button "{params.get("name")}"', "url": DOC_URL}
         if action == "click":
@@ -206,6 +208,29 @@ def test_missing_report_progress_runs_the_action_and_reminds_not_rejects(monkeyp
     all_msgs = json.dumps([c["messages"] for c in primary.calls])
     assert "include ReportProgress" in all_msgs
     assert "REJECTED" not in all_msgs
+
+
+def test_confirmed_send_ends_the_run_instead_of_stalling(monkeypatch):
+    # After an irreversible send CONFIRMS, the model must not burn turns re-verifying.
+    # Here it sends (index 99 = "Send", expect confirms) then tries to stall forever
+    # with pure-perception turns; the loop must END within a turn or two, not spin.
+    BH._browser_history.clear(); BH._domain_notes.clear()
+    primary = FakeLLM([
+        Resp([_rp("send the message"), _tu("BrowserClickIndex", index=99, expect="Sent")]),
+        # the model now STALLS, re-looking instead of finishing (the bug)
+        *[Resp([_rp("double-check it sent"), _tu("BrowserScreenshot")]) for _ in range(8)],
+        Resp([Blk("text", "OUTCOME: DONE - sent")], stop_reason="end_turn"),
+    ])
+    aux = FakeAux()
+    sent = _install(monkeypatch, primary, aux)
+
+    result = asyncio.run(BA.run_browser_agent(task="text Tyler hello", browser_id="b1", model="sonnet"))
+
+    # the send ran and the run ended FAST (the stall guard stopped it), well before
+    # consuming all 8 scripted stall turns
+    assert any(c["action"] == "click_index" and c["params"].get("index") == 99 for c in sent)
+    assert primary.turn <= 4, f"run stalled {primary.turn} turns after a confirmed send"
+    assert result["summary"].startswith("OUTCOME: DONE") or "DONE" in result["summary"]
 
 
 def test_aux_adjudication_fires_even_when_loop_detector_trips(monkeypatch):
