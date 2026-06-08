@@ -1411,6 +1411,22 @@ def test_recoverable_tool_error_classifier():
     assert not recoverable_tool_error("some unrelated failure")
 
 
+def test_message_pairing_validator_catches_both_orphan_and_dangling():
+    from backend.apps.agents.browser.browser_history import _validate_message_pairing
+    au = lambda i: {"role": "assistant", "content": [{"type": "tool_use", "id": i, "name": "X", "input": {}}]}
+    tr = lambda i: {"role": "user", "content": [{"type": "tool_result", "tool_use_id": i, "content": []}]}
+    # well-formed: every tool_use answered
+    assert _validate_message_pairing([au("t1"), tr("t1")]) is True
+    # DANGLING tool_use (the exact 400: a call with no result) -> invalid
+    assert _validate_message_pairing([au("t1")]) is False
+    assert _validate_message_pairing([au("t1"), tr("t1"), au("t2")]) is False
+    # ORPHAN tool_result (result for a never-declared id) -> invalid
+    assert _validate_message_pairing([tr("ghost")]) is False
+    # plain text turns are fine
+    assert _validate_message_pairing([{"role": "user", "content": "hi"},
+                                      {"role": "assistant", "content": "done"}]) is True
+
+
 def test_composer_fill_detection_and_send_handoff():
     from backend.apps.agents.browser.browser_agent import _is_composer_fill, _send_index_in_state
     # a composer fill is detected across the three ways the model types

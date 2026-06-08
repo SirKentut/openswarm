@@ -176,15 +176,18 @@ def place_cache_marker(messages: list[dict], depth: int = 8) -> None:
 
 
 def _validate_message_pairing(messages: list[dict]) -> bool:
-    """Verify every tool_result references a tool_use_id from a prior assistant
-    message in the same list. Returns False if there's an orphan, which means
-    the cached history would 400 if sent to the API.
+    """Verify tool_use and tool_result blocks pair up BOTH ways, or the cached
+    history 400s if sent to the API. Two failure shapes, both checked:
+      - an orphan tool_result (references a tool_use_id that was never declared), and
+      - a dangling tool_use (an assistant tool call with no answering tool_result),
+        which is the exact '`tool_use` ids found without `tool_result` blocks' 400 a
+        turn that broke early or ran past the upstream 30s reset leaves behind.
 
-    This is the last line of defense against cache corruption; if it ever
-    returns False on a resume, we drop the cache and start fresh rather than
-    crash on the next API call.
+    This is the last line of defense against cache corruption; if it returns False
+    on a resume, we drop the cache and start fresh rather than crash on the next call.
     """
     declared_tool_use_ids: set[str] = set()
+    answered_tool_use_ids: set[str] = set()
     for msg in messages:
         role = msg.get("role")
         content = msg.get("content")
@@ -199,8 +202,11 @@ def _validate_message_pairing(messages: list[dict]) -> bool:
                 if isinstance(block, dict) and block.get("type") == "tool_result":
                     tr_id = block.get("tool_use_id")
                     if tr_id and tr_id not in declared_tool_use_ids:
-                        return False
-    return True
+                        return False  # orphan tool_result
+                    if tr_id:
+                        answered_tool_use_ids.add(tr_id)
+    # every declared tool_use must have been answered (no dangling call)
+    return declared_tool_use_ids.issubset(answered_tool_use_ids)
 
 
 def _is_fresh_user_message(msg: dict) -> bool:

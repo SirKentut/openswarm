@@ -1794,6 +1794,21 @@ async def run_browser_agent(
                     "message": result_msg.model_dump(mode="json"),
                 })
 
+            # Integrity backfill: every tool_use in the assistant turn MUST have a
+            # matching tool_result or the next API call 400s ("tool_use without
+            # tool_result"). A break mid-loop (cancel, or a turn that ran past the
+            # 30s upstream reset) can leave some unanswered, which silently corrupts
+            # the history AND the resume snapshot. Stub any missing one so the array
+            # is always well-formed, no matter which path fired.
+            _answered = {tr.get("tool_use_id") for tr in tool_results}
+            for tu in tool_uses_sorted:
+                if tu.id not in _answered:
+                    tool_results.append({
+                        "type": "tool_result", "tool_use_id": tu.id,
+                        "content": [{"type": "text", "text":
+                            "(not run, the turn ended before this tool executed)"}],
+                        "is_error": True,
+                    })
             messages.append({"role": "user", "content": tool_results})
 
             if cancelled:
