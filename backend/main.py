@@ -381,7 +381,13 @@ async def websocket_dashboard(websocket: WebSocket):
             event = msg.get("event")
             payload = msg.get("data", {})
             
-            if event == "agent:approval_response":
+            if event == "client:ping":
+                # No pong here meant the client heartbeat force-closed this socket every 35s, forever.
+                await websocket.send_text(json.dumps({
+                    "event": "server:pong",
+                    "data": {"nonce": payload.get("nonce")},
+                }))
+            elif event == "agent:approval_response":
                 from backend.apps.agents.agent_manager import agent_manager
                 agent_manager.handle_approval(payload.get("request_id"), {
                     "behavior": payload.get("behavior", "deny"),
