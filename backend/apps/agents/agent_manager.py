@@ -1759,7 +1759,10 @@ class AgentManager:
                     level = "off"
                 if api_type == "anthropic":
                     if level == "off":
-                        options_kwargs["thinking"] = {"type": "disabled"}
+                        # Fable 5 400s on an explicit thinking:disabled; you turn it
+                        # off there by omitting the param (off is Fable's default).
+                        if not (isinstance(resolved_model, str) and "fable" in resolved_model):
+                            options_kwargs["thinking"] = {"type": "disabled"}
                     elif level in ("low", "medium", "high"):
                         options_kwargs["effort"] = level
             except Exception as e:
