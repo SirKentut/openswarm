@@ -97,6 +97,10 @@ def _install(monkeypatch, primary, aux):
             # a confirm/target probe embeds a non-empty `const spec="..."`; report it found
             found = "const spec=" in expr and 'const spec=""' not in expr
             return {"text": json.dumps({"ready": True, "quiet": 9999, "elems": 100, "found": found}), "url": DOC_URL}
+        # generic evaluate echoes its expression so distinct reads yield distinct
+        # results (lets a test exercise new-data-each-turn gather vs spinning)
+        if action == "evaluate":
+            return {"text": f"eval:{str(params.get('expression',''))[:120]}", "url": DOC_URL}
         if action == "list_interactives":
             # a non-irreversible label on purpose: Send/Submit-named steps are
             # refused by the replay send-gate, which has its own test below
@@ -303,15 +307,37 @@ def test_send_shortcut_does_not_arm_on_a_gather_task(monkeypatch):
     assert "went through" not in result["summary"]
 
 
+def test_gather_pulling_new_data_each_turn_is_not_nudged_early(monkeypatch):
+    # The Airbnb regression: a page-by-page gather (a fresh Extract returning NEW
+    # listings every turn) must NOT trip the spin backstop, gathering is the work,
+    # not spinning. Here 9 straight Extract turns each return distinct data; the run
+    # should keep going (no early wrap-up nudge) and finish on the model's own Done.
+    BH._browser_history.clear(); BH._domain_notes.clear()
+    primary = FakeLLM([
+        # each turn reads a DIFFERENT page (distinct expression -> distinct result)
+        *[Resp([_rp(f"page {i}"), _tu("BrowserEvaluate", expression=f"parsePage({i})")]) for i in range(9)],
+        Resp([_tu("Done", message="Gathered all pages: 250 listings. Airbnb caps SF at ~15 pages.")]),
+    ])
+    aux = FakeAux()
+    _install(monkeypatch, primary, aux)
+    result = asyncio.run(BA.run_browser_agent(task="find me all the airbnbs in sf", browser_id="b1", model="sonnet"))
+    # it ran the full gather (all 9 extract turns) and finished on its own Done,
+    # NOT cut short by a wrap-up nudge at turn 6
+    assert primary.turn >= 9, f"gather cut short at turn {primary.turn} (new-data reads wrongly counted as spinning)"
+    assert "Gathered all pages" in result["summary"]
+    assert result.get("done") is True
+
+
 def test_spin_backstop_nudges_a_clean_wrapup_instead_of_a_midthought(monkeypatch):
     # The Airbnb mid-thought bug: a read-heavy run that trips the spin backstop must
     # get ONE wrap-up nudge to summarize via Done, not be cut off mid-sentence. The
     # final reply is the model's clean Done answer, and the nudge actually reached it.
     BH._browser_history.clear(); BH._domain_notes.clear()
     primary = FakeLLM([
-        Resp([_rp("open the list"), _tu("BrowserClickIndex", index=3)]),  # an action arms the backstop
-        *[Resp([_tu("BrowserScreenshot")]) for _ in range(6)],            # 6 read turns trip it
-        Resp([_tu("Done", message="Here are the top repos: a, b, c")]),   # obeys the wrap-up nudge
+        Resp([_rp("open the list"), _tu("BrowserClickIndex", index=3)]),   # an action arms the backstop
+        # repeated identical screenshots (same result, no new data) = genuine spinning
+        *[Resp([_tu("BrowserScreenshot")]) for _ in range(10)],
+        Resp([_tu("Done", message="Here are the top repos: a, b, c")]),    # obeys the wrap-up nudge
     ])
     aux = FakeAux()
     _install(monkeypatch, primary, aux)

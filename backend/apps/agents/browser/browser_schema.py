@@ -824,7 +824,12 @@ SYSTEM_PROMPT = (
     "scraping burns turns and silently returns the wrong nodes. If one BrowserEvaluate read "
     "comes back empty or shaped wrong, STOP, that is your signal to switch to BrowserExtract, "
     "not to debug another selector. The answer must end up IN your Done message, so gather it "
-    "for real; never report done on a gather task you couldn't actually read.\n\n"
+    "for real; never report done on a gather task you couldn't actually read.\n"
+    "- Spanning MANY pages (get all N, every result)? Confirm the page shape ONCE, then COMMIT "
+    "to the sweep: don't re-verify each page works. The site usually exposes far fewer than a "
+    "round number asks (a '1000' is often ~15 pages); gather every page it does expose, then "
+    "Done with the full set and a one-line note on the real ceiling. Accumulate as you go so a "
+    "wrap-up nudge can always answer from what you already have.\n\n"
 
     "## When you genuinely cannot proceed\n"
     "Use RequestHumanIntervention for:\n"

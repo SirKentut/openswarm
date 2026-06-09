@@ -957,6 +957,9 @@ async def run_browser_agent(
     # model's half-finished sentence as the reply). We nudge it to wrap up ONCE,
     # so it summarizes what it has via Done; a second trip then stops for real.
     wrapup_nudged = False
+    # Distinct read results seen, so the backstop tells a productive page-by-page
+    # gather (new data each turn) from genuine spinning (re-reading the same thing).
+    seen_read_sigs: set[str] = set()
     # rows already shown to the model; attached state shrinks to the delta
     attached_state_seen: set[str] = set()
     # under-batching telemetry + nudge state
@@ -1125,46 +1128,65 @@ async def run_browser_agent(
                 f"batch={_turn_has_batch} streak={single_action_streak}"
             )
 
-            # Post-send stall: the send already CONFIRMED, so a pure-perception turn
-            # now (no action, the model didn't finish) is wasted re-verification. Push
-            # hard to the OUTCOME; if it spins again, end (the confirm IS the proof, the
-            # completion gate re-checks the log). An action turn means real more-to-do,
-            # so reset and let it continue (multi-send stays safe).
+            # Progress = an action OR a read that returned content we haven't seen.
+            # A page-by-page gather (a fresh BrowserExtract each turn) is real progress,
+            # not spinning, so detecting new data here keeps the backstop from cutting
+            # it off with partial results. Re-reading the same page yields no new sig.
+            _novel_read = False
+            for _a in action_log:
+                if (_a.get("ok") and _a.get("tool") not in _BATCHABLE_ACTION_TOOLS
+                        and _a.get("tool") not in ("ReportProgress", "Done")):
+                    _sig = f"{_a.get('tool')}:{_a.get('result_summary') or ''}"
+                    if _sig not in seen_read_sigs:
+                        seen_read_sigs.add(_sig)
+                        _novel_read = True
+
+            # Out of turn budget with no answer yet: nudge a wrap-up so a long-running
+            # gather delivers what it has via Done at the cap, instead of the for-loop
+            # ending on the model's half-finished sentence. Same one-shot channel.
+            if turn >= MAX_TURNS - 4 and not wrapup_nudged and not done_called and not send_confirmed:
+                wrapup_nudged = True
+                wrapup_pending = True
+                logger.info(f"[browser-agent {session_id}] turn budget low ({turn}/{MAX_TURNS}); nudging wrap-up")
+
+            # Spin backstop: a pure-perception turn that ISN'T gathering new data is
+            # wasted (re-verifying a send, or re-looking at the same page). Bound it.
             if _turn_actions == 0:
-                perception_stall += 1
-                # The general backstop only applies AFTER the agent has actually done
-                # something (a real mutation, not a read), early pure-perception is
-                # legitimate orienting (a cold/slow page can need several look turns
-                # before the first action) and we must never cut that short. Reads
-                # land in action_log with ok=True too, so check the TOOL, not just ok.
-                _acted = any(a.get("ok") and a.get("tool") in (_BATCHABLE_ACTION_TOOLS | {"BrowserBatch"})
-                             for a in action_log)
-                _stall_limit = (_POST_SEND_STALL_LIMIT if send_confirmed
-                                else (_PERCEPTION_STALL_LIMIT if _acted else 10 ** 9))
-                if perception_stall >= _stall_limit:
-                    if send_confirmed:
-                        # the send registered: hand the parent a real done. The raw
-                        # action-log proof (indices/coords) is machine-speak, kept out.
-                        done_called = True
-                        done_message = "All set, your message went through and it's showing in the conversation now."
-                        logger.info(f"[browser-agent {session_id}] ending: {perception_stall} post-send perception turns")
-                        break
-                    if not wrapup_nudged:
-                        # First trip on a non-send run: don't cut it off mid-thought.
-                        # Ride a wrap-up nudge out on this turn's tool_results (appended
-                        # below) so next turn the model answers from what it has via Done.
-                        wrapup_nudged = True
-                        wrapup_pending = True
-                        perception_stall = 0
-                        logger.info(f"[browser-agent {session_id}] spin backstop: nudging to wrap up via Done")
-                    else:
-                        # Nudge already spent and it's still looping: stop with a clean
-                        # line, never the model's half-finished sentence.
-                        logger.info(f"[browser-agent {session_id}] ending: wrap-up nudge ignored, stopping")
-                        if not done_called:
+                # gather tasks: new content IS the work, so it resets the stall. After
+                # a send confirmed, re-reading is just re-verification, never progress.
+                if _novel_read and not send_confirmed:
+                    perception_stall = 0
+                else:
+                    perception_stall += 1
+                    # The general backstop only applies AFTER the agent has actually
+                    # done something; early pure-perception is legitimate orienting on a
+                    # cold/slow page, which we must never cut short.
+                    _acted = any(a.get("ok") and a.get("tool") in (_BATCHABLE_ACTION_TOOLS | {"BrowserBatch"})
+                                 for a in action_log)
+                    _stall_limit = (_POST_SEND_STALL_LIMIT if send_confirmed
+                                    else (_PERCEPTION_STALL_LIMIT if _acted else 10 ** 9))
+                    if perception_stall >= _stall_limit:
+                        if send_confirmed:
+                            # the send registered: hand the parent a real done. The raw
+                            # action-log proof (indices/coords) is machine-speak, kept out.
                             done_called = True
-                            done_message = "That's as far as I could get gathering this one."
-                        break
+                            done_message = "All set, your message went through and it's showing in the conversation now."
+                            logger.info(f"[browser-agent {session_id}] ending: {perception_stall} post-send perception turns")
+                            break
+                        if not wrapup_nudged:
+                            # don't cut it off mid-thought: ride a wrap-up nudge out on
+                            # this turn's tool_results so next turn it answers via Done.
+                            wrapup_nudged = True
+                            wrapup_pending = True
+                            perception_stall = 0
+                            logger.info(f"[browser-agent {session_id}] spin backstop: nudging to wrap up via Done")
+                        else:
+                            # Nudge already spent and still looping: stop on a clean line.
+                            logger.info(f"[browser-agent {session_id}] ending: wrap-up nudge ignored, stopping")
+                            if not done_called:
+                                done_called = True
+                                done_message = "That's as far as I could get gathering this one."
+                            break
             else:
                 perception_stall = 0
 
