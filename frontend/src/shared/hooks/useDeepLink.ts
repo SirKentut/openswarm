@@ -46,8 +46,9 @@ export function useDeepLink(): void {
             })
             .catch((err) => {
               console.error('[deep-link] Sign-in activation failed:', err);
+              // unwrap() rejects with a SerializedError object; String() of it is "[object Object]".
               report('signin', 'activation_failed', {
-                message: String(err).slice(0, 120),
+                message: String(err?.message ?? err).slice(0, 120),
               });
             });
           return;
@@ -73,7 +74,7 @@ export function useDeepLink(): void {
           .catch((err) => {
             console.error('[deep-link] Activation failed:', err);
             report('subscription', 'activation_failed', {
-              message: String(err).slice(0, 120),
+              message: String(err?.message ?? err).slice(0, 120),
             });
           });
       } catch (e) {
