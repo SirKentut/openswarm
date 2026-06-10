@@ -18,6 +18,8 @@ import PsychologyOutlinedIcon from '@mui/icons-material/PsychologyOutlined';
 import BuildOutlinedIcon from '@mui/icons-material/BuildOutlined';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import WindowedMarkdown from './WindowedMarkdown';
+import { estimateRenderedTextHeight, oversizedCharThreshold, RECHECK_VISIBILITY_EVENT } from './markdownMeasure';
 import { AgentMessage } from '@/shared/state/agentsSlice';
 import { openSettingsModal } from '@/shared/state/settingsSlice';
 import { shallowEqual } from 'react-redux';
@@ -62,6 +64,12 @@ const StreamingCursor: React.FC = () => {
 };
 
 const ELEMENT_SEPARATOR = '\n\n---\nSelected UI Elements:\n';
+
+// Remembered full-render content height per oversized message id. Module-scoped so
+// it survives the transcript window unmounting/remounting the bubble: when a big
+// message goes off-screen we reserve the exact height it had when rendered, so its
+// box doesn't collapse and the scrollbar doesn't jump as it crosses the viewport.
+const oversizedContentHeights = new Map<string, number>();
 
 interface OpenSwarmErrorInfo {
   kind: 'cap' | 'auth' | 'network' | 'too_many_tools';
@@ -833,15 +841,20 @@ interface Props {
   onCancelEdit?: () => void;
   isStreaming?: boolean;
   dynamicTurnLabel?: string | null;
+  viewportHeight?: number;
+  viewportWidth?: number;
+  scrollRoot?: Element | null;
   /** Streaming only: useSmoothText appends revealed chars into this subtree between parses. */
   revealRef?: React.RefObject<HTMLElement | null>;
 }
 
-const MessageBubble: React.FC<Props> = React.memo(({ message, editing = false, onSaveEdit, onCancelEdit, isStreaming, dynamicTurnLabel, revealRef }) => {
+const MessageBubble: React.FC<Props> = React.memo(({ message, editing = false, onSaveEdit, onCancelEdit, isStreaming, dynamicTurnLabel, viewportHeight = 0, viewportWidth = 0, scrollRoot = null, revealRef }) => {
   const c = useClaudeTokens();
   const dispatch = useAppDispatch();
   const [editText, setEditText] = useState('');
   const [pickerOpen, setPickerOpen] = useState(false);
+  const bubbleRootRef = React.useRef<HTMLDivElement | null>(null);
+  const contentRef = React.useRef<HTMLDivElement | null>(null);
   const { role, content } = message;
 
   if (role === 'system') {
@@ -880,6 +893,18 @@ const MessageBubble: React.FC<Props> = React.memo(({ message, editing = false, o
   const { userMessage: displayText, elements: selectedElements } = isUser
     ? parseElementContext(rawText)
     : { userMessage: rawText, elements: [] };
+  // A message longer than ~2 screens of text gets the placeholder + block
+  // virtualization treatment (full render in view, reserved-height placeholder off).
+  const isOversizedAssistant = !isUser && !isStreaming
+    && rawText.length > oversizedCharThreshold(viewportHeight, viewportWidth);
+  const [isOversizedInViewport, setIsOversizedInViewport] = useState(false);
+  const shouldRenderMarkdown = !isOversizedAssistant || isOversizedInViewport;
+  const markdownWindow = useMemo(() => {
+    if (!shouldRenderMarkdown) {
+      return { text: '', start: rawText.length, end: rawText.length, windowed: true };
+    }
+    return { text: rawText, start: 0, end: rawText.length, windowed: false };
+  }, [rawText, shouldRenderMarkdown]);
 
   const renderedMarkdown = useMemo(() => (
     <ReactMarkdown
@@ -889,8 +914,18 @@ const MessageBubble: React.FC<Props> = React.memo(({ message, editing = false, o
           <a {...props} style={{ cursor: 'pointer' }}>{children}</a>
         ),
       }}
-    >{rawText}</ReactMarkdown>
-  ), [rawText]);
+    >{markdownWindow.text}</ReactMarkdown>
+  ), [markdownWindow.text]);
+
+  // Height to reserve for this message's off-screen placeholder before it has ever
+  // been measured. Estimated from the FULL text length (we render in full when in
+  // view) with the same model as AgentChat's spacer estimate, so the placeholder
+  // and the spacer reserve the same space. Once rendered, oversizedContentHeights
+  // wins over this.
+  const placeholderFallbackHeight = useMemo(
+    () => estimateRenderedTextHeight(rawText, viewportWidth),
+    [rawText, viewportWidth],
+  );
 
   const overflowCtx = useAppSelector((state) => {
     const sid = state.agents.activeSessionId;
@@ -907,6 +942,65 @@ const MessageBubble: React.FC<Props> = React.memo(({ message, editing = false, o
     } as OverflowContext;
   }, shallowEqual);
   const openswarmError = !isUser ? parseOpenSwarmError(rawText, overflowCtx) : null;
+
+  // Reports asynchronously, bc without this an oversized message that mounts in
+  // view (e.g. scrolling up into the agent's reply) would paint the blank
+  // placeholder box for a frame and then pop in the real markdown.
+  React.useLayoutEffect(() => {
+    if (!isOversizedAssistant) {
+      setIsOversizedInViewport(false);
+      return;
+    }
+
+    const node = bubbleRootRef.current;
+    if (!node) return;
+
+    // One-screen rootMargin so the message renders its full markdown for a screen
+    // above and below the visible area; only once it drifts a screen past the
+    // viewport does it drop to the height-reserved placeholder.
+    const bufferPx = Math.max(180, Math.round(viewportHeight || 240));
+
+    // Resolve visibility synchronously (on mount and on demand) so the correct
+    // content paints without waiting on the observer's async callback.
+    const rootEl: Element = (scrollRoot as Element) ?? document.scrollingElement ?? document.documentElement;
+    const evaluate = () => {
+      const rootRect = rootEl.getBoundingClientRect();
+      const nodeRect = node.getBoundingClientRect();
+      setIsOversizedInViewport(nodeRect.bottom >= rootRect.top - bufferPx && nodeRect.top <= rootRect.bottom + bufferPx);
+    };
+    evaluate();
+
+    const observer = new IntersectionObserver((entries) => {
+      const entry = entries[0];
+      if (entry) setIsOversizedInViewport(entry.isIntersecting);
+    }, {
+      root: scrollRoot ?? null,
+      rootMargin: `${bufferPx}px 0px ${bufferPx}px 0px`,
+      threshold: 0,
+    });
+
+    observer.observe(node);
+    // A programmatic jump (scroll-to-bottom / open pin) settles after this mounts;
+    // re-evaluate synchronously when it does, since the observer sometimes misses
+    // the final transition and leaves this stuck as a placeholder.
+    scrollRoot?.addEventListener(RECHECK_VISIBILITY_EVENT, evaluate);
+    return () => {
+      observer.disconnect();
+      scrollRoot?.removeEventListener(RECHECK_VISIBILITY_EVENT, evaluate);
+    };
+  }, [isOversizedAssistant, message.id, scrollRoot, viewportHeight]);
+
+  // Remember the full-render height of an oversized message while it is on-screen,
+  // so its off-screen placeholder can reserve exactly that height (see the
+  // module-level oversizedContentHeights cache). Measured on the content box only,
+  // which excludes the action bar (rendered by the parent) to avoid a feedback loop.
+  React.useLayoutEffect(() => {
+    if (!isOversizedAssistant || !shouldRenderMarkdown) return;
+    const node = contentRef.current;
+    if (!node) return;
+    const h = node.offsetHeight;
+    if (h > 0) oversizedContentHeights.set(message.id, h);
+  }, [isOversizedAssistant, shouldRenderMarkdown, message.id, markdownWindow.text]);
 
   // (message.id, kind) keys so cap card analytics fire once, not on edits.
   React.useEffect(() => {
@@ -943,6 +1037,7 @@ const MessageBubble: React.FC<Props> = React.memo(({ message, editing = false, o
 
   return (
     <Box
+      ref={bubbleRootRef}
       data-select-type="message"
       data-select-id={message.id}
       data-select-meta={JSON.stringify({ role, content: truncatedContent })}
@@ -958,6 +1053,11 @@ const MessageBubble: React.FC<Props> = React.memo(({ message, editing = false, o
         sx={{
           maxWidth: '85%',
           minWidth: 0,
+          // Oversized messages are block-virtualized, so the set of rendered
+          // blocks (and thus the widest visible content) changes as you scroll.
+          // Pin them to a stable width so the bubble doesn't shrink-to-fit and
+          // resize horizontally frame to frame. Normal messages keep shrink-to-fit.
+          ...(isOversizedAssistant ? { width: '85%' } : {}),
           bgcolor: isUser ? c.user.bubble : c.bg.surface,
           border: isUser ? (isFailed ? `1px solid ${c.status.error}` : 'none') : `1px solid ${c.border.subtle}`,
           borderRadius: isUser ? '16px 16px 4px 16px' : '16px 16px 16px 4px',
@@ -1044,6 +1144,7 @@ const MessageBubble: React.FC<Props> = React.memo(({ message, editing = false, o
           )
         ) : (
           <Box
+            ref={contentRef}
             sx={{
               color: c.text.secondary,
               fontSize: '0.875rem',
@@ -1174,10 +1275,42 @@ const MessageBubble: React.FC<Props> = React.memo(({ message, editing = false, o
                 {/* Render markdown live (not just at the end) so code is mono,
                     bold is bold, lists/headings format from the first character.
                     Killing the old plain-text -> markdown swap removes the big
-                    layout snap at stream end, which was the "glitch" people felt.
-                    While streaming, useSmoothText appends pending chars into this
+                    Re-parse is memoized on the (smoothed) text and cheap at chat sizes.
+                    While streaming, useSmoothText appends pending chars into the reveal
                     subtree between parses, so the re-parse runs per commit, not per frame. */}
-                <Box ref={revealRef}>{renderedMarkdown}</Box>
+                {isOversizedAssistant && !isOversizedInViewport ? (
+                  <Box
+                    sx={{
+                      // Reserve the height this message had when last rendered full
+                      // (cached across unmount) so the box doesn't collapse and the
+                      // scrollbar stays put. Falls back to a content-aware estimate
+                      // (matched to the spacer estimate) until it's been measured.
+                      minHeight: oversizedContentHeights.get(message.id)
+                        || placeholderFallbackHeight
+                        || Math.min(420, Math.max(180, viewportHeight || 240)),
+                      opacity: 0,
+                      pointerEvents: 'none',
+                    }}
+                    aria-hidden="true"
+                  />
+                ) : isOversizedAssistant ? (
+                  // In view, but virtualize WITHIN the message: only blocks near the
+                  // viewport render their markdown, the rest are reserved-height
+                  // placeholders, so an extremely long message never parses/mounts
+                  // more than the on-screen portion plus a buffer.
+                  <WindowedMarkdown
+                    messageId={message.id}
+                    text={rawText}
+                    scrollRoot={scrollRoot}
+                    viewportHeight={viewportHeight}
+                    viewportWidth={viewportWidth}
+                  />
+                ) : (
+                  // Normal (non-oversized) render. Streaming always lands here
+                  // (oversized requires !isStreaming); the reveal subtree lets
+                  // useSmoothText append chars between parses.
+                  <Box ref={revealRef}>{renderedMarkdown}</Box>
+                )}
                 {isStreaming && <StreamingCursor />}
               </>
             )}

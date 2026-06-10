@@ -44,6 +44,7 @@ import { fetchModes } from '@/shared/state/modesSlice';
 import { createSessionWs, acquireSessionWs, releaseSessionWs } from '@/shared/ws/WebSocketManager';
 import StreamingBubble from './bubbles/StreamingBubble';
 import MessageBubble from './bubbles/MessageBubble';
+import { estimateRenderedTextHeight, RECHECK_VISIBILITY_EVENT } from './bubbles/markdownMeasure';
 import CompactionMarker from './bubbles/CompactionMarker';
 import MessageActionBar from './shell/MessageActionBar';
 import ToolCallBubble, { ToolPair } from './tool-bubbles/ToolCallBubble';
@@ -64,10 +65,89 @@ const CONTEXT_WINDOWS: Record<string, number> = {
   haiku: 200_000,
 };
 
+// Only a fallback for never-rendered items; real heights are measured once on
+// screen.
+const RENDER_ITEM_ESTIMATED_HEIGHT = 140;
+// Conservative estimate for an unmeasured tool row: tool groups/pairs render
+// collapsed (~40-50px) far more often than expanded. Leaning low keeps scrollHeight
+// (and the scrollbar thumb) from jumping when a tool row measures shorter.
+const COLLAPSED_TOOL_ROW_HEIGHT = 44;
+// How many screens of real content to keep mounted on EACH side of the viewport.
+// Beyond it, items unmount and are replaced by a measured-height spacer, so
+// render/memory stays bounded no matter how long the transcript is.
+const WINDOW_BUFFER_SCREENS_PER_SIDE = 3;
+// Floor on the mounted item count so a single very tall item can't strand us with
+// an effectively empty window.
+const MIN_WINDOW_BUFFER_ITEMS = 6;
+
+// Bootstrap count for the initial bottom-anchored slice (on open and on
+// scroll-to-bottom): enough rows to cover the viewport + buffer using the same
+// row-height estimate the solver uses, floored. It's only a seed — the pixel
+// solver (computeDesiredWindow) refines the window to exact from measured heights
+// on the next frame, so this never needs to be precise.
+function initialSeedItems(viewportHeight: number): number {
+  const fillPx = (1 + WINDOW_BUFFER_SCREENS_PER_SIDE) * Math.max(1, viewportHeight);
+  return Math.max(MIN_WINDOW_BUFFER_ITEMS, Math.ceil(fillPx / RENDER_ITEM_ESTIMATED_HEIGHT));
+}
+
+// Pure window solver: given the current scroll position and a per-index height
+// accessor (measured where known, estimated otherwise), return the [start, end)
+// slice of render items that should be mounted. The buffer is measured in PIXELS
+// (N screens of real content on each side of the viewport), not item count, so a
+// few very tall messages can't blow the mounted set up to the whole transcript.
+// A huge viewport naturally yields start=0/end=total (mount all).
+function computeDesiredWindow(
+  scrollTop: number,
+  clientHeight: number,
+  total: number,
+  heightOf: (index: number) => number,
+  bufferPx: number,
+): { start: number; end: number } {
+  if (total <= 0) return { start: 0, end: 0 };
+  const keepTop = scrollTop - bufferPx;
+  const keepBottom = scrollTop + clientHeight + bufferPx;
+  let offset = 0;
+  let start = -1;
+  let end = total;
+  for (let i = 0; i < total; i++) {
+    const h = heightOf(i);
+    const itemTop = offset;
+    const itemBottom = offset + h;
+    if (start === -1 && itemBottom > keepTop) start = i;
+    if (itemTop < keepBottom) {
+      end = i + 1;
+    } else {
+      // Everything past here starts below the keep band.
+      break;
+    }
+    offset += h;
+  }
+  if (start === -1) start = Math.max(0, total - 1);
+  end = Math.min(total, Math.max(end, start + 1));
+  // Always keep at least a small floor of items mounted around the viewport so a
+  // single under-measured item can't strand us with an empty window.
+  if (end - start < MIN_WINDOW_BUFFER_ITEMS) {
+    start = Math.max(0, Math.min(start, end - MIN_WINDOW_BUFFER_ITEMS));
+  }
+  return { start: Math.max(0, start), end };
+}
+
 function stringifyContent(content: any): string {
   if (content == null) return '';
   if (typeof content === 'string') return content;
   return JSON.stringify(content);
+}
+
+// Content-aware height estimate for a render item that has never been measured.
+// Tool rows and tiny system/thinking rows keep the flat fallback; message bubbles
+// scale with their FULL text length (messages render in full once on-screen, so
+// the estimate matches both the rendered bubble and MessageBubble's placeholder
+// fallback).
+function estimateItemHeight(item: RenderItem, viewportWidth: number): number {
+  if (isToolGroup(item) || isToolPair(item)) return COLLAPSED_TOOL_ROW_HEIGHT;
+  const msg = item as AgentMessage;
+  if (msg.role === 'thinking' || msg.role === 'system') return 60;
+  return estimateRenderedTextHeight(stringifyContent(msg.content), viewportWidth);
 }
 
 const thinkingShimmerKeyframes = `
@@ -196,8 +276,25 @@ const AgentChat: React.FC<AgentChatProps> = ({ sessionId: sessionIdProp, onClose
   // tokens to every request; Haiku 4.5's 200K window can't hold 5+ of them.
   const toolItems = useAppSelector((state) => state.tools.items);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const lastVisibleItemRef = useRef<HTMLDivElement>(null);
   const chatInputRef = useRef<ChatInputHandle>(null);
   const isAtBottomRef = useRef(true);
+  const pendingInitialBottomScrollRef = useRef(false);
+  const initialBottomScrollSettledRef = useRef(false);
+  const renderItemsLengthRef = useRef(0);
+  const renderItemsRef = useRef<RenderItem[]>([]);
+  const itemHeightsRef = useRef<Map<string, number>>(new Map());
+  const estimateCacheRef = useRef<Map<string, number>>(new Map());
+  const viewportWidthRef = useRef(0);
+  const windowStartRef = useRef(0);
+  const windowEndRef = useRef(0);
+  const windowScrollRafRef = useRef<number | null>(null);
+  const [viewportHeight, setViewportHeight] = useState(0);
+  const [viewportWidth, setViewportWidth] = useState(0);
+  const [scrollRoot, setScrollRoot] = useState<HTMLDivElement | null>(null);
+  const [windowStart, setWindowStart] = useState(0);
+  const [windowEnd, setWindowEnd] = useState(0);
+  const [heightVersion, setHeightVersion] = useState(0);
   const [showScrollButton, setShowScrollButton] = useState(false);
   const [showResumeBubble, setShowResumeBubble] = useState(false);
   const [awaitingResponse, setAwaitingResponse] = useState(false);
@@ -421,13 +518,130 @@ const AgentChat: React.FC<AgentChatProps> = ({ sessionId: sessionIdProp, onClose
 
   const SCROLL_THRESHOLD = 50;
 
+  // Reserved pixel height for a render item: the measured height once we have one,
+  // otherwise a content-aware estimate (cached per id). The spacer math and the
+  // window solver both go through this so unmounted spacers, freshly-mounted
+  // placeholders, and the real rendered bubble all reserve the same space.
+  const reservedHeightForItem = useCallback((item: RenderItem | undefined): number => {
+    if (!item) return RENDER_ITEM_ESTIMATED_HEIGHT;
+    const measured = itemHeightsRef.current.get(item.id);
+    if (measured != null) return measured;
+    const cached = estimateCacheRef.current.get(item.id);
+    if (cached != null) return cached;
+    const est = estimateItemHeight(item, viewportWidthRef.current);
+    estimateCacheRef.current.set(item.id, est);
+    return est;
+  }, []);
+
+  // Measured-or-estimated pixel height of render item at `index`, for the window
+  // solver (reads the renderItems ref so it is valid inside rAF callbacks).
+  const heightOf = useCallback((index: number): number => {
+    return reservedHeightForItem(renderItemsRef.current[index]);
+  }, [reservedHeightForItem]);
+
+  // Solve the mounted window from the live scroll position and push it to state
+  // when it changes. Scroll position itself is preserved by the container's
+  // overflow-anchor plus the measured-height spacers, so we never touch
+  // scrollTop here. Following (pinned to bottom) always keeps the newest item.
+  const applyWindowFromScroll = useCallback(() => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    if (!initialBottomScrollSettledRef.current) return;
+    const total = renderItemsLengthRef.current;
+    const clientHeight = Math.max(1, el.clientHeight);
+    const tightPx = WINDOW_BUFFER_SCREENS_PER_SIDE * clientHeight;
+    // Mount with the tight buffer, but keep already-mounted items until
+    // they drift a full extra screen past it. Without this, an item sitting
+    // right on the buffer edge flip-flops mounted/unmounted forever: mounting it
+    // shifts content above the viewport, overflow-anchor nudges scrollTop a few px,
+    // that re-runs the solver, which now excludes it, and round it goes.
+    const loosePx = tightPx + clientHeight;
+    const tight = computeDesiredWindow(el.scrollTop, clientHeight, total, heightOf, tightPx);
+    const loose = computeDesiredWindow(el.scrollTop, clientHeight, total, heightOf, loosePx);
+    const curStart = windowStartRef.current;
+    const curEnd = windowEndRef.current;
+    // Must-mount the tight band; keep current edges only while still inside loose.
+    let start = Math.max(loose.start, Math.min(curStart, tight.start));
+    let end = Math.min(loose.end, Math.max(curEnd, tight.end));
+    if (isAtBottomRef.current) end = total;
+    start = Math.max(0, Math.min(start, Math.max(0, end - 1)));
+    if (start === curStart && end === curEnd) return;
+    windowStartRef.current = start;
+    windowEndRef.current = end;
+    setWindowStart(start);
+    setWindowEnd(end);
+  }, [heightOf]);
+
+  const scheduleWindowRecompute = useCallback(() => {
+    if (windowScrollRafRef.current != null) return;
+    windowScrollRafRef.current = requestAnimationFrame(() => {
+      windowScrollRafRef.current = null;
+      applyWindowFromScroll();
+    });
+  }, [applyWindowFromScroll]);
+
+  useEffect(() => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    setScrollRoot(el);
+
+    const updateViewport = () => {
+      setViewportHeight(el.clientHeight);
+      setViewportWidth(el.clientWidth);
+      // Width drives the char-per-line estimate; drop cached estimates so they
+      // recompute at the new width (measured heights are unaffected and kept).
+      estimateCacheRef.current.clear();
+      // Resize changes the budgets and how many items fit; re-solve the window
+      // off the current scroll position WITHOUT resetting it (only session /
+      // branch changes reset). overflow-anchor holds the visible content.
+      scheduleWindowRecompute();
+    };
+
+    updateViewport();
+    const observer = new ResizeObserver(updateViewport);
+    observer.observe(el);
+    return () => {
+      observer.disconnect();
+      if (windowScrollRafRef.current != null) {
+        cancelAnimationFrame(windowScrollRafRef.current);
+        windowScrollRafRef.current = null;
+      }
+      setScrollRoot(null);
+    };
+  }, [id, session?.id, scheduleWindowRecompute]);
+
+  React.useLayoutEffect(() => {
+    const seed = initialSeedItems(viewportHeight);
+    const total = renderItemsLengthRef.current;
+    const end = total;
+    const start = Math.max(0, end - seed);
+    windowStartRef.current = start;
+    windowEndRef.current = end;
+    setWindowStart(start);
+    setWindowEnd(end);
+    itemHeightsRef.current.clear();
+    estimateCacheRef.current.clear();
+    if (initialPinRafRef.current != null) {
+      cancelAnimationFrame(initialPinRafRef.current);
+      initialPinRafRef.current = null;
+    }
+    pendingInitialBottomScrollRef.current = true;
+    initialBottomScrollSettledRef.current = false;
+    isAtBottomRef.current = true;
+    setShowScrollButton(false);
+  }, [id, session?.active_branch_id]);
+
   const handleScroll = useCallback(() => {
     const el = scrollContainerRef.current;
     if (!el) return;
+    // Measure against the real content bottom, not the locked-height pad below it.
     const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < SCROLL_THRESHOLD;
     isAtBottomRef.current = atBottom;
     setShowScrollButton(!atBottom);
-  }, []);
+    // Slide the mounted window to follow the viewport (loads newer/older items
+    // and unloads ones that drifted past the buffer on either side).
+    scheduleWindowRecompute();
+  }, [scheduleWindowRecompute]);
 
   // Prevent scroll from leaking into the dashboard canvas when at boundaries
   useEffect(() => {
@@ -452,16 +666,47 @@ const AgentChat: React.FC<AgentChatProps> = ({ sessionId: sessionIdProp, onClose
     return () => el.removeEventListener('wheel', onWheel);
   }, []);
 
+  const scrollToBottomRafRef = useRef<number | null>(null);
   const scrollToBottom = useCallback(() => {
     const el = scrollContainerRef.current;
     if (!el) return;
-    el.scrollTop = el.scrollHeight;
     isAtBottomRef.current = true;
     setShowScrollButton(false);
+    // When scrolled far up the newest items are unmounted behind the bottom
+    // spacer (estimated height). Jump the window to the bottom slice so they
+    // actually mount, then pin across several frames: a single scrollTop=scrollHeight
+    // lands short because the spacer collapses and the freshly-mounted items
+    // replace their estimates with real measured heights, changing scrollHeight.
+    const total = renderItemsLengthRef.current;
+    const start = Math.max(0, total - initialSeedItems(el.clientHeight));
+    windowStartRef.current = start;
+    windowEndRef.current = total;
+    setWindowStart(start);
+    setWindowEnd(total);
+    if (scrollToBottomRafRef.current != null) cancelAnimationFrame(scrollToBottomRafRef.current);
+    let frame = 0;
+    const FRAMES = 16; // ~260ms, enough for the window + oversized blocks to settle
+    const pin = () => {
+      const c = scrollContainerRef.current;
+      if (!c) { scrollToBottomRafRef.current = null; return; }
+      c.scrollTop = c.scrollHeight;
+      lastScrollHeightRef.current = c.scrollHeight;
+      isAtBottomRef.current = true;
+      if (++frame < FRAMES) {
+        scrollToBottomRafRef.current = requestAnimationFrame(pin);
+      } else {
+        scrollToBottomRafRef.current = null;
+        // Jump has settled: re-evaluate oversized message / block visibility
+        // synchronously so nothing now in view is stuck as a placeholder.
+        c.dispatchEvent(new CustomEvent(RECHECK_VISIBILITY_EVENT));
+      }
+    };
+    pin();
   }, []);
 
   const scrollRafRef = useRef<number | null>(null);
   const pinRafRef = useRef<number | null>(null);
+  const initialPinRafRef = useRef<number | null>(null);
   const lastScrollHeightRef = useRef<number>(0);
   // Shared scroll-stick routine. Used both by the structural-events
   // useEffect below (new message lands / stream starts/ends) and by
@@ -565,6 +810,14 @@ const AgentChat: React.FC<AgentChatProps> = ({ sessionId: sessionIdProp, onClose
     if (pinRafRef.current != null) {
       cancelAnimationFrame(pinRafRef.current);
       pinRafRef.current = null;
+    }
+    if (initialPinRafRef.current != null) {
+      cancelAnimationFrame(initialPinRafRef.current);
+      initialPinRafRef.current = null;
+    }
+    if (scrollToBottomRafRef.current != null) {
+      cancelAnimationFrame(scrollToBottomRafRef.current);
+      scrollToBottomRafRef.current = null;
     }
   }, []);
 
@@ -835,6 +1088,118 @@ const AgentChat: React.FC<AgentChatProps> = ({ sessionId: sessionIdProp, onClose
     return items;
   }, [activeBranchMessages]);
 
+  React.useLayoutEffect(() => {
+    const total = renderItems.length;
+    renderItemsLengthRef.current = total;
+    renderItemsRef.current = renderItems;
+    const seed = initialSeedItems(viewportHeight);
+    let start = windowStartRef.current;
+    let end = windowEndRef.current;
+    if (isAtBottomRef.current || end === 0) {
+      // Following the live tail: keep the newest item mounted and unload the
+      // oldest beyond a bounded recent slice so memory stays flat as the
+      // transcript grows. The pixel solver refines this seed on the next scroll.
+      end = total;
+      start = Math.max(0, end - seed);
+    } else {
+      // Scrolled up: just keep the existing window valid against the new length.
+      end = Math.min(end, total);
+      start = Math.min(start, Math.max(0, end - 1));
+    }
+    if (start !== windowStartRef.current) { windowStartRef.current = start; setWindowStart(start); }
+    if (end !== windowEndRef.current) { windowEndRef.current = end; setWindowEnd(end); }
+  }, [id, renderItems, viewportHeight]);
+
+  const total = renderItems.length;
+  const safeWindowEnd = windowEnd > 0 ? Math.min(windowEnd, total) : total;
+  const safeWindowStart = Math.min(Math.max(0, windowStart), Math.max(0, safeWindowEnd - 1));
+  const visibleStartIndex = safeWindowStart;
+  const visibleRenderItems = useMemo(
+    () => renderItems.slice(safeWindowStart, safeWindowEnd),
+    [renderItems, safeWindowStart, safeWindowEnd]
+  );
+  const renderedVisibleItems = useMemo(
+    () => visibleRenderItems.filter((item) => !streamingMessageId || item.id !== streamingMessageId),
+    [streamingMessageId, visibleRenderItems]
+  );
+  // Keep the ref the height estimator reads in sync with the live viewport width.
+  viewportWidthRef.current = viewportWidth;
+
+  // Measure mounted item heights so the spacers that stand in for unmounted
+  // items keep the scrollbar geometry stable (no jump when unloading above).
+  React.useLayoutEffect(() => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    let changed = false;
+    el.querySelectorAll<HTMLElement>('[data-window-item-id]').forEach((node) => {
+      const itemId = node.dataset.windowItemId;
+      if (!itemId) return;
+      const h = node.offsetHeight;
+      if (h <= 0) return;
+      const prev = itemHeightsRef.current.get(itemId);
+      if (prev === undefined || Math.abs(prev - h) > 1) {
+        itemHeightsRef.current.set(itemId, h);
+        changed = true;
+      }
+    });
+    // Guarded so this converges: once heights stop moving, no more version bumps.
+    if (changed) setHeightVersion((v) => v + 1);
+  });
+
+  // Spacers reserve the cumulative height of the unmounted items above/below the
+  // window. heightVersion gates recompute off the ref-held measurements; we index
+  // the render-scope renderItems directly so id->height stays correct on the
+  // frame the transcript changes.
+  const topSpacerHeight = useMemo(() => {
+    let h = 0;
+    for (let i = 0; i < safeWindowStart; i++) h += reservedHeightForItem(renderItems[i]);
+    return h;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [renderItems, safeWindowStart, heightVersion, reservedHeightForItem]);
+  const bottomSpacerHeight = useMemo(() => {
+    let h = 0;
+    for (let i = safeWindowEnd; i < total; i++) h += reservedHeightForItem(renderItems[i]);
+    return h;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [renderItems, safeWindowEnd, total, heightVersion, reservedHeightForItem]);
+
+  React.useLayoutEffect(() => {
+    if (pendingInitialBottomScrollRef.current) {
+      const el = scrollContainerRef.current;
+      if (!el || visibleRenderItems.length === 0) return;
+      let frame = 0;
+      const FRAMES = 8;
+      const pin = () => {
+        const c = scrollContainerRef.current;
+        if (!c) return;
+        lastVisibleItemRef.current?.scrollIntoView({ block: 'end' });
+        c.scrollTop = Math.max(0, Math.min(c.scrollTop, c.scrollHeight - c.clientHeight));
+        lastScrollHeightRef.current = c.scrollHeight;
+        isAtBottomRef.current = true;
+        setShowScrollButton(false);
+        if (++frame < FRAMES) {
+          initialPinRafRef.current = requestAnimationFrame(pin);
+        } else {
+          initialPinRafRef.current = null;
+          initialBottomScrollSettledRef.current = true;
+          // The open slice is sized by item COUNT; now that we're settled and
+          // measured, trim it down to the pixel-based band so tall messages high
+          // in the slice unload instead of sitting fully rendered off-screen.
+          scheduleWindowRecompute();
+          // Re-evaluate visibility now the open jump has settled, so an oversized
+          // newest message isn't left stuck as a placeholder.
+          c.dispatchEvent(new CustomEvent(RECHECK_VISIBILITY_EVENT));
+        }
+      };
+      if (initialPinRafRef.current != null) {
+        cancelAnimationFrame(initialPinRafRef.current);
+        initialPinRafRef.current = null;
+      }
+      pendingInitialBottomScrollRef.current = false;
+      pin();
+    }
+  }, [id, session?.active_branch_id, renderItems.length, renderedVisibleItems.length, visibleStartIndex]);
+
   const lastAssistantIdsInTurn = useMemo(() => {
     const ids = new Set<string>();
     let lastAssistantId: string | null = null;
@@ -939,7 +1304,6 @@ const AgentChat: React.FC<AgentChatProps> = ({ sessionId: sessionIdProp, onClose
     );
   }
 
-  const isActive = session.status === 'running' || session.status === 'waiting_approval' || session.status === 'draft';
   const branchNavLocked = agentBusy || hasStreaming;
   const statusStyle = STATUS_STYLES[session.status] || { color: c.text.tertiary, bg: c.bg.secondary };
 
@@ -1128,6 +1492,12 @@ const AgentChat: React.FC<AgentChatProps> = ({ sessionId: sessionIdProp, onClose
             sx={{
               height: '100%',
               overflow: 'auto',
+              scrollbarGutter: 'stable',
+              // Flex column + the mt:auto content wrapper below bottom-anchors the
+              // transcript: short chats sit flush above the input (no whitespace
+              // under the last message) while long chats scroll normally.
+              display: 'flex',
+              flexDirection: 'column',
               px: 2,
               py: 1,
               // Smoothness bundle (perf-only , no behavior change):
@@ -1152,12 +1522,17 @@ const AgentChat: React.FC<AgentChatProps> = ({ sessionId: sessionIdProp, onClose
               '&::-webkit-scrollbar-thumb': {
                 background: c.border.medium,
                 borderRadius: 3,
+                minHeight: 48,
                 '&:hover': { background: c.border.strong },
               },
               scrollbarWidth: 'thin',
               scrollbarColor: `${c.border.medium} transparent`,
             }}
           >
+            {/* mt:auto pins the transcript to the bottom when it's shorter than the
+                viewport (no empty space below the last message); collapses to 0 and
+                scrolls normally once the content overflows. */}
+            <Box sx={{ mt: 'auto' }}>
             {(session.mcp_suggestions && session.mcp_suggestions.length > 0) && (
               <Box sx={{
                 mt: 1,
@@ -1325,7 +1700,14 @@ const AgentChat: React.FC<AgentChatProps> = ({ sessionId: sessionIdProp, onClose
                 </Box>
               );
             })()}
-            {renderItems.filter((item) => !streamingMessageId || item.id !== streamingMessageId).map((item) => {
+            {/* Stand-in for items unmounted ABOVE the window. Its measured
+                height keeps the scrollbar geometry and scroll position stable
+                while overflow-anchor pins the visible content. */}
+            {topSpacerHeight > 0 && (
+              <Box aria-hidden data-window-spacer="top" sx={{ height: topSpacerHeight, flexShrink: 0, overflowAnchor: 'none' }} />
+            )}
+            {renderedVisibleItems.map((item, itemIdx) => {
+              const isLastVisibleItem = itemIdx === renderedVisibleItems.length - 1;
               const isCompactionAnchor = !!session.compacted_through_msg_id && item.id === session.compacted_through_msg_id;
               const compactionChip = isCompactionAnchor ? (
                 <CompactionMarker
@@ -1339,19 +1721,19 @@ const AgentChat: React.FC<AgentChatProps> = ({ sessionId: sessionIdProp, onClose
               if (isToolGroup(item)) {
                 const groupMeta = session.tool_group_meta?.[item.id];
                 return (
-                  <React.Fragment key={item.id}>
+                  <Box key={item.id} data-window-item-id={item.id} ref={isLastVisibleItem ? lastVisibleItemRef : undefined}>
                     <ToolGroupBubble group={item} isSessionRunning={sessionRunning} meta={groupMeta} sessionId={session.id} />
                     {compactionChip}
-                  </React.Fragment>
+                  </Box>
                 );
               }
               if (isToolPair(item)) {
                 const isPending = item.result === null && sessionRunning;
                 return (
-                  <React.Fragment key={item.id}>
+                  <Box key={item.id} data-window-item-id={item.id} ref={isLastVisibleItem ? lastVisibleItemRef : undefined}>
                     <ToolCallBubble call={item.call} result={item.result} isPending={isPending} sessionId={session.id} suppressReveal={item.call.id === justStreamedId} />
                     {compactionChip}
-                  </React.Fragment>
+                  </Box>
                 );
               }
               const msg = item;
@@ -1364,8 +1746,8 @@ const AgentChat: React.FC<AgentChatProps> = ({ sessionId: sessionIdProp, onClose
               const rawText = typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content);
 
               return (
-                <Box
-                  key={msg.id}
+                <Box key={msg.id} data-window-item-id={msg.id} ref={isLastVisibleItem ? lastVisibleItemRef : undefined}>
+                  <Box
                   sx={{
                     '&:hover .msg-actions': { opacity: 1 },
                     // Cheap virtualization: tells the browser to skip
@@ -1385,6 +1767,9 @@ const AgentChat: React.FC<AgentChatProps> = ({ sessionId: sessionIdProp, onClose
                     editing={isEditing}
                     onSaveEdit={handleSaveEdit}
                     onCancelEdit={handleCancelEdit}
+                    viewportHeight={viewportHeight}
+                    viewportWidth={viewportWidth}
+                    scrollRoot={scrollRoot}
                   />
                   {!isEditing && (msg.role === 'user' || (msg.role === 'assistant' && lastAssistantIdsInTurn.has(msg.id))) && (
                     <MessageActionBar
@@ -1418,8 +1803,14 @@ const AgentChat: React.FC<AgentChatProps> = ({ sessionId: sessionIdProp, onClose
                   )}
                   {compactionChip}
                 </Box>
+                </Box>
               );
             })}
+            {/* Stand-in for items unmounted BELOW the window (newer items not yet
+                scrolled into view). Zero while following the live tail. */}
+            {bottomSpacerHeight > 0 && (
+              <Box aria-hidden data-window-spacer="bottom" sx={{ height: bottomSpacerHeight, flexShrink: 0, overflowAnchor: 'none' }} />
+            )}
             {/* overflow-anchor: none on the two elements that grow every frame
                 (live stream + thinking dots) keeps Chromium's scroll anchoring
                 from fighting our jam-to-bottom for the scroll position. The
@@ -1471,6 +1862,7 @@ const AgentChat: React.FC<AgentChatProps> = ({ sessionId: sessionIdProp, onClose
                 </Box>
               </Box>
             )}
+            </Box>
           </Box>
           {showScrollButton && (
             <Tooltip title="Scroll to bottom">
