@@ -679,7 +679,6 @@ const AppShell: React.FC = () => {
                   ml: 2,
                   mt: 0.25,
                   mb: 0.5,
-                  borderLeft: `1px solid ${c.border.medium}`,
                   maxHeight: 240,
                   overflow: 'auto',
                   '&::-webkit-scrollbar': { width: 3 },
@@ -707,12 +706,13 @@ const AppShell: React.FC = () => {
                         pl: 1.25,
                         pr: 1,
                         py: isRenaming ? 0.25 : 0.5,
-                        ml: '-0.5px',
+                        mx: 0.5,
                         cursor: isRenaming ? 'default' : 'pointer',
-                        borderLeft: isActive ? `1.5px solid ${c.accent.primary}` : '1.5px solid transparent',
-                        bgcolor: isActive ? `${c.accent.primary}0C` : 'transparent',
-                        '&:hover': { bgcolor: `${c.text.tertiary}0A` },
-                        transition: 'background-color 0.12s, border-color 0.12s',
+                        // Finder-style selection: the rounded fill is the one active cue, no rail marker.
+                        borderRadius: `${c.radius.md}px`,
+                        bgcolor: isActive ? `${c.accent.primary}40` : 'transparent',
+                        '&:hover': { bgcolor: isActive ? `${c.accent.primary}55` : `${c.text.tertiary}0A` },
+                        transition: 'background-color 0.12s',
                       }}
                     >
                       {isRenaming ? (
@@ -770,7 +770,8 @@ const AppShell: React.FC = () => {
             </Collapse>
           </Box>
 
-          <Box sx={{ mx: 1.5, my: 0.5, borderTop: `0.5px solid ${c.border.subtle}` }} />
+          {/* Sections separate with air, not lines. */}
+          <Box sx={{ my: 0.75 }} />
 
           <Box sx={{ px: 1, mb: 0.25 }}>
             <ListItemButton
@@ -818,7 +819,7 @@ const AppShell: React.FC = () => {
             </ListItemButton>
 
             <Collapse in={customizationExpanded} timeout={200}>
-              <Box sx={{ ml: 2, mt: 0.25, mb: 0.5, borderLeft: `1px solid ${c.border.medium}` }}>
+              <Box sx={{ ml: 2, mt: 0.25, mb: 0.5 }}>
                 {CUSTOMIZATION_ITEMS.map((item) => {
                   // Manual click handler instead of NavLink: NavLink's internal navigate bypasses our startTransition wrapper.
                   const isActive = location.pathname === item.path;
@@ -869,7 +870,8 @@ const AppShell: React.FC = () => {
             </Collapse>
           </Box>
 
-          <Box sx={{ mx: 1.5, my: 0.5, borderTop: `0.5px solid ${c.border.subtle}` }} />
+          {/* Sections separate with air, not lines. */}
+          <Box sx={{ my: 0.75 }} />
 
           <Box sx={{ px: 1, mb: 0.25 }}>
             <ListItemButton
@@ -934,7 +936,6 @@ const AppShell: React.FC = () => {
                   ml: 2,
                   mt: 0.25,
                   mb: 0.5,
-                  borderLeft: `1px solid ${c.border.medium}`,
                   maxHeight: 240,
                   overflow: 'auto',
                   '&::-webkit-scrollbar': { width: 3 },
