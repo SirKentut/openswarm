@@ -547,7 +547,11 @@ async def create_output(body: OutputCreate):
 @outputs.router.put("/{output_id}")
 async def update_output(output_id: str, body: OutputUpdate):
     output = _load(output_id)
-    for k, v in body.model_dump(exclude_none=True).items():
+    # exclude_unset, NOT exclude_none: a PUT that explicitly sends session_id=null
+    # (the Apps stale-link self-heal) must clear the field. exclude_none silently
+    # dropped that null, so the dead pointer never cleared and the app 404'd on
+    # every open, forever. Unset fields stay untouched; only what the client sent applies.
+    for k, v in body.model_dump(exclude_unset=True).items():
         setattr(output, k, v)
     now = datetime.now().isoformat()
     output.updated_at = now
