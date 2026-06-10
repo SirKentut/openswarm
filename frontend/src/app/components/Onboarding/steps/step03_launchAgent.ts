@@ -11,7 +11,9 @@ const FALLBACK_PROMPT =
 export const step03: OnboardingStep = {
   id: 'launch_agent',
   stage: 'get_started',
-  index: 3,
+  // Value first: this is now step 1. With the free trial armed it runs with no
+  // model connected and no sign-in, so the user sees an agent work immediately.
+  index: 1,
   title: 'Launch your first Agent',
   description: 'Click the chat bubble to fire up a new Agent in a dashboard.',
   videoSrc: './onboarding-videos/v2/03.mp4',
