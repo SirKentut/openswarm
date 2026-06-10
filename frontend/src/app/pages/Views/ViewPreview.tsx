@@ -195,6 +195,13 @@ const ViewPreview = forwardRef<ViewPreviewHandle, Props>(({
       const wv = webviewRef.current;
       // Only the webview path is reliably snapshottable; iframe/dev or a hidden window (about:blank) returns null.
       if (!useWebview || !wv || windowHidden || typeof wv.capturePage !== 'function') return null;
+      // Never snapshot a guest that's detaching, crashed, or mid-navigation: capturePage on a
+      // WebContents being torn down can segfault the main process (the whole-app quit on fast app-switching).
+      try {
+        if (wv.isConnected === false) return null;
+        if (typeof wv.isCrashed === 'function' && wv.isCrashed()) return null;
+        if (typeof wv.isLoading === 'function' && wv.isLoading()) return null;
+      } catch { return null; }
       try {
         const img = await wv.capturePage();
         if (!img) return null;
