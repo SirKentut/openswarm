@@ -1,11 +1,11 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import Box from '@mui/material/Box';
 import Snackbar from '@mui/material/Snackbar';
 import Alert from '@mui/material/Alert';
 import Dialog from '@mui/material/Dialog';
 import DialogContent from '@mui/material/DialogContent';
 import { useAppDispatch, useAppSelector } from '@/shared/hooks';
-import { updateSettings, closeSettingsModal, setDraft, clearDraft, AppSettings } from '@/shared/state/settingsSlice';
+import { updateSettings, closeSettingsModal, AppSettings } from '@/shared/state/settingsSlice';
 import { onboardingBus } from '@/app/components/Onboarding/eventBus';
 import { fetchModels } from '@/shared/state/modelsSlice';
 import { fetchModes } from '@/shared/state/modesSlice';
@@ -16,8 +16,6 @@ import GeneralTab from './sections/general/GeneralTab';
 import ModelsTab from './sections/models/ModelsTab';
 import UsageStats from './sections/usage/UsageStats';
 import SettingsHeader from './sections/SettingsHeader';
-import SettingsFooter from './sections/SettingsFooter';
-import ConfirmDiscardDialog from './sections/ConfirmDiscardDialog';
 import { makeSettingsStyles } from './sections/settingsStyles';
 
 // Brand colors for provider group headers; mirrors ChatInput picker.
@@ -35,6 +33,9 @@ const PROVIDER_COLORS: Record<string, string> = {
 };
 const OPENSWARM_GRADIENT =
   'linear-gradient(135deg, #8FB3FF 0%, #E56BC4 45%, #FFA85C 100%)';
+
+// Module-scope: remember the last open tab across modal closes (System Settings style).
+let lastOpenTab: string | null = null;
 
 // Shown only in the brief window before the live model list loads from the
 // backend. Keep the flagship current so the default-model dropdown isn't stale.
@@ -88,17 +89,14 @@ const Settings: React.FC = () => {
   }, [modelsByProvider, modelsLoaded, settings.connection_mode, settings.default_model]);
 
   const initialTab = useAppSelector((s) => s.settings.initialTab);
-  // In-flight edits persisted to Redux so they survive modal close; cleared on save or explicit Discard.
-  const draft = useAppSelector((s) => s.settings.draft);
-  const draftTab = useAppSelector((s) => s.settings.draftTab);
   const TAB_VALUES = ['general', 'models', 'usage', 'commands'] as const;
   type SettingsTab = typeof TAB_VALUES[number];
   const isValidTab = (t: string | null | undefined): t is SettingsTab =>
     !!t && (TAB_VALUES as readonly string[]).includes(t);
   const [activeTab, setActiveTab] = useState<SettingsTab>(
-    isValidTab(draftTab) ? draftTab : 'general',
+    isValidTab(lastOpenTab) ? lastOpenTab : 'general',
   );
-  const [form, setForm] = useState<AppSettings>({ ...settings, ...(draft || {}) });
+  const [form, setForm] = useState<AppSettings>({ ...settings });
 
   // Re-seed form on user change; otherwise the dirty detector falsely lights up Save/Discard.
   useEffect(() => {
@@ -114,8 +112,7 @@ const Settings: React.FC = () => {
   }, [initialTab]);
   const [showApiKey, setShowApiKey] = useState(false);
   const [browseOpen, setBrowseOpen] = useState(false);
-  const [saved, setSaved] = useState(false);
-  const [confirmDiscard, setConfirmDiscard] = useState(false);
+  const [saveError, setSaveError] = useState(false);
 
   useEffect(() => {
     dispatch(fetchModes());
@@ -126,55 +123,69 @@ const Settings: React.FC = () => {
   }, [open, dispatch]);
 
   useEffect(() => {
-    // On open, restore the last tab from draft; explicit initialTab is handled by the effect above.
+    // On open, restore the last open tab; explicit initialTab is handled by the effect above.
     if (open && !initialTab) {
-      setActiveTab(isValidTab(draftTab) ? draftTab : 'general');
+      setActiveTab(isValidTab(lastOpenTab) ? lastOpenTab : 'general');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, initialTab]);
 
+  useEffect(() => {
+    lastOpenTab = activeTab;
+  }, [activeTab]);
+
   // Sync form on modal open + first load only; including `settings` in deps wipes in-flight edits on background fetches (issue #25).
   useEffect(() => {
     if (open && loaded) {
-      setForm({ ...settings, ...(draft || {}) });
+      setForm({ ...settings });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, loaded]);
 
-  // Persist in-flight edits to Redux; compares to `settings` so a clean reopen doesn't keep a phantom draft.
+  // Apply-on-change (System Settings style): edits save themselves after a short
+  // debounce, so text fields settle between keystrokes and toggles feel instant.
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const inFlight = useRef(false);
+
+  // Theme is local UI state; apply it the moment the toggle flips, the debounced save persists it.
+  useEffect(() => {
+    if (open && loaded) setThemeMode(form.theme);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.theme]);
+
   useEffect(() => {
     if (!open || !loaded) return;
-    const dirty = JSON.stringify(form) !== JSON.stringify(settings);
-    if (dirty) {
-      dispatch(setDraft({ form, tab: activeTab }));
-    } else if (draft !== null) {
-      dispatch(clearDraft());
-    }
-  }, [form, activeTab, open, loaded, settings, draft, dispatch]);
+    if (JSON.stringify(form) === JSON.stringify(settings)) return;
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(async () => {
+      // A save already in flight will update `settings` when it lands, re-running
+      // this effect to pick up whatever is still unsaved.
+      if (inFlight.current) return;
+      inFlight.current = true;
+      try {
+        await dispatch(updateSettings(form)).unwrap();
+        dispatch(fetchModels());
+      } catch {
+        setSaveError(true);
+      } finally {
+        inFlight.current = false;
+      }
+    }, 900);
+    return () => {
+      if (saveTimer.current) clearTimeout(saveTimer.current);
+    };
+  }, [form, open, loaded, settings, dispatch]);
 
-  const hasChanges = JSON.stringify(form) !== JSON.stringify(settings);
-
-  const handleSave = async () => {
-    await dispatch(updateSettings(form));
-    if (form.theme !== settings.theme) {
-      setThemeMode(form.theme);
-    }
-    dispatch(fetchModels());
-    setSaved(true);
-  };
-
-  // Non-destructive close; draft persists in Redux. Explicit discard lives on its own button.
+  // Closing flushes any edit still inside the debounce window; nothing is ever lost or asked about.
   const handleRequestClose = useCallback(() => {
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    if (loaded && JSON.stringify(form) !== JSON.stringify(settings)) {
+      dispatch(updateSettings(form));
+      dispatch(fetchModels());
+    }
     dispatch(closeSettingsModal());
     onboardingBus.emit('settings:closed');
-  }, [dispatch]);
-
-  // Explicit discard wipes the draft so form snaps back to saved settings; modal stays open for verification.
-  const handleConfirmDiscard = useCallback(() => {
-    setConfirmDiscard(false);
-    setForm({ ...settings });
-    dispatch(clearDraft());
-  }, [settings, dispatch]);
+  }, [dispatch, form, settings, loaded]);
 
   const styles = makeSettingsStyles(c);
 
@@ -241,15 +252,6 @@ const Settings: React.FC = () => {
       )}
       </DialogContent>
 
-      {(activeTab === 'general' || activeTab === 'models') && (
-      <SettingsFooter
-        hasChanges={hasChanges}
-        onDiscard={() => setConfirmDiscard(true)}
-        onClose={handleRequestClose}
-        onSave={handleSave}
-      />
-      )}
-
       <DirectoryBrowser
         open={browseOpen}
         onClose={() => setBrowseOpen(false)}
@@ -258,22 +260,16 @@ const Settings: React.FC = () => {
       />
 
       <Snackbar
-        open={saved}
-        autoHideDuration={3000}
-        onClose={() => setSaved(false)}
+        open={saveError}
+        autoHideDuration={4000}
+        onClose={() => setSaveError(false)}
         anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
       >
-        <Alert onClose={() => setSaved(false)} severity="success" sx={{ bgcolor: c.bg.surface, color: c.text.primary, border: `1px solid ${c.status.success}` }}>
-          Settings saved
+        <Alert onClose={() => setSaveError(false)} severity="error" sx={{ bgcolor: c.bg.surface, color: c.text.primary, border: `1px solid ${c.status.error}` }}>
+          Couldn't save that change. Try again in a moment.
         </Alert>
       </Snackbar>
     </Dialog>
-
-    <ConfirmDiscardDialog
-      open={confirmDiscard}
-      onCancel={() => setConfirmDiscard(false)}
-      onConfirm={handleConfirmDiscard}
-    />
     </>
   );
 };
