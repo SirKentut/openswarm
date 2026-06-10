@@ -29,7 +29,7 @@ import VisibilityOffIcon from '@mui/icons-material/VisibilityOff';
 import Collapse from '@mui/material/Collapse';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import { useAppDispatch, useAppSelector } from '@/shared/hooks';
-import { createDraftSession, removeDraftSession } from '@/shared/state/agentsSlice';
+import { createDraftSession, removeDraftSession, fetchSession } from '@/shared/state/agentsSlice';
 import { createOutput, updateOutput, fetchOutputs, Output, SERVE_BASE } from '@/shared/state/outputsSlice';
 import { useClaudeTokens } from '@/shared/styles/ThemeContext';
 import AgentChat from '../AgentChat/AgentChat';
@@ -410,11 +410,13 @@ const ViewEditor: React.FC<Props> = ({ output }) => {
     (async () => {
       // Reattach: Output has an existing session + workspace; skip seeding/draft so we don't clobber agent state.
       if (output?.session_id && output?.workspace_id) {
-        // Mount the chat NOW so the cached conversation renders instantly
-        // (AgentChat's own hydrate + WS catch up on what we missed); holding it
+        // Mount the chat NOW so a warm conversation renders instantly; holding it
         // behind the verification round-trips blanked the chat for seconds on
-        // every reopen. The stale-id guard below still runs, just in the
-        // background, and swaps in a fresh draft on the rare 404.
+        // every reopen. The fetch is load-bearing on cold opens: effectiveSessionId
+        // resolves only once the session is IN the store, and AgentChat (the other
+        // hydrator) can't mount until then. The stale-id guard below still runs in
+        // the background and swaps in a fresh draft on the rare 404.
+        dispatch(fetchSession(output.session_id));
         setInitialDraftId(output.session_id);
 
         let resolvedWorkspacePath: string | null = null;
