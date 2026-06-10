@@ -135,9 +135,13 @@ const Settings: React.FC = () => {
   }, [activeTab]);
 
   // Sync form on modal open + first load only; including `settings` in deps wipes in-flight edits on background fetches (issue #25).
+  // baseline = the snapshot the user started editing from, so we can tell user edits
+  // apart from fields the backend changed underneath us (OAuth connects, free-trial mints).
+  const baselineRef = useRef<AppSettings>(settings);
   useEffect(() => {
     if (open && loaded) {
       setForm({ ...settings });
+      baselineRef.current = settings;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, loaded]);
@@ -147,6 +151,20 @@ const Settings: React.FC = () => {
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inFlight = useRef(false);
 
+  // Only the fields the user touched ride on top of the LATEST settings; submitting the
+  // whole stale form would clobber background updates and ping-pong with server-owned fields.
+  const buildSubmit = useCallback((): { submit: AppSettings; touched: string[] } | null => {
+    const base = baselineRef.current as unknown as Record<string, unknown>;
+    const f = form as unknown as Record<string, unknown>;
+    const touched = Array.from(new Set([...Object.keys(base), ...Object.keys(f)]))
+      .filter((k) => JSON.stringify(f[k]) !== JSON.stringify(base[k]));
+    if (touched.length === 0) return null;
+    const submit = { ...settings } as unknown as Record<string, unknown>;
+    for (const k of touched) submit[k] = f[k];
+    if (JSON.stringify(submit) === JSON.stringify(settings)) return null;
+    return { submit: submit as unknown as AppSettings, touched };
+  }, [form, settings]);
+
   // Theme is local UI state; apply it the moment the toggle flips, the debounced save persists it.
   useEffect(() => {
     if (open && loaded) setThemeMode(form.theme);
@@ -155,15 +173,21 @@ const Settings: React.FC = () => {
 
   useEffect(() => {
     if (!open || !loaded) return;
-    if (JSON.stringify(form) === JSON.stringify(settings)) return;
+    if (!buildSubmit()) return;
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(async () => {
       // A save already in flight will update `settings` when it lands, re-running
       // this effect to pick up whatever is still unsaved.
       if (inFlight.current) return;
+      const payload = buildSubmit();
+      if (!payload) return;
       inFlight.current = true;
       try {
-        await dispatch(updateSettings(form)).unwrap();
+        await dispatch(updateSettings(payload.submit)).unwrap();
+        // Absorb the saved edits so they stop counting as touched (prevents re-save loops).
+        const nextBase = { ...baselineRef.current } as Record<string, unknown>;
+        for (const k of payload.touched) nextBase[k] = (form as unknown as Record<string, unknown>)[k];
+        baselineRef.current = nextBase as unknown as AppSettings;
         dispatch(fetchModels());
       } catch {
         setSaveError(true);
@@ -174,18 +198,20 @@ const Settings: React.FC = () => {
     return () => {
       if (saveTimer.current) clearTimeout(saveTimer.current);
     };
-  }, [form, open, loaded, settings, dispatch]);
+  }, [form, open, loaded, settings, dispatch, buildSubmit]);
 
   // Closing flushes any edit still inside the debounce window; nothing is ever lost or asked about.
   const handleRequestClose = useCallback(() => {
     if (saveTimer.current) clearTimeout(saveTimer.current);
-    if (loaded && JSON.stringify(form) !== JSON.stringify(settings)) {
-      dispatch(updateSettings(form));
+    const payload = loaded ? buildSubmit() : null;
+    if (payload) {
+      dispatch(updateSettings(payload.submit));
       dispatch(fetchModels());
+      baselineRef.current = form;
     }
     dispatch(closeSettingsModal());
     onboardingBus.emit('settings:closed');
-  }, [dispatch, form, settings, loaded]);
+  }, [dispatch, form, loaded, buildSubmit]);
 
   const styles = makeSettingsStyles(c);
 
