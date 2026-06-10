@@ -37,6 +37,7 @@ import { useOverlayScrollPassthrough } from '../hooks/interaction/useOverlayScro
 import { useStreamingMessage } from '@/shared/state/streamingSlice';
 import { isCanvasInteractionActive, onCanvasInteractionEnd } from '@/shared/canvasInteractionState';
 import { getAgentWorkTime, fmtSeconds } from '@/shared/agentWorkTime';
+import { friendlyStatusLabel } from '@/shared/statusLabel';
 
 const GoogleServiceIcon: React.FC<{ service: string; size?: number }> = ({ service, size = 16 }) => {
   if (service === 'gmail') {
@@ -757,7 +758,7 @@ const AgentCard: React.FC<Props> = ({
               {session.name}
             </Typography>
             <Chip
-              label={session.status.replace('_', ' ')}
+              label={friendlyStatusLabel(session.status)}
               size="small"
               sx={{
                 bgcolor: statusStyle.bg,

@@ -14,6 +14,7 @@ import { setPendingFocusAgentId } from '@/shared/state/tempStateSlice';
 import { createDashboard } from '@/shared/state/dashboardsSlice';
 import { openSettingsModal } from '@/shared/state/settingsSlice';
 import { useClaudeTokens } from '@/shared/styles/ThemeContext';
+import { friendlyStatusLabel } from '@/shared/statusLabel';
 
 interface Props {
   open: boolean;
@@ -301,7 +302,7 @@ const GlobalSearchPalette: React.FC<Props> = ({ open, onClose }) => {
                 const dashName = r.dashboardId ? dashboards[r.dashboardId]?.name : null;
                 const subtitle = [
                   dashName && `in ${dashName}`,
-                  r.closedAt ? 'closed' : r.status,
+                  r.closedAt ? 'closed' : friendlyStatusLabel(r.status),
                 ].filter(Boolean).join(' · ');
                 return (
                   <ResultRow

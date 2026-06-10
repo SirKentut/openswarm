@@ -17,6 +17,7 @@ import CheckIcon from '@mui/icons-material/Check';
 import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
 import RestartAltIcon from '@mui/icons-material/RestartAlt';
 import { useAppDispatch, useAppSelector } from '@/shared/hooks';
+import { friendlyStatusLabel } from '@/shared/statusLabel';
 import { openSettingsModal } from '@/shared/state/settingsSlice';
 import { API_BASE, getAuthToken } from '@/shared/config';
 import {
@@ -970,7 +971,7 @@ const AgentChat: React.FC<AgentChatProps> = ({ sessionId: sessionIdProp, onClose
                 <Typography noWrap sx={{ color: c.text.primary, fontWeight: 600 }}>{session.name}</Typography>
                 {!isDraft && statusStyle && (
                   <Chip
-                    label={session.status.replace('_', ' ')}
+                    label={friendlyStatusLabel(session.status)}
                     size="small"
                     sx={{
                       bgcolor: statusStyle.bg,

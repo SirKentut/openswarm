@@ -11,6 +11,7 @@ import type { AgentSession } from '@/shared/state/agentsSlice';
 import type { CardPosition, ViewCardPosition, BrowserCardPosition } from '@/shared/state/dashboardLayoutSlice';
 import type { Output } from '@/shared/state/outputsSlice';
 import type { CanvasActions } from '../hooks/interaction/useCanvasControls';
+import { friendlyStatusLabel } from '@/shared/statusLabel';
 
 interface DashboardHeaderProps {
   dashboardName: string | undefined;
@@ -199,7 +200,7 @@ const DashboardHeader: React.FC<DashboardHeaderProps> = ({
                     <Typography
                       sx={{ fontSize: '0.7rem', color: c.text.ghost, flexShrink: 0 }}
                     >
-                      {item.status.replace('_', ' ')}
+                      {friendlyStatusLabel(item.status)}
                     </Typography>
                   </ItemRow>
                 ))}
