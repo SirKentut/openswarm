@@ -39,6 +39,7 @@ import {
   clearSessionMessages,
   clearMcpSuggestions,
 } from '@/shared/state/agentsSlice';
+import { store } from '@/shared/state/store';
 import { fetchModes } from '@/shared/state/modesSlice';
 import { createSessionWs } from '@/shared/ws/WebSocketManager';
 import StreamingBubble from './bubbles/StreamingBubble';
@@ -232,11 +233,20 @@ const AgentChat: React.FC<AgentChatProps> = ({ sessionId: sessionIdProp, onClose
     // out again. Awaiting fetchSession before connect makes the slice
     // authoritative before any replay event lands.
     (async () => {
-      try {
-        await dispatch(fetchSession(id));
-      } catch {
-        // Even if the REST hydrate fails, still connect , the WS resume
-        // protocol can hydrate from buffered events as a fallback.
+      // The await exists so the slice isn't EMPTY at replay time. A warm store
+      // (remount after a hop) already satisfies that, so connect immediately and
+      // let the fetch reconcile in the background; awaiting serialized a slow
+      // round trip in front of the live stream on every reopen.
+      const warm = !!store.getState().agents.sessions[id]?.messages?.length;
+      if (warm) {
+        dispatch(fetchSession(id));
+      } else {
+        try {
+          await dispatch(fetchSession(id));
+        } catch {
+          // Even if the REST hydrate fails, still connect , the WS resume
+          // protocol can hydrate from buffered events as a fallback.
+        }
       }
       if (cancelled) return;
       ws = createSessionWs(id);
