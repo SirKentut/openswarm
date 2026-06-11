@@ -108,6 +108,10 @@ const POLL_INTERVAL_ACTIVE_MS = 2000;
 const POLL_INTERVAL_IDLE_MS = 15000;
 // Settle window after a content change/paint before snapshotting, so the app's JS has a beat to render.
 const CAPTURE_SETTLE_MS = 1000;
+// Fast app-switching minted a webview renderer per app you blew past, piling them up faster than
+// Electron tore the old ones down (the grey-out / OOM on 8GB machines). Hold the heavy preview until
+// this app has stayed open a beat; apps you fast-switch past unmount first and never spawn a renderer.
+const PREVIEW_MOUNT_DEBOUNCE_MS = 250;
 
 // Fingerprint of the files that actually affect the rendered preview, so renames,
 // schema tweaks, and SKILL.md edits don't trigger a needless re-screenshot.
@@ -327,6 +331,8 @@ const ViewEditor: React.FC<Props> = ({ output }) => {
   const previewRef = useRef<ViewPreviewHandle>(null);
   // True ~300ms after iframe `load`; keeps placeholder up until SPA actually paints, resets on URL change.
   const [iframePainted, setIframePainted] = useState(false);
+  // Gates the preview webview behind PREVIEW_MOUNT_DEBOUNCE_MS so fast-switched-past apps never mount one.
+  const [previewSettled, setPreviewSettled] = useState(false);
 
   // Thumbnail capture state. lastCaptured starts at the current render key when a
   // thumbnail already exists, so merely opening an app doesn't re-shoot (and re-sort) it;
@@ -881,6 +887,13 @@ const ViewEditor: React.FC<Props> = ({ output }) => {
     setIframePainted(false);
   }, [workspaceServeUrl]);
 
+  // Mount the preview only once this app has been the open one for a beat. The timer is cancelled on
+  // unmount, so blowing through apps faster than PREVIEW_MOUNT_DEBOUNCE_MS never spawns their renderers.
+  useEffect(() => {
+    const t = window.setTimeout(() => setPreviewSettled(true), PREVIEW_MOUNT_DEBOUNCE_MS);
+    return () => window.clearTimeout(t);
+  }, []);
+
   // 300ms after iframe `load` because SPA bundles need a beat to mount, otherwise the grey flash returns.
   const onIframeContentLoad = useCallback(() => {
     const t = window.setTimeout(() => setIframePainted(true), 300);
@@ -1227,7 +1240,8 @@ const ViewEditor: React.FC<Props> = ({ output }) => {
           {activeTab === TAB_PREVIEW && (
             <Box sx={{ position: 'relative', width: '100%', height: '100%' }}>
               {/* Render iframe under the placeholder so its first paint completes before we fade the placeholder out. */}
-              {(workspaceServeUrl || !showInstallPlaceholder) && (
+              {/* previewSettled gate: a fast-switched-past app unmounts before this flips, so it never mounts a webview renderer. */}
+              {previewSettled && (workspaceServeUrl || !showInstallPlaceholder) && (
                 <ViewPreview
                   ref={previewRef}
                   serveUrl={workspaceServeUrl}
