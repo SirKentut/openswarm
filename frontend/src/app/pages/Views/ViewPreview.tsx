@@ -340,6 +340,10 @@ const ViewPreview = forwardRef<ViewPreviewHandle, Props>(({
             width: '100%',
             height: '100%',
             border: 'none',
+            // Best-effort: newer Chromium clips a <webview>'s own radius even though
+            // it ignores a parent's. Square in older builds, harmless either way.
+            borderRadius: '12px',
+            overflow: 'hidden',
             background: _hostBg,
             ...style,
           }}
@@ -356,6 +360,7 @@ const ViewPreview = forwardRef<ViewPreviewHandle, Props>(({
             width: '100%',
             height: '100%',
             border: 'none',
+            borderRadius: '12px',
             background: _hostBg,
             ...style,
           }}

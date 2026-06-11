@@ -1237,9 +1237,9 @@ const ViewEditor: React.FC<Props> = ({ output }) => {
         </Box>
 
         {/* Tab content */}
-        <Box sx={{ flex: 1, overflow: 'hidden' }}>
+        <Box sx={{ flex: 1, overflow: 'hidden', px: 1, pb: 1 }}>
           {activeTab === TAB_PREVIEW && (
-            <Box sx={{ position: 'relative', width: '100%', height: '100%' }}>
+            <Box sx={{ position: 'relative', width: '100%', height: '100%', borderRadius: '12px', overflow: 'hidden' }}>
               {/* Render iframe under the placeholder so its first paint completes before we fade the placeholder out. */}
               {/* previewSettled gate: a fast-switched-past app unmounts before this flips, so it never mounts a webview renderer. */}
               {previewSettled && (workspaceServeUrl || !showInstallPlaceholder) && (
