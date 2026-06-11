@@ -78,6 +78,13 @@ const AppShell: React.FC = () => {
     return fn as typeof navigateRaw;
   }, [navigateRaw]);
   const location = useLocation();
+  // React Router (HashRouter) stores a monotonic index in history state. location
+  // re-renders on every nav, by which point window.history.state.idx is updated.
+  const historyIdx = (window.history.state?.idx as number | undefined) ?? 0;
+  const maxHistoryIdx = useRef(0);
+  maxHistoryIdx.current = Math.max(maxHistoryIdx.current, historyIdx);
+  const canGoBack = historyIdx > 0;
+  const canGoForward = historyIdx < maxHistoryIdx.current;
   const [dashboardsExpanded, setDashboardsExpanded] = useState(true);
   const [appsExpanded, setAppsExpanded] = useState(true);
   // Collapsed by default: config rows are progressive disclosure, not daily nav. Onboarding reads data-expanded and clicks to open when it needs them.
@@ -401,38 +408,46 @@ const AppShell: React.FC = () => {
           </IconButton>
         </Tooltip>
         <Tooltip title="Back">
-          <IconButton
-            size="small"
-            onClick={() => navigate(-1)}
-            sx={{
-              WebkitAppRegion: 'no-drag',
-              color: c.text.tertiary,
-              p: 0.5,
-              borderRadius: 1,
-              '& svg': { transition: 'transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1)' },
-              '&:hover': { color: c.text.secondary, bgcolor: `${c.text.tertiary}14` },
-              '&:hover svg': { transform: 'translateX(-2px)' },
-            }}
-          >
-            <ArrowLeft size={18} />
-          </IconButton>
+          {/* span wrapper so a disabled button still shows its Tooltip; lucide
+              glyph + hover-slide kept from the redesign, disabled-state from #68. */}
+          <span>
+            <IconButton
+              size="small"
+              onClick={() => navigate(-1)}
+              disabled={!canGoBack}
+              sx={{
+                WebkitAppRegion: 'no-drag',
+                color: c.text.tertiary,
+                p: 0.5,
+                borderRadius: 1,
+                '& svg': { transition: 'transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1)' },
+                '&:hover': { color: c.text.secondary, bgcolor: `${c.text.tertiary}14` },
+                '&:hover svg': { transform: 'translateX(-2px)' },
+              }}
+            >
+              <ArrowLeft size={18} />
+            </IconButton>
+          </span>
         </Tooltip>
         <Tooltip title="Forward">
-          <IconButton
-            size="small"
-            onClick={() => navigate(1)}
-            sx={{
-              WebkitAppRegion: 'no-drag',
-              color: c.text.tertiary,
-              p: 0.5,
-              borderRadius: 1,
-              '& svg': { transition: 'transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1)' },
-              '&:hover': { color: c.text.secondary, bgcolor: `${c.text.tertiary}14` },
-              '&:hover svg': { transform: 'translateX(2px)' },
-            }}
-          >
-            <ArrowRight size={18} />
-          </IconButton>
+          <span>
+            <IconButton
+              size="small"
+              onClick={() => navigate(1)}
+              disabled={!canGoForward}
+              sx={{
+                WebkitAppRegion: 'no-drag',
+                color: c.text.tertiary,
+                p: 0.5,
+                borderRadius: 1,
+                '& svg': { transition: 'transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1)' },
+                '&:hover': { color: c.text.secondary, bgcolor: `${c.text.tertiary}14` },
+                '&:hover svg': { transform: 'translateX(2px)' },
+              }}
+            >
+              <ArrowRight size={18} />
+            </IconButton>
+          </span>
         </Tooltip>
 
         <DynamicIsland />

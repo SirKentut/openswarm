@@ -178,6 +178,35 @@ try {
   document.addEventListener('wheel', onWheelCapture, { capture: true, passive: false });
 
   // ---------------------------------------------------------------------------
+  // Double-click to fit the browser card (parity with agent-chat dblclick).
+  //
+  // A <webview> is an out-of-process guest, so a dblclick inside it never
+  // reaches the embedding renderer and the dashboard's card dblclick-to-fit
+  // never fires over page content. Forward non-interactive dblclicks to the
+  // host (BrowserCard's ipc-message handler calls onDoubleClick -> fitToCards).
+  // We never preventDefault: the page keeps its native behavior. We skip
+  // interactive targets and skip when the dblclick selected a word, so links/
+  // buttons/inputs and native word-select win there. canvas is treated as
+  // interactive on purpose (maps/games/design tools use dblclick meaningfully).
+  const INTERACTIVE_DBLCLICK_SELECTOR = [
+    'a[href]', 'button', 'input', 'textarea', 'select', 'option', 'label',
+    'summary', 'details', 'video', 'audio', 'iframe', 'embed', 'object', 'canvas',
+    '[contenteditable=""]', '[contenteditable="true"]',
+    '[role="button"]', '[role="link"]', '[role="textbox"]', '[role="menuitem"]',
+    '[role="tab"]', '[role="checkbox"]', '[role="radio"]', '[role="switch"]', '[role="slider"]',
+  ].join(',');
+  const onDblClickCapture = (e) => {
+    try {
+      const t = e.target;
+      if (t && t.closest && t.closest(INTERACTIVE_DBLCLICK_SELECTOR)) return;
+      const sel = window.getSelection && window.getSelection();
+      if (sel && String(sel).trim().length > 0) return;
+      ipcRenderer.sendToHost('browser-dblclick');
+    } catch (_) {}
+  };
+  document.addEventListener('dblclick', onDblClickCapture, { capture: true });
+
+  // ---------------------------------------------------------------------------
   // [FRONTEND] console capture for the App Builder Terminal pane.
   //
   // Wrap window.console.{log,warn,error,info,debug} so each call also goes

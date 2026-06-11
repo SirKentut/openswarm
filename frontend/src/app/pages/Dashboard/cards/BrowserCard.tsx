@@ -192,6 +192,10 @@ const BrowserCard: React.FC<Props> = ({
 }) => {
   const c = useClaudeTokens();
   const dispatch = useAppDispatch();
+  // Read via ref inside the webview-attach effect so a new onDoubleClick identity
+  // doesn't re-run that effect (which would re-register the webview).
+  const onDoubleClickRef = useRef(onDoubleClick);
+  onDoubleClickRef.current = onDoubleClick;
   const scrollOverlayRef = useOverlayScrollPassthrough(isSelected);
   const browserHomepage = useAppSelector((state) => state.settings.data.browser_homepage);
   const elementSelectionCtx = useElementSelection();
@@ -308,6 +312,8 @@ const BrowserCard: React.FC<Props> = ({
         // No unconditional log; forwarded webview-console messages were causing 100s of host warns/sec and main-thread stalls.
         if (e?.channel === 'passkey-detected') {
           setPasskeyDialogOpen(true);
+        } else if (e?.channel === 'browser-dblclick') {
+          onDoubleClickRef.current?.(browserId, 'browser');
         } else if (e?.channel === 'canvas-wheel-zoom') {
           // Convert guest coords to doc coords and dispatch a CustomEvent; synthetic WheelEvent bubble was unreliable through GuestView.
           const payload = e.args?.[0] || {};
@@ -1373,7 +1379,7 @@ const BrowserCard: React.FC<Props> = ({
             position: 'absolute',
             cursor: CURSOR_MAP[dir],
             opacity: 0,
-            zIndex: 10,
+            zIndex: 20,
             ...sx,
           }}
         />
