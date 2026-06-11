@@ -1072,6 +1072,10 @@ const ViewEditor: React.FC<Props> = ({ output }) => {
           flexShrink: 0,
           cursor: 'col-resize',
           position: 'relative',
+          // Above both panels so neither one's background clips the overlapping
+          // line (the right panel paints later and was half-covering it, which
+          // made the line look thicker only where the header is transparent).
+          zIndex: 2,
           bgcolor: 'transparent',
           transition: 'background-color 0.15s',
           '&::after': {
