@@ -5,7 +5,6 @@ import Chip from '@mui/material/Chip';
 import PsychologyIcon from '@mui/icons-material/Psychology';
 import SmartToyOutlinedIcon from '@mui/icons-material/SmartToyOutlined';
 import AlternateEmailIcon from '@mui/icons-material/AlternateEmail';
-import KeyboardIcon from '@mui/icons-material/Keyboard';
 import TerminalIcon from '@mui/icons-material/Terminal';
 import InsertDriveFileOutlinedIcon from '@mui/icons-material/InsertDriveFileOutlined';
 import LanguageIcon from '@mui/icons-material/Language';
@@ -35,46 +34,6 @@ interface AtCommand {
   source: string;
   isChild?: boolean;
 }
-
-interface Shortcut {
-  key: string;
-  description: string;
-  category: 'navigation' | 'action';
-}
-
-const SHORTCUTS: Shortcut[] = [
-  { key: 'd', description: 'Go to Dashboard', category: 'navigation' },
-  { key: '1-9', description: 'Open agent by position', category: 'navigation' },
-  { key: 'Shift+A', description: 'Approve all pending', category: 'action' },
-  { key: 'Shift+D', description: 'Deny all pending', category: 'action' },
-  { key: '?', description: 'Show shortcuts dialog', category: 'navigation' },
-];
-
-const KeyBadge: React.FC<{ keys: string; c: any }> = ({ keys, c }) => (
-  <Box
-    sx={{
-      bgcolor: c.bg.secondary,
-      border: `1px solid ${c.border.medium}`,
-      borderRadius: 1.5,
-      px: 1.25,
-      py: 0.4,
-      display: 'inline-flex',
-      alignItems: 'center',
-    }}
-  >
-    <Typography
-      sx={{
-        color: c.accent.primary,
-        fontSize: '0.75rem',
-        fontFamily: c.font.mono,
-        fontWeight: 600,
-        lineHeight: 1,
-      }}
-    >
-      {keys}
-    </Typography>
-  </Box>
-);
 
 const SectionHeader: React.FC<{
   icon: React.ReactNode;
@@ -247,9 +206,6 @@ export const CommandsContent: React.FC = () => {
 
     return items;
   }, [builtinTools, customTools, outputItems]);
-
-  const navShortcuts = SHORTCUTS.filter((s) => s.category === 'navigation');
-  const actionShortcuts = SHORTCUTS.filter((s) => s.category === 'action');
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column' }}>
@@ -436,95 +392,6 @@ export const CommandsContent: React.FC = () => {
           )}
         </Box>
 
-        <Box sx={{ my: 2, borderTop: `1px solid ${c.border.subtle}` }} />
-
-        <Box>
-          <SectionHeader
-            icon={<KeyboardIcon sx={{ fontSize: 22 }} />}
-            title="Keyboard Shortcuts"
-            subtitle="Press ? anywhere to see the quick-reference dialog"
-            count={SHORTCUTS.length}
-            c={c}
-          />
-
-          <Box sx={{ display: 'flex', gap: 4 }}>
-            <Box sx={{ flex: 1 }}>
-              <Typography
-                sx={{
-                  color: c.text.tertiary,
-                  fontSize: '0.7rem',
-                  fontWeight: 600,
-                  textTransform: 'uppercase',
-                  letterSpacing: 1,
-                  mb: 1.5,
-                  px: 1,
-                }}
-              >
-                Navigation
-              </Typography>
-              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75 }}>
-                {navShortcuts.map((s) => (
-                  <Box
-                    key={s.key}
-                    sx={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'center',
-                      px: 1.5,
-                      py: 1,
-                      borderRadius: 2,
-                      '&:hover': { bgcolor: `${c.accent.primary}06` },
-                      transition: 'background-color 0.15s',
-                    }}
-                  >
-                    <Typography sx={{ color: c.text.muted, fontSize: '0.84rem' }}>
-                      {s.description}
-                    </Typography>
-                    <KeyBadge keys={s.key} c={c} />
-                  </Box>
-                ))}
-              </Box>
-            </Box>
-
-            <Box sx={{ flex: 1 }}>
-              <Typography
-                sx={{
-                  color: c.text.tertiary,
-                  fontSize: '0.7rem',
-                  fontWeight: 600,
-                  textTransform: 'uppercase',
-                  letterSpacing: 1,
-                  mb: 1.5,
-                  px: 1,
-                }}
-              >
-                Actions
-              </Typography>
-              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75 }}>
-                {actionShortcuts.map((s) => (
-                  <Box
-                    key={s.key}
-                    sx={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'center',
-                      px: 1.5,
-                      py: 1,
-                      borderRadius: 2,
-                      '&:hover': { bgcolor: `${c.accent.primary}06` },
-                      transition: 'background-color 0.15s',
-                    }}
-                  >
-                    <Typography sx={{ color: c.text.muted, fontSize: '0.84rem' }}>
-                      {s.description}
-                    </Typography>
-                    <KeyBadge keys={s.key} c={c} />
-                  </Box>
-                ))}
-              </Box>
-            </Box>
-          </Box>
-        </Box>
     </Box>
   );
 };

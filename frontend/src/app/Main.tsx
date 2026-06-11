@@ -78,11 +78,9 @@ if (typeof window !== 'undefined') {
 }
 import { report, getSessionTraceState, getRecentActions } from '@/shared/serviceClient';
 import { useRouteTracker } from '@/shared/hooks/useRouteTracker';
-import { useKeyboardShortcuts } from '@/shared/hooks/useKeyboardShortcuts';
 import { useDeepLink } from '@/shared/hooks/useDeepLink';
 import { useWindowFocus } from '@/shared/hooks/useWindowFocus';
 import { useInteractionHeartbeat } from '@/shared/hooks/useInteractionHeartbeat';
-import KeyboardShortcutsHelp from './components/overlays/KeyboardShortcutsHelp';
 import { ThemeProvider, useThemeMode, useClaudeTokens } from '@/shared/styles/ThemeContext';
 import { ClaudeTokens } from '@/shared/styles/claudeTokens';
 
@@ -206,11 +204,6 @@ function buildMuiTheme(c: ClaudeTokens, mode: 'light' | 'dark') {
     },
   });
 }
-
-const ShortcutsProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  useKeyboardShortcuts();
-  return <>{children}<KeyboardShortcutsHelp /></>;
-};
 
 const DeepLinkListener: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   useDeepLink();
@@ -469,8 +462,7 @@ const ThemedApp: React.FC = () => {
       <CssBaseline />
       <HashRouter>
         <RouteTrackerMount />
-        <ShortcutsProvider>
-          <SettingsLoader>
+        <SettingsLoader>
             <DefaultModelGuard>
             <UpdateListener>
               <CrashRecoveryChip />
@@ -502,7 +494,6 @@ const ThemedApp: React.FC = () => {
             </UpdateListener>
             </DefaultModelGuard>
           </SettingsLoader>
-        </ShortcutsProvider>
       </HashRouter>
     </MuiThemeProvider>
   );
