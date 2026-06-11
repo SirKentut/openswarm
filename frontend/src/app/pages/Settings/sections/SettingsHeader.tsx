@@ -5,7 +5,7 @@ import IconButton from '@mui/material/IconButton';
 import Tab from '@mui/material/Tab';
 import Tabs from '@mui/material/Tabs';
 import DialogTitle from '@mui/material/DialogTitle';
-import CloseIcon from '@mui/icons-material/Close';
+import { X } from 'lucide-react';
 import { useClaudeTokens } from '@/shared/styles/ThemeContext';
 
 const SettingsHeader: React.FC<{
@@ -25,8 +25,8 @@ const SettingsHeader: React.FC<{
         <Typography sx={{ color: c.text.primary, fontWeight: 600, fontSize: '1rem' }}>
           Settings
         </Typography>
-        <IconButton onClick={onClose} size="small" data-onboarding="settings-close-button" sx={{ color: c.text.tertiary, '&:hover': { color: c.text.primary } }}>
-          <CloseIcon sx={{ fontSize: 18 }} />
+        <IconButton onClick={onClose} size="small" data-onboarding="settings-close-button" sx={{ color: c.text.tertiary, '& svg': { transition: 'transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1)' }, '&:hover': { color: c.text.primary }, '&:hover svg': { transform: 'rotate(90deg)' } }}>
+          <X size={18} />
         </IconButton>
       </Box>
       <Tabs
