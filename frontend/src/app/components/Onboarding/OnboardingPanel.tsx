@@ -84,8 +84,12 @@ const OnboardingPanel: React.FC = () => {
   // Stage name labels the panel; the count + bar stay global so progress never resets between stages.
   const stageOf = currentStep?.stage ?? 'get_started';
 
-  const total = STEPS.length;
+  // Count only what's UNLOCKED, not all 8. A brand-new user sees "0/2" (launch +
+  // connect), and the denominator grows as the first win unlocks the rest, so we
+  // never dump the whole feature surface on someone before their first output.
+  // Guard: never let completed exceed the shown total (data-weirdness safety).
   const done = progress.completedSteps.length;
+  const total = Math.max(unlockedIds.size, done);
 
   // Timer lives inside CelebrationView so parent re-renders can't cancel it.
   const justDoneStepId = progress.justCompletedStepId;
