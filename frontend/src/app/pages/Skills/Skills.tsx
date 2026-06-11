@@ -338,15 +338,16 @@ const Skills: React.FC = () => {
             fullWidth
             sx={{
               textTransform: 'none',
-              fontSize: '0.76rem',
+              fontSize: '0.86rem',
               fontWeight: 500,
               color: c.accent.primary,
-              justifyContent: 'flex-start',
-              py: 0.5,
-              px: 1,
-              borderRadius: `${c.radius.sm}px`,
-              border: `1px dashed ${c.accent.primary}40`,
-              '&:hover': { bgcolor: `${c.accent.primary}08`, borderColor: c.accent.primary },
+              justifyContent: 'center',
+              gap: 0.5,
+              py: 0.8,
+              px: 1.5,
+              borderRadius: 999,
+              border: `1px solid ${c.accent.primary}40`,
+              '&:hover': { bgcolor: `${c.accent.primary}10`, borderColor: c.accent.primary },
             }}
           >
             Build with AI

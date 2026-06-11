@@ -51,7 +51,8 @@ import { ErrorSlime } from '@/app/components/feedback/ErrorSlime';
 
 const SIDEBAR_MIN = 160;
 const SIDEBAR_MAX = 400;
-const SIDEBAR_DEFAULT = 220;
+// 260 matches Claude.ai's nav-sidebar width: roomy enough that names don't truncate.
+const SIDEBAR_DEFAULT = 260;
 const SIDEBAR_WIDTH_KEY = 'openswarm-sidebar-width';
 const UPDATE_DISMISS_KEY = 'openswarm-update-dismissed';
 
