@@ -291,15 +291,6 @@ const AgentCard: React.FC<Props> = ({
 
   const accentColor = c.accent.primary;
 
-  const STATUS_COLORS: Record<string, { color: string; bg: string }> = {
-    running: { color: c.status.success, bg: c.status.successBg },
-    waiting_approval: { color: c.status.warning, bg: c.status.warningBg },
-    completed: { color: c.text.tertiary, bg: c.bg.secondary },
-    error: { color: c.status.error, bg: c.status.errorBg },
-    stopped: { color: c.text.tertiary, bg: c.bg.secondary },
-    draft: { color: c.accent.primary, bg: c.bg.secondary },
-  };
-
   const isDraft = session.status === 'draft';
 
   const DRAG_THRESHOLD = 3;
@@ -503,7 +494,6 @@ const AgentCard: React.FC<Props> = ({
       : '';
   const hasPending = session.pending_approvals.length > 0;
   const pendingReq = session.pending_approvals[0];
-  const statusStyle = STATUS_COLORS[session.status] || { color: c.text.tertiary, bg: c.bg.secondary };
 
   const noTransition = isDragging || isResizing || (isSelected && !!multiDragDelta);
 
@@ -759,9 +749,8 @@ const AgentCard: React.FC<Props> = ({
             </Typography>
             {/* Status speaks only when it needs the user; finished work sits quiet. */}
             {session.status !== 'completed' && session.status !== 'stopped' && (
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.6, flexShrink: 0 }}>
-                <Box sx={{ width: 6, height: 6, borderRadius: '50%', bgcolor: statusStyle.color, flexShrink: 0 }} />
-                <Typography sx={{ fontSize: '0.75rem', fontWeight: 500, color: c.text.secondary, whiteSpace: 'nowrap' }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', flexShrink: 0 }}>
+                <Typography sx={{ fontSize: '0.75rem', fontWeight: 500, color: c.text.tertiary, whiteSpace: 'nowrap' }}>
                   {friendlyStatusLabel(session.status)}
                 </Typography>
               </Box>
