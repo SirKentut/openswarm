@@ -13,15 +13,17 @@ import Button from '@mui/material/Button';
 import Snackbar from '@mui/material/Snackbar';
 import Alert from '@mui/material/Alert';
 import InputBase from '@mui/material/InputBase';
-import DashboardIcon from '@mui/icons-material/Dashboard';
-import PsychologyIcon from '@mui/icons-material/Psychology';
-import BuildIcon from '@mui/icons-material/Build';
-import TuneIcon from '@mui/icons-material/Tune';
-import ViewQuiltIcon from '@mui/icons-material/ViewQuilt';
+// One outlined icon language for the sidebar: thin monoline glyphs (not the
+// filled Material clip-art) so the rail reads as designed, not assembled.
+import DashboardIcon from '@mui/icons-material/GridViewOutlined';
+import PsychologyIcon from '@mui/icons-material/PsychologyOutlined';
+import BuildIcon from '@mui/icons-material/BuildOutlined';
+import TuneIcon from '@mui/icons-material/TuneOutlined';
+import ViewQuiltIcon from '@mui/icons-material/WidgetsOutlined';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import AddIcon from '@mui/icons-material/Add';
-import SettingsIcon from '@mui/icons-material/Settings';
-import ExtensionIcon from '@mui/icons-material/Extension';
+import SettingsIcon from '@mui/icons-material/SettingsOutlined';
+import ExtensionIcon from '@mui/icons-material/PaletteOutlined';
 import ViewSidebarOutlinedIcon from '@mui/icons-material/ViewSidebarOutlined';
 import ArrowBackOutlinedIcon from '@mui/icons-material/ArrowBackOutlined';
 import ArrowForwardOutlinedIcon from '@mui/icons-material/ArrowForwardOutlined';
@@ -633,8 +635,8 @@ const AppShell: React.FC = () => {
                 transition: 'background-color 0.15s',
               }}
             >
-              <ListItemIcon sx={{ color: isDashboardRoute ? c.accent.primary : c.text.tertiary, minWidth: 32 }}>
-                <DashboardIcon sx={{ fontSize: 20 }} />
+              <ListItemIcon sx={{ color: isDashboardRoute ? c.accent.primary : c.text.tertiary, minWidth: 28 }}>
+                <DashboardIcon sx={{ fontSize: 18 }} />
               </ListItemIcon>
               <ListItemText
                 primary="Dashboards"
@@ -795,8 +797,8 @@ const AppShell: React.FC = () => {
                 transition: 'background-color 0.15s',
               }}
             >
-              <ListItemIcon sx={{ color: isCustomizationRoute ? c.accent.primary : c.text.tertiary, minWidth: 32 }}>
-                <ExtensionIcon sx={{ fontSize: 20 }} />
+              <ListItemIcon sx={{ color: isCustomizationRoute ? c.accent.primary : c.text.tertiary, minWidth: 28 }}>
+                <ExtensionIcon sx={{ fontSize: 18 }} />
               </ListItemIcon>
               <ListItemText
                 primary="Customization"
@@ -890,8 +892,8 @@ const AppShell: React.FC = () => {
                 transition: 'background-color 0.15s',
               }}
             >
-              <ListItemIcon sx={{ color: isAppsRoute ? c.accent.primary : c.text.tertiary, minWidth: 32 }}>
-                <ViewQuiltIcon sx={{ fontSize: 20 }} />
+              <ListItemIcon sx={{ color: isAppsRoute ? c.accent.primary : c.text.tertiary, minWidth: 28 }}>
+                <ViewQuiltIcon sx={{ fontSize: 18 }} />
               </ListItemIcon>
               <ListItemText
                 primary="Apps"
@@ -1007,8 +1009,8 @@ const AppShell: React.FC = () => {
               transition: 'background-color 0.15s',
             }}
           >
-            <ListItemIcon sx={{ color: c.text.tertiary, minWidth: 32, position: 'relative' }}>
-              <SettingsIcon sx={{ fontSize: 20 }} />
+            <ListItemIcon sx={{ color: c.text.tertiary, minWidth: 28, position: 'relative' }}>
+              <SettingsIcon sx={{ fontSize: 18 }} />
               {showUpdateDot && (
                 <Box
                   sx={{
