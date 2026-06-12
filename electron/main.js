@@ -1485,6 +1485,30 @@ function getBuildInfo() {
   return info;
 }
 
+// The packaged frontend ships as an unversioned `./bundle.js`, and the embedded
+// HTTP server sends no validation headers, so Chromium caches it heuristically
+// and keeps serving the OLD JS across an upgrade. The new code never runs (a
+// fix or UI change silently no-ops until the cache happens to evict). Fix: when
+// the build changes, nuke the renderer HTTP + V8 caches ONCE before the window
+// loads. Same build on relaunch keeps the cache (no startup-cost regression).
+async function clearRendererCacheIfBuildChanged() {
+  if (isDev) return;
+  try {
+    const bi = getBuildInfo();
+    const buildId = `${app.getVersion()}|${bi.sha || ''}|${bi.builtAt || ''}`;
+    const markerPath = path.join(app.getPath('userData'), '.frontend-build');
+    let prev = null;
+    try { prev = fs.readFileSync(markerPath, 'utf8').trim(); } catch (_) {}
+    if (prev === buildId) return;
+    await session.defaultSession.clearCache();
+    try { await session.defaultSession.clearCodeCaches({}); } catch (_) {}
+    try { fs.writeFileSync(markerPath, buildId); } catch (_) {}
+    console.log(`[cache] build changed (${prev || 'none'} -> ${buildId}); cleared renderer cache so the new frontend loads`);
+  } catch (err) {
+    console.warn('[cache] clearRendererCacheIfBuildChanged failed:', err && err.message);
+  }
+}
+
 function setupAutoUpdater() {
   if (!autoUpdater) return;
   if (isSquirrelUpdater) {
@@ -1743,6 +1767,8 @@ app.whenReady().then(async () => {
       }
     }
     emitSplashStatus('Almost ready…');
+    // Must run before createWindow loads the URL, or the renderer fetches the stale bundle first.
+    await clearRendererCacheIfBuildChanged();
     createWindow();
     if (!isDev) {
       setupAutoUpdater();
