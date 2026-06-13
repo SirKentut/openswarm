@@ -143,8 +143,16 @@ const AppShell: React.FC = () => {
   const modelsByProvider = useAppSelector((s) => s.models.byProvider);
   const modelsLoaded = useAppSelector((s) => s.models.loaded);
   const hasModelConnected = Object.keys(modelsByProvider).length > 0;
+  // During an active free trial the user CAN run things, so a red "no model connected"
+  // warning is misleading and discouraging (it sits right above the working starter chips).
+  // The trial flips connection_mode back to own_key the moment it's spent, so this banner
+  // returns then, landing the connect-a-model nudge after the win, not before it.
+  const freeTrialActive = useAppSelector((s) => {
+    const d = s.settings.data as any;
+    return !!(d && d.connection_mode === 'free-trial' && d.free_trial_token);
+  });
   // Wait for initial fetch to land before flashing the banner.
-  const showWarningBanner = !isOnline || (modelsLoaded && !hasModelConnected);
+  const showWarningBanner = !isOnline || (modelsLoaded && !hasModelConnected && !freeTrialActive);
 
   const bannerDismissedForVersion = availableVersion != null && dismissedVersion === availableVersion;
   const isUpdateActionable = updateStatus === 'available' || updateStatus === 'downloaded' || updateStatus === 'downloading';
