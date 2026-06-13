@@ -392,8 +392,24 @@ const ViewEditor: React.FC<Props> = ({ output }) => {
   const modelsByProvider = useAppSelector((s) => s.models.byProvider);
   const modelsLoaded = useAppSelector((s) => s.models.loaded);
 
+  // Spam-clicking sidebar apps used to fire EVERY app's seed + agent-init + runtime boot on
+  // each click, flooding the backend: the "Initializing agent..." stall (the landed app's init
+  // can't get through the backlog) and, under enough load, an orderly self-quit. Gate all the
+  // heavy per-app work behind sustained focus, it only runs if you STAY on the app ~800ms. A
+  // brand-new app (no output id yet) is always a deliberate open, so it settles immediately,
+  // keeping the onboarding /apps/new flow snappy. A warm reopen still renders its chat instantly
+  // from initialDraftId above, this only delays the background reattach/seed for click-throughs.
+  const isNewApp = !output?.id;
+  const [focusSettled, setFocusSettled] = useState(isNewApp);
+  useEffect(() => {
+    if (isNewApp) return;
+    const t = setTimeout(() => setFocusSettled(true), 800);
+    return () => clearTimeout(t);
+  }, [isNewApp]);
+
   useEffect(() => {
     if (draftCreated.current) return;
+    if (!focusSettled) return;
     // Wait for settings + models else we'd snapshot Redux's initial 'sonnet' over the user's choice.
     if (!settingsLoaded || !modelsLoaded) return;
     draftCreated.current = true;
@@ -526,7 +542,7 @@ const ViewEditor: React.FC<Props> = ({ output }) => {
         setInitialDraftId(action.payload.draftId);
       }
     })();
-  }, [dispatch, output, stableWorkspaceId, settingsLoaded, modelsLoaded, defaultModel, defaultThinkingLevel, modelsByProvider]);
+  }, [dispatch, output, stableWorkspaceId, settingsLoaded, modelsLoaded, defaultModel, defaultThinkingLevel, modelsByProvider, focusSettled]);
 
   // Resolve via our own pointers only; falling back to activeSessionId bled unrelated agents' chats into the wrong builder.
   const launchedFromDraft = useAppSelector((state) =>
@@ -930,19 +946,16 @@ const ViewEditor: React.FC<Props> = ({ output }) => {
     };
   }, [workspaceId, runtimeShouldRun, appendTerminalLine]);
 
-  // One-shot trigger: flips runtimeShouldRun true only after you STAY on Preview/Terminal
-  // for 800ms, never flips back. Each runtime/start boots a vite dev server (a tree of node
-  // procs, serialized behind a global lock); the old 250ms preview gate was too short to stop
-  // spam-clicking from booting one per app, so frozen vite trees piled up (~2GB) and OOM-killed
-  // the backend. An 800ms sustained-focus timer, cleared on unmount, means an app you just
-  // click past never boots a runtime at all, only one you actually settle on does.
+  // One-shot trigger on the same sustained-focus gate as the seed: flips runtimeShouldRun true
+  // once this app is the focus pick (focusSettled) and you're on Preview/Terminal, never flips
+  // back. workspaceId is already downstream of the focus-gated seed, so this just keeps the
+  // intent explicit, an app you click past never boots a vite runtime, only one you settle on.
   useEffect(() => {
-    if (!workspaceId || runtimeShouldRun) return;
+    if (!workspaceId || runtimeShouldRun || !focusSettled) return;
     const wantsRuntime = activeTab === TAB_PREVIEW || activeTab === TAB_TERMINAL;
     if (!wantsRuntime) return;
-    const t = setTimeout(() => setRuntimeShouldRun(true), 800);
-    return () => clearTimeout(t);
-  }, [workspaceId, activeTab, runtimeShouldRun, TAB_PREVIEW, TAB_TERMINAL]);
+    setRuntimeShouldRun(true);
+  }, [workspaceId, activeTab, runtimeShouldRun, focusSettled, TAB_PREVIEW, TAB_TERMINAL]);
 
   // Prefer the Vite dev server URL; fall back to legacy /serve/. New-mode pre-Vite renders the install placeholder (legacy URL 404s).
   const showInstallPlaceholder = isNewModeRuntime && !frontendUrl;
