@@ -463,7 +463,7 @@ When making a new app from scratch:
    name (Title Case) in `name` and a one-sentence description in `description`.
    The Apps sidebar and the App Builder header show this name to the user; until
    you write it, both surfaces sit at "Untitled App". Don't wait until the end of
-   the turn to fill it in — pick a name from the user's prompt and ship it now.
+   the turn to fill it in, pick a name from the user's prompt and ship it now.
    Example: prompt "make doodle jump" → `{"name": "Doodle Jumper", "description":
    "Endless platform-hopper inspired by Doodle Jump."}`. You can revise it later
    if the app's purpose shifts.
