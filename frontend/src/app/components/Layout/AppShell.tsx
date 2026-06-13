@@ -555,7 +555,7 @@ const AppShell: React.FC = () => {
           <Typography sx={{ fontSize: '0.8rem', color: c.text.secondary, flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
             {updateStatus === 'available' && `OpenSwarm${verSuffix} is available`}
             {updateStatus === 'downloading' && `Downloading OpenSwarm${verSuffix}…`}
-            {updateStatus === 'downloaded' && `OpenSwarm${verSuffix} will install when you quit`}
+            {updateStatus === 'downloaded' && `OpenSwarm${verSuffix} is ready to install`}
           </Typography>
           {updateStatus === 'downloading' && (
             <LinearProgress

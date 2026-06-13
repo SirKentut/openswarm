@@ -381,6 +381,7 @@ let mainWindow = null;
 let backendProcess = null;
 let backendPort = null;
 let cachedUpdateStatus = { status: 'idle', info: null, error: null };
+let isInstallingUpdate = false;
 
 // Splash boot UX. Opens immediately on app.whenReady so the user sees
 // motion within ~1s of double-click instead of a 30-60s frozen icon
@@ -488,6 +489,10 @@ const isDev = process.env.ELECTRON_DEV === '1';
 // crash loop, repeat cap). Packaged builds only; never runs in dev.
 const CRASH_WATCHDOG_SUPPORT_DIR = path.join(os.homedir(), 'Library', 'Application Support', 'openswarm');
 const CRASH_WATCHDOG_CLEAN_QUIT_LOCK = path.join(CRASH_WATCHDOG_SUPPORT_DIR, 'clean-quit.lock');
+// The watchdog skips a relaunch while this exists (guard 4) so the parent dying
+// mid-swap isn't read as a crash. We write it when an update install starts and
+// clear it on the next boot (the freshly-installed app deletes its own stale lock).
+const CRASH_WATCHDOG_UPDATING_LOCK = path.join(CRASH_WATCHDOG_SUPPORT_DIR, 'updating.lock');
 
 function spawnCrashWatchdog() {
   if (process.platform !== 'darwin') return;
@@ -1625,6 +1630,9 @@ function killBackend() {
 }
 
 app.whenReady().then(async () => {
+  // We made it here, so any prior update swap finished. Drop a stale updating.lock
+  // (the watchdog never deletes it) so a real crash later isn't silently swallowed.
+  try { fs.unlinkSync(CRASH_WATCHDOG_UPDATING_LOCK); } catch (_) {}
   // Spawn the Mac crash watchdog. Detached process; if it fails to spawn the
   // app continues normally (silent fail by design). Guards inside the
   // watchdog itself prevent false-positive relaunches.
@@ -2133,7 +2141,18 @@ app.on('window-all-closed', () => {
   // backend in ~1s, and the [diag][main] close-cause logging identifies the
   // closer. Explicit quits (Cmd+Q, dock Quit) are untouched — Electron's
   // quit pipeline runs will-quit -> killBackend regardless of this handler.
-  if (process.platform === 'darwin') return;
+  if (process.platform === 'darwin') {
+    // One exception: a Mac update only installs when the process actually dies, but
+    // the keep-alive above means the red button no longer quits. So if an update is
+    // downloaded and waiting, treat the close as "apply it" (quit + swap + relaunch)
+    // instead of lingering windowless and re-prompting on every reopen. This is what
+    // the banner promised and what users expect when they close to finish updating.
+    if (!isInstallingUpdate && cachedUpdateStatus && cachedUpdateStatus.status === 'downloaded') {
+      console.log('[updater] window closed with a staged update; applying it on close');
+      installDownloadedUpdate();
+    }
+    return;
+  }
   // Windows/Linux: quit on last window, but intentionally NOT killBackend()
   // here. before-quit POSTs /shutdown-all so the backend reaps App Builder
   // child processes (bundled node/vite, uvicorn) while it is still alive;
@@ -2176,6 +2195,10 @@ function postShutdownAllApps(timeoutMs = 2000) {
 let drainingForQuit = false;
 app.on('before-quit', async (event) => {
   if (drainingForQuit) return;
+  // An update install already reaped the subprocesses and is driving its own
+  // quit + relaunch through Squirrel; cancelling that quit to drain again can
+  // strand the relaunch, so let it pass straight through.
+  if (isInstallingUpdate) return;
   event.preventDefault();
   drainingForQuit = true;
   // 10s, not 2s: stop_all() reaps runtimes in parallel but each can take up
@@ -2218,7 +2241,9 @@ app.on('activate', () => {
   // re-entrancy; backendPort gates on boot having completed (pre-boot, the
   // splash flow owns first-window creation).
   if (BrowserWindow.getAllWindows().length !== 0) return;
-  if (drainingForQuit || isCreatingMainWindow || !backendPort) return;
+  // isInstallingUpdate: a close-to-update is mid-flight (windowless for a beat
+  // before Squirrel quits + relaunches); don't resurrect a window it's about to tear down.
+  if (drainingForQuit || isInstallingUpdate || isCreatingMainWindow || !backendPort) return;
   // recreateMainWindow, NOT bare createWindow: the window is built show:false
   // and the boot path's splash swapToMain is long gone, so the recreate
   // path's own ready-to-show -> show()/focus() is what makes it visible.
@@ -2380,11 +2405,44 @@ ipcMain.handle('set-allow-prerelease', async (_e, value) => {
   return { success: true, changed: true };
 });
 
-ipcMain.handle('install-update', async () => {
-  if (!autoUpdater) return;
+// Single way to apply a downloaded update, from the Restart button OR a close-with-
+// update-pending. quitAndInstall does the quit + swap + relaunch itself (the user
+// never manually quits), but the install only lands once the process really dies,
+// so: reap App Builder subprocesses up front, arm the watchdog lock, then flag the
+// quit so before-quit lets Squirrel's relaunch through clean instead of draining it.
+async function installDownloadedUpdate() {
+  if (!autoUpdater || isInstallingUpdate) return;
+  isInstallingUpdate = true;
+  // Watchdog lock is Mac-only (the watchdog is darwin-only and the path is a Mac path).
+  if (process.platform === 'darwin') {
+    try {
+      if (!fs.existsSync(CRASH_WATCHDOG_SUPPORT_DIR)) fs.mkdirSync(CRASH_WATCHDOG_SUPPORT_DIR, { recursive: true });
+      fs.writeFileSync(CRASH_WATCHDOG_UPDATING_LOCK, '');
+    } catch (_) {}
+  }
+  try { await postShutdownAllApps(8000); } catch (_) {}
   // Built-in autoUpdater (Windows) takes no args; electron-updater (Mac) takes (isSilent, isForceRunAfter).
   if (isSquirrelUpdater) { autoUpdater.quitAndInstall(); return; }
   autoUpdater.quitAndInstall(false, true);
+  // Safety net: a healthy install terminates us in a few seconds, so this timer
+  // dies with the process and never fires. It only runs if Squirrel never quit us
+  // (still validating, or signature validation failed): un-stick the flag, drop the
+  // lock, and either tell the user or bring a window back so we're never stranded
+  // windowless-but-alive. A late quit, if it ever lands, still wins.
+  setTimeout(() => {
+    if (!isInstallingUpdate) return;
+    isInstallingUpdate = false;
+    try { fs.unlinkSync(CRASH_WATCHDOG_UPDATING_LOCK); } catch (_) {}
+    if (BrowserWindow.getAllWindows().length > 0) {
+      sendToRenderer('update-error', 'Update could not be installed. Please download the latest from openswarm.com.');
+    } else if (backendPort && !isCreatingMainWindow) {
+      try { recreateMainWindow(); } catch (_) {}
+    }
+  }, 30000);
+}
+
+ipcMain.handle('install-update', async () => {
+  await installDownloadedUpdate();
 });
 
 ipcMain.handle('capture-page', async (event, rect) => {
