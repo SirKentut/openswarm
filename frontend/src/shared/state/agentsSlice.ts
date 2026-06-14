@@ -4,6 +4,14 @@ import { normalizeSessionName } from './sessionDisplay';
 
 const AGENTS_API = `${API_BASE}/agents`;
 
+// Appended (server-side) to the base agent prompt for the very first run, so the welcome
+// agent opens like a sharp teammate: narrow down an open-ended ask before diving in.
+const WELCOME_EXPLORATORY_PROMPT =
+  "This is the user's very first task with you. Be a warm, sharp teammate: if their request " +
+  "is open-ended or vague, ask 1-2 short clarifying questions to pin down exactly what they " +
+  "want and care about before you start, then do it. If it's already concrete, just do it. " +
+  'Keep any questions brief and friendly, never a wall of text.';
+
 export interface AgentMessage {
   id: string;
   role: 'user' | 'assistant' | 'tool_call' | 'tool_result' | 'system' | 'thinking';
@@ -523,7 +531,8 @@ const agentsSlice = createSlice({
           worktree_path: null,
           branch_name: null,
           sdk_session_id: null,
-          system_prompt: null,
+          // Welcome drafts launch the first agent in an exploratory "narrow-down-then-do" mode.
+          system_prompt: welcome === true ? WELCOME_EXPLORATORY_PROMPT : null,
           allowed_tools: [],
           max_turns: null,
           created_at: new Date().toISOString(),
