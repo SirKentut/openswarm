@@ -12,7 +12,7 @@
 
 #include <node_api.h>
 #import <Cocoa/Cocoa.h>
-#include <math.h>
+#include "clamp_decision.h"
 
 static id gMonitor = nil;
 
@@ -28,15 +28,16 @@ static NSEvent *ClampOffWindowRelease(NSEvent *event) {
     if (!content) return event;
     NSPoint p = [event locationInWindow];
     NSSize ws = [win frame].size;
-    // act only when the release is truly off the window (the crash case); any
-    // release inside the window, titlebar included, is left exactly as-is
-    if (NSPointInRect(p, NSMakeRect(0.0, 0.0, ws.width, ws.height))) return event;
     NSRect cb = [content frame];
-    CGFloat x = fmin(fmax(p.x, NSMinX(cb) + 1.0), NSMaxX(cb) - 1.0);
-    CGFloat y = fmin(fmax(p.y, NSMinY(cb) + 1.0), NSMaxY(cb) - 1.0);
+    // all the misfire-prone arithmetic lives in clamp_decision() so the property
+    // test exercises the exact code that ships
+    ClampDecision d = clamp_decision(p.x, p.y, ws.width, ws.height,
+                                     cb.origin.x, cb.origin.y,
+                                     cb.size.width, cb.size.height);
+    if (!d.clamp) return event;
     NSEvent *clamped =
         [NSEvent mouseEventWithType:t
-                           location:NSMakePoint(x, y)
+                           location:NSMakePoint(d.x, d.y)
                       modifierFlags:[event modifierFlags]
                           timestamp:[event timestamp]
                        windowNumber:[event windowNumber]
