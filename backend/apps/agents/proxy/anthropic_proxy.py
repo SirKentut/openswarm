@@ -35,44 +35,72 @@ _GEMINI_MODEL_PREFIXES = ("gemini/", "gc/", "ag/")
 # Own-key Gemini ("gemini-3-flash-api" etc.) skips the gemini/ prefix; match bare names so $schema scrub still fires.
 _GEMINI_BARE_MODEL_PATTERNS = ("gemini-",)
 
-# Keys 9Router 0.3.60 misses that Gemini's function_declarations validator 400s on. Each was caught in prod.
-_GEMINI_FORBIDDEN_SCHEMA_KEYS = {
-    "$schema",
-    "$id",
-    "$ref",
-    "$defs",
-    "definitions",
-    "additionalProperties",
-    "propertyNames",
-    "patternProperties",
-    "exclusiveMinimum",
-    "exclusiveMaximum",
-    "const",
-    "prefill",
-    "enumTitles",
-    "title",
-    "examples",
-    "default",
-    "readOnly",
-    "writeOnly",
-    "deprecated",
+# Gemini's function_declarations validator accepts only a small OpenAPI subset.
+# A denylist was whack-a-mole: every new JSON Schema construct that slipped
+# through (union `type`, anyOf, $comment, format, ...) was a fresh prod 400 with
+# zero tokens in. We invert it: keep ONLY the keys Gemini is known to accept, and
+# fold the two "optional" encodings Anthropic emits (a union `type` list, and an
+# anyOf whose other branch is `{"type":"null"}`) into the `nullable` flag Gemini
+# actually understands. Everything dropped is advisory; the model still reads it
+# from `description`. The win is structural: an unknown future key can't 400 us.
+_GEMINI_ALLOWED_SCHEMA_KEYS = {
+    "type", "description", "nullable", "enum", "items", "properties",
+    "required", "minimum", "maximum", "minItems", "maxItems",
 }
 
+_GEMINI_NULL_TYPES = {"null", None}
 
-def _scrub_gemini_schema(node):
-    """Recursive in-place strip of Gemini-rejected JSON Schema fields."""
-    if isinstance(node, dict):
-        for k in list(node.keys()):
-            if k in _GEMINI_FORBIDDEN_SCHEMA_KEYS:
-                node.pop(k, None)
-                continue
-            node[k] = _scrub_gemini_schema(node[k])
-        return node
+
+def _normalize_schema_for_gemini(node):
+    """Allowlist-rewrite a JSON Schema node into the subset Gemini accepts.
+    Returns a NEW node (callers must assign the result); folds union/anyOf
+    nullability into `nullable`. Never raises on odd input."""
     if isinstance(node, list):
-        for i, v in enumerate(node):
-            node[i] = _scrub_gemini_schema(v)
+        return [_normalize_schema_for_gemini(v) for v in node]
+    if not isinstance(node, dict):
         return node
-    return node
+
+    nullable = bool(node.get("nullable"))
+
+    # Gemini can't represent unions; collapse anyOf/oneOf/allOf to one branch.
+    # A bare {"type": "null"} member just means the field is nullable.
+    for combiner in ("anyOf", "oneOf", "allOf"):
+        branches = node.get(combiner)
+        if isinstance(branches, list) and branches:
+            picked = None
+            for b in branches:
+                if isinstance(b, dict) and b.get("type") in _GEMINI_NULL_TYPES and len(b) == 1:
+                    nullable = True
+                elif picked is None:
+                    picked = b
+            base = _normalize_schema_for_gemini(picked) if isinstance(picked, dict) else {}
+            if nullable and isinstance(base, dict):
+                base["nullable"] = True
+            return base
+
+    out = {}
+    t = node.get("type")
+    if isinstance(t, list):  # ["string", "null"] -> "string" + nullable
+        non_null = [x for x in t if x not in _GEMINI_NULL_TYPES]
+        if len(non_null) != len(t):
+            nullable = True
+        t = non_null[0] if non_null else None
+    if t is not None:
+        out["type"] = t
+
+    for k, v in node.items():
+        if k in ("type", "nullable") or k not in _GEMINI_ALLOWED_SCHEMA_KEYS:
+            continue
+        if k == "properties" and isinstance(v, dict):
+            out[k] = {pk: _normalize_schema_for_gemini(pv) for pk, pv in v.items()}
+        elif k == "items":
+            out[k] = _normalize_schema_for_gemini(v)
+        else:
+            out[k] = v
+
+    if nullable:
+        out["nullable"] = True
+    return out
 
 
 # GPT-5.x rejects max_tokens; needs max_completion_tokens. Anthropic-format wire still emits max_tokens; we rename on the way out.
@@ -151,6 +179,15 @@ def _scrub_request_for_openai_gpt5(body: bytes) -> bytes:
     elif "max_tokens" in parsed and "max_completion_tokens" in parsed:
         parsed.pop("max_tokens", None)
         mutated = True
+    # GPT-5 reasoning models reject sampling knobs (temperature must be 1, top_p
+    # and penalties unsupported); the wire carries them for the user's picked model.
+    if "temperature" in parsed and parsed["temperature"] != 1:
+        parsed.pop("temperature", None)
+        mutated = True
+    for _k in ("top_p", "top_k", "frequency_penalty", "presence_penalty",
+               "logprobs", "top_logprobs", "logit_bias"):
+        if parsed.pop(_k, None) is not None:
+            mutated = True
     try:
         before = json.dumps(parsed.get("messages"), sort_keys=True) if "messages" in parsed else ""
         _rewrite_document_to_openai_file(parsed)
@@ -272,9 +309,9 @@ def _scrub_request_for_gemini(body: bytes) -> bytes:
             if not isinstance(t, dict):
                 continue
             if isinstance(t.get("input_schema"), (dict, list)):
-                _scrub_gemini_schema(t["input_schema"])
+                t["input_schema"] = _normalize_schema_for_gemini(t["input_schema"])
             if isinstance(t.get("parameters"), (dict, list)):
-                _scrub_gemini_schema(t["parameters"])
+                t["parameters"] = _normalize_schema_for_gemini(t["parameters"])
     try:
         if isinstance(parsed, dict):
             _rewrite_document_to_image(parsed)

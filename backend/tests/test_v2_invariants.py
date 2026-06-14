@@ -1482,6 +1482,80 @@ def test_gemini_translated_block_matches_9router_image_url_filter():
     assert block["image_url"]["url"].startswith("data:application/pdf;base64,")
 
 
+def test_gemini_schema_normalizer_allowlists_and_folds_nullable():
+    """Gemini's function_declarations validator 400s (zero tokens in) on JSON
+    Schema constructs the old denylist kept missing: union `type`, anyOf/oneOf/
+    allOf, $comment, format, additionalProperties, title. The normalizer keeps
+    only the keys Gemini accepts and folds the two nullable encodings Anthropic
+    emits (union type, anyOf-with-null) into the `nullable` flag Gemini groks.
+    Live-confirmed against the Gemini API 2026-06-14."""
+    import json
+    from backend.apps.agents.proxy.anthropic_proxy import (
+        _normalize_schema_for_gemini, _scrub_request_for_gemini,
+    )
+    # union type -> single type + nullable
+    assert _normalize_schema_for_gemini({"type": ["string", "null"], "description": "d"}) == \
+        {"type": "string", "description": "d", "nullable": True}
+    # anyOf-with-null -> chosen branch + nullable, allowed constraint preserved
+    assert _normalize_schema_for_gemini({"anyOf": [{"type": "integer", "minimum": 0}, {"type": "null"}]}) == \
+        {"type": "integer", "minimum": 0, "nullable": True}
+    # forbidden keys dropped, enum kept
+    assert _normalize_schema_for_gemini({
+        "type": "object", "additionalProperties": False, "title": "T",
+        "properties": {"u": {"type": "string", "format": "uri", "$comment": "x", "minLength": 2},
+                       "d": {"type": "string", "enum": ["a", "b"]}},
+        "required": ["u"],
+    }) == {"type": "object",
+           "properties": {"u": {"type": "string"}, "d": {"type": "string", "enum": ["a", "b"]}},
+           "required": ["u"]}
+
+    # End to end: no Gemini-rejected key survives a realistic tool payload.
+    FORBIDDEN = {"$schema", "$ref", "additionalProperties", "title", "default", "$comment",
+                 "format", "pattern", "minLength", "maxLength", "anyOf", "oneOf", "allOf", "const"}
+    body = json.dumps({"model": "gemini-3.1-pro-preview", "tools": [{
+        "name": "q", "input_schema": {
+            "type": "object", "additionalProperties": False, "$schema": "x",
+            "properties": {
+                "filter": {"anyOf": [{"type": "object", "properties": {"q": {"type": "string"}}},
+                                     {"type": "null"}]},
+                "size": {"type": ["integer", "null"], "minimum": 1, "default": 10},
+                "url": {"type": "string", "format": "uri", "$comment": "c"}},
+            "required": ["filter"]}}]}).encode()
+    schema = json.loads(_scrub_request_for_gemini(body))["tools"][0]["input_schema"]
+    seen, stack = set(), [schema]
+    while stack:
+        n = stack.pop()
+        if isinstance(n, dict):
+            seen |= set(n.keys()); stack += list(n.values())
+        elif isinstance(n, list):
+            stack += n
+    assert seen.isdisjoint(FORBIDDEN), f"forbidden keys survived: {seen & FORBIDDEN}"
+
+
+def test_gpt5_param_scrub_drops_unsupported_sampling_knobs():
+    """GPT-5 reasoning models 400 on max_tokens, temperature!=1, top_p, and the
+    penalty/logprobs family. Both the proxy and the passthrough must strip them.
+    Live-confirmed the 400s against the OpenAI API 2026-06-14."""
+    import json
+    from backend.apps.agents.proxy.anthropic_proxy import _scrub_request_for_openai_gpt5
+    from backend.apps.agents.core.openai_passthrough import _scrub_gpt5_params
+    dirty = json.dumps({"model": "gpt-5", "messages": [{"role": "user", "content": "hi"}],
+                        "max_tokens": 200, "temperature": 0, "top_p": 0.9,
+                        "frequency_penalty": 0.5, "presence_penalty": 0.1, "logprobs": True}).encode()
+    for fn in (_scrub_request_for_openai_gpt5, _scrub_gpt5_params):
+        out = json.loads(fn(dirty))
+        assert out.get("max_completion_tokens") == 200 and "max_tokens" not in out, fn.__name__
+        for k in ("temperature", "top_p", "frequency_penalty", "presence_penalty", "logprobs"):
+            assert k not in out, f"{fn.__name__} left {k}"
+    # temperature==1 is the one allowed value; don't over-strip it
+    assert json.loads(_scrub_gpt5_params(json.dumps(
+        {"model": "gpt-5", "temperature": 1}).encode())).get("temperature") == 1
+    # non-gpt-5 models are untouched
+    assert json.loads(_scrub_gpt5_params(json.dumps(
+        {"model": "gpt-4o", "temperature": 0, "top_p": 0.5}).encode())) == \
+        {"model": "gpt-4o", "temperature": 0, "top_p": 0.5}
+
+
 def test_openrouter_plugin_array_matches_docs():
     """Per https://openrouter.ai/docs/features/multimodal/pdfs, the
     plugins array shape is `[{id:"file-parser", pdf:{engine: "..."}}]`

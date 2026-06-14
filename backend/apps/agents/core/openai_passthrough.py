@@ -42,26 +42,41 @@ def _is_gpt5(model: str) -> bool:
     return any(m.startswith(p) for p in _GPT5_PREFIXES)
 
 
-def _scrub_max_tokens(body: bytes) -> bytes:
-    """Rename max_tokens to max_completion_tokens for GPT-5; bytes in/out, never raises."""
+# GPT-5 reasoning models reject sampling knobs: temperature must be the default
+# (only 1 is allowed), and top_p / penalties / logprobs are unsupported outright.
+# 9Router 0.3.60 is pinned and forwards whatever the user's picked model carried,
+# so we strip them at this last hop before OpenAI or the whole request 400s.
+_GPT5_UNSUPPORTED_PARAMS = (
+    "top_p", "top_k", "frequency_penalty", "presence_penalty",
+    "logprobs", "top_logprobs", "logit_bias",
+)
+
+
+def _scrub_gpt5_params(body: bytes) -> bytes:
+    """For GPT-5: rename max_tokens→max_completion_tokens and drop the sampling
+    params the reasoning models reject. Bytes in/out, never raises."""
     if not body:
         return body
     try:
         parsed = json.loads(body)
     except Exception:
         return body
-    if not isinstance(parsed, dict):
+    if not isinstance(parsed, dict) or not _is_gpt5(str(parsed.get("model") or "")):
         return body
-    model = str(parsed.get("model") or "")
-    if not _is_gpt5(model):
-        return body
-    if "max_tokens" in parsed and "max_completion_tokens" not in parsed:
-        parsed["max_completion_tokens"] = parsed.pop("max_tokens")
-        return json.dumps(parsed).encode("utf-8")
-    if "max_tokens" in parsed and "max_completion_tokens" in parsed:
-        parsed.pop("max_tokens", None)
-        return json.dumps(parsed).encode("utf-8")
-    return body
+    mutated = False
+    if "max_tokens" in parsed:
+        if "max_completion_tokens" not in parsed:
+            parsed["max_completion_tokens"] = parsed.pop("max_tokens")
+        else:
+            parsed.pop("max_tokens", None)
+        mutated = True
+    if "temperature" in parsed and parsed["temperature"] != 1:
+        parsed.pop("temperature", None)
+        mutated = True
+    for k in _GPT5_UNSUPPORTED_PARAMS:
+        if parsed.pop(k, None) is not None:
+            mutated = True
+    return json.dumps(parsed).encode("utf-8") if mutated else body
 
 
 @openai_passthrough.router.api_route(
@@ -70,7 +85,7 @@ def _scrub_max_tokens(body: bytes) -> bytes:
 )
 async def passthrough(rest: str, request: Request):
     body = await request.body()
-    body = _scrub_max_tokens(body)
+    body = _scrub_gpt5_params(body)
 
     forward_headers: dict[str, str] = {}
     for k, v in request.headers.items():
