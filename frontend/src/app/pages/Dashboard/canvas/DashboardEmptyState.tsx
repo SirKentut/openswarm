@@ -2,7 +2,7 @@ import React from 'react';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Search, Hammer, PenLine, GraduationCap, ArrowLeft, ArrowRight } from 'lucide-react';
+import { Search, Hammer, PenLine, GraduationCap, ArrowLeft } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { ClaudeTokens } from '@/shared/styles/claudeTokens';
 import { useDashboardActive } from '@/shared/hooks/useDashboardActive';
@@ -73,7 +73,6 @@ const DashboardEmptyState: React.FC<{
   const canRun = useAppSelector((s) => hasFreeTrialActive(s) || hasModelConnected(s));
   const [launching, setLaunching] = React.useState(false);
   const [expanded, setExpanded] = React.useState<string | null>(null);
-  const [intent, setIntent] = React.useState('');
   const currentCategory = STARTER_CATEGORIES.find((cat) => cat.id === expanded);
   const currentPrompts = currentCategory?.prompts ?? [];
 
@@ -95,21 +94,6 @@ const DashboardEmptyState: React.FC<{
     if (!onLaunch) return;
     setLaunching(true); // empty state unmounts on first session, but guard a fast double-click
     onLaunch(prompt, mode, model);
-  };
-
-  // Personalized path: wrap the user's own words into a "be my team" brief so one
-  // agent immediately produces real, tailored artifacts (plain language, no questions
-  // back, so a non-dev sees value in seconds). One session = one free run.
-  const launchIntent = () => {
-    const v = intent.trim();
-    if (!v || launching || !onLaunch) return;
-    setLaunching(true);
-    const brief =
-      `Here's what I'm working on: ${v}. ` +
-      `Be my AI team and just get going, no questions back. Look into it, then make me ` +
-      `2-3 concrete things I can use right now (a quick research brief, a first draft, a simple plan), ` +
-      `and finish with what you'd tackle next. Keep it practical and plain.`;
-    onLaunch(brief, mode, model);
   };
 
   return (
@@ -153,53 +137,6 @@ const DashboardEmptyState: React.FC<{
 
       {showChips && (
         <Box sx={{ mt: 3, width: '100%', maxWidth: 560, pointerEvents: 'auto', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-          {/* Personalized path: their own words put a tailored team to work. The generic
-              chips below stay for when they're not sure what they want yet. */}
-          <Box
-            sx={{
-              width: '100%', maxWidth: 480, mb: 2.2,
-              display: 'flex', alignItems: 'center', gap: 1,
-              px: 1.6, py: 0.6,
-              borderRadius: 3,
-              border: `1px solid ${c.border.medium}`,
-              background: c.bg.surface,
-              transition: 'border-color 150ms',
-              '&:focus-within': { borderColor: c.accent.primary },
-            }}
-          >
-            <Box
-              component="input"
-              value={intent}
-              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setIntent(e.target.value)}
-              onKeyDown={(e: React.KeyboardEvent) => { if (e.key === 'Enter') launchIntent(); }}
-              placeholder="Tell me what you're working on, I'll put a team on it"
-              disabled={launching}
-              sx={{
-                flex: 1, minWidth: 0,
-                border: 'none', outline: 'none', background: 'transparent',
-                color: c.text.primary, fontSize: '0.98rem', fontFamily: 'inherit',
-                py: 0.9,
-                '&::placeholder': { color: c.text.ghost },
-              }}
-            />
-            <Box
-              component="button"
-              onClick={launchIntent}
-              disabled={launching || !intent.trim()}
-              aria-label="Put a team on it"
-              sx={{
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                width: 32, height: 32, flexShrink: 0,
-                borderRadius: '50%', border: 'none',
-                background: intent.trim() ? c.accent.primary : c.bg.elevated,
-                color: intent.trim() ? '#fff' : c.text.ghost,
-                cursor: intent.trim() && !launching ? 'pointer' : 'default',
-                transition: 'background 150ms',
-              }}
-            >
-              <ArrowRight size={18} />
-            </Box>
-          </Box>
           <AnimatePresence mode="wait" initial={false}>
             {expanded === null ? (
               <motion.div

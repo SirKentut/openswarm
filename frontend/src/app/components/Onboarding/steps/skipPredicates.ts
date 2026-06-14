@@ -62,6 +62,13 @@ export function hasAnyAgentLaunched(s: RootState): boolean {
   return Object.keys(sessions).length > 0;
 }
 
+/** True once any agent has actually FINISHED (not just started). Used to hold the
+ *  onboarding reveal until after the first win, so it never pops mid-run. */
+export function hasAnyAgentCompleted(s: RootState): boolean {
+  const sessions = s.agents?.sessions ?? {};
+  return Object.values(sessions).some((x: any) => x?.status === 'completed');
+}
+
 export function hasAnySkillInstalled(s: RootState): boolean {
   const items = s.skills?.items ?? [];
   if (Array.isArray(items)) return items.length > 0;
