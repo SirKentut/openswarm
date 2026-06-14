@@ -20,6 +20,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import WindowedMarkdown from './WindowedMarkdown';
 import { estimateRenderedTextHeight, oversizedCharThreshold, RECHECK_VISIBILITY_EVENT } from './markdownMeasure';
+import { THINKING_LABELS } from '../thinkingLabels';
 import { AgentMessage } from '@/shared/state/agentsSlice';
 import { openSettingsModal } from '@/shared/state/settingsSlice';
 import { shallowEqual } from 'react-redux';
@@ -558,26 +559,6 @@ const MessageImageThumbnails: React.FC<{
     </>
   );
 };
-
-const THINKING_LABELS: ReadonlyArray<{ live: string; past: string }> = [
-  { live: 'Thinking',     past: 'Thought' },
-  { live: 'Pondering',    past: 'Pondered' },
-  { live: 'Cooking',      past: 'Cooked' },
-  { live: 'Marinating',   past: 'Marinated' },
-  { live: 'Deliberating', past: 'Deliberated' },
-  { live: 'Reasoning',    past: 'Reasoned' },
-  { live: 'Reflecting',   past: 'Reflected' },
-  { live: 'Untangling',   past: 'Untangled' },
-  { live: 'Stewing',      past: 'Stewed' },
-  { live: 'Locking-in',   past: 'Locked-in' },
-  { live: 'Considering',  past: 'Considered' },
-  { live: 'Processing',   past: 'Processed' },
-  { live: 'Vibing',       past: 'Vibed' },
-  { live: 'Calculating',  past: 'Calculated' },
-  { live: 'Chefing',      past: 'Chefed' },
-  { live: 'Geeking',      past: 'Geeked' },
-  { live: 'Brewing',      past: 'Brewed' },
-];
 
 /** Stable hash of message id to label index; reload, scroll-back, and resume keep the same label. */
 function labelIndexFromId(id: string | undefined): number {
