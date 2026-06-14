@@ -405,6 +405,10 @@ const AgentChat: React.FC<AgentChatProps> = ({ sessionId: sessionIdProp, onClose
       const config: Record<string, any> = { model, mode };
       if (session?.system_prompt) config.system_prompt = session.system_prompt;
       if (session?.target_directory) config.target_directory = session.target_directory;
+      // Carry the draft's dashboard so the launched session stays ON this dashboard; without it the
+      // session lands dashboard_id=null, drops out of the reconcile filter, and its card vanishes
+      // the instant you send (looked like "the chat quit when I clicked an option").
+      if (session?.dashboard_id) config.dashboard_id = session.dashboard_id;
       dispatch(
         launchAndSendFirstMessage({ draftId: id, config, prompt: msg.prompt, mode, model, images: msg.images, contextPaths: msg.contextPaths, forcedTools: msg.forcedTools, attachedSkills: msg.attachedSkills, selectedBrowserIds: msg.selectedBrowserIds, selectedAppIds: msg.selectedAppIds })
       ).then((action) => {
@@ -427,7 +431,7 @@ const AgentChat: React.FC<AgentChatProps> = ({ sessionId: sessionIdProp, onClose
           }
         });
     }
-  }, [id, isDraft, mode, model, session?.system_prompt, session?.target_directory, dispatch]);
+  }, [id, isDraft, mode, model, session?.system_prompt, session?.target_directory, session?.dashboard_id, dispatch]);
 
   statusRef.current = session?.status;
 
