@@ -5,13 +5,32 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Search, Hammer, PenLine, GraduationCap, ArrowLeft } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { ClaudeTokens } from '@/shared/styles/claudeTokens';
-import { useDashboardActive } from '@/shared/hooks/useDashboardActive';
 import { useAppSelector } from '@/shared/hooks';
 import {
   hasModelConnected,
   hasFreeTrialActive,
 } from '@/app/components/Onboarding/steps/skipPredicates';
-import ChatBubbleTeardrop from '../ChatBubbleTeardrop';
+
+// The static self-intro the welcome types out (no LLM); the user answers in the chat.
+const INTRO = "Hi, I'm your AI team. What do you want done?";
+
+// One-shot typewriter for a fixed string. enabled=false shows it instantly (returning
+// users); enabled=true reveals it char-by-char once. No infinite loop: it stops at the end.
+function useTypewriter(text: string, enabled: boolean, speedMs = 34): { shown: string; done: boolean } {
+  const [shown, setShown] = React.useState(enabled ? '' : text);
+  React.useEffect(() => {
+    if (!enabled) { setShown(text); return; }
+    setShown('');
+    let i = 0;
+    const id = window.setInterval(() => {
+      i += 1;
+      setShown(text.slice(0, i));
+      if (i >= text.length) window.clearInterval(id);
+    }, speedMs);
+    return () => window.clearInterval(id);
+  }, [text, enabled, speedMs]);
+  return { shown, done: shown.length >= text.length };
+}
 
 // Two-level starters: pick a category, then its concrete prompts spawn. Every
 // prompt is one-click-runnable (no [placeholders]) and free-trial-safe, it
@@ -65,12 +84,15 @@ const DashboardEmptyState: React.FC<{
   // Optional mode opens it in a specific mode (Build -> 'view-builder').
   onStarter?: (prompt: string, mode?: string) => void;
 }> = ({ c, onLaunch, onStarter }) => {
-  // The host hides Dashboard with visibility:hidden (not display:none), which keeps
-  // CSS animations ticking; gate on active so the shimmer only burns while watched.
-  const active = useDashboardActive();
   const model = useAppSelector((s) => s.settings.data.default_model);
   const mode = useAppSelector((s) => s.settings.data.default_mode);
   const canRun = useAppSelector((s) => hasFreeTrialActive(s) || hasModelConnected(s));
+  // Type the intro only for a fresh user (first agent not launched yet); returning
+  // users see it instantly so it isn't re-typed on every empty dashboard.
+  const introTyping = useAppSelector(
+    (s) => !(s.onboardingProgress?.completedSteps ?? []).includes('launch_agent'),
+  );
+  const { shown: introShown, done: introDone } = useTypewriter(INTRO, introTyping);
   const [launching, setLaunching] = React.useState(false);
   const [expanded, setExpanded] = React.useState<string | null>(null);
   const currentCategory = STARTER_CATEGORIES.find((cat) => cat.id === expanded);
@@ -82,9 +104,6 @@ const DashboardEmptyState: React.FC<{
 
   const isAppBuilder = currentCategory?.target === 'app-builder';
 
-  // Click opens the composer with the prompt typed in (unsent); the user then sends.
-  // Build opens it in App Builder mode so it builds on the dashboard (no Apps-page
-  // context switch); the others use the default mode.
   const launch = (prompt: string) => {
     if (launching) return;
     // App Builder opens its own surface, so prefill its composer (the user reviews,
@@ -113,47 +132,44 @@ const DashboardEmptyState: React.FC<{
         pointerEvents: 'none',
       }}
     >
-      <style>{`@keyframes empty-state-shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }`}</style>
-      <Typography sx={{ color: c.text.secondary, fontSize: '1.45rem', fontWeight: 500, mb: 1 }}>
-        What do you want done?
-      </Typography>
-      <Typography
-        sx={{
-          fontSize: '1rem',
-          display: 'inline-flex',
-          alignItems: 'center',
-          gap: 0.7,
-          background: `linear-gradient(90deg, ${c.text.ghost} 0%, ${c.text.ghost} 40%, ${c.text.primary} 50%, ${c.text.ghost} 60%, ${c.text.ghost} 100%)`,
-          backgroundSize: '200% 100%',
-          WebkitBackgroundClip: 'text',
-          backgroundClip: 'text',
-          WebkitTextFillColor: 'transparent',
-          color: 'transparent',
-          animation: active ? 'empty-state-shimmer 6s linear infinite' : 'none',
-        }}
+      <style>{`@keyframes welcome-caret { 0%,49% { opacity: 1 } 50%,100% { opacity: 0 } }`}</style>
+      {/* The welcome pops in (scale + fade), then the intro types itself out. */}
+      <motion.div
+        initial={{ opacity: 0, scale: 0.9 }}
+        animate={{ opacity: 1, scale: 1 }}
+        transition={{ type: 'spring', stiffness: 460, damping: 26 }}
+        style={{ display: 'flex', justifyContent: 'center' }}
       >
-        Tell the
-        {/* Literal toolbar glyph; the shimmer's transparent color would hide it, so reset color here. */}
-        <Box component="span" sx={{ display: 'inline-flex', color: c.text.tertiary }}>
-          <ChatBubbleTeardrop sx={{ fontSize: 15 }} />
-        </Box>
-        below and I'll put a team on it
-      </Typography>
+        <Typography
+          sx={{
+            color: c.text.secondary, fontSize: '1.45rem', fontWeight: 500, mb: 2.4,
+            minHeight: '1.9rem', textAlign: 'center',
+          }}
+        >
+          {introShown}
+          {!introDone && (
+            <Box component="span" sx={{ ml: '1px', color: c.accent.primary, animation: 'welcome-caret 1s step-end infinite' }}>
+              ▌
+            </Box>
+          )}
+        </Typography>
+      </motion.div>
 
-      {showChips && (
-        <Box sx={{ mt: 3, width: '100%', maxWidth: 560, pointerEvents: 'auto', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+      {showChips && introDone ? (
+        // Chips reveal only after the intro finishes typing, so it reads as one beat.
+        <Box sx={{ width: '100%', maxWidth: 560, pointerEvents: 'auto', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
           <AnimatePresence mode="wait" initial={false}>
             {expanded === null ? (
               <motion.div
                 key="categories"
-                initial={{ opacity: 0, y: 4 }}
+                initial={{ opacity: 0, y: 6 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -4 }}
-                transition={{ duration: 0.18 }}
+                transition={{ duration: 0.22 }}
                 style={{ width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center' }}
               >
                 <Typography sx={{ color: c.text.ghost, fontSize: '0.9rem', mb: 1.4 }}>
-                  or try one of these
+                  pick one, or just tell me below
                 </Typography>
                 <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1.2, width: '100%', maxWidth: 460 }}>
                   {STARTER_CATEGORIES.map((cat) => (
@@ -233,6 +249,12 @@ const DashboardEmptyState: React.FC<{
             )}
           </AnimatePresence>
         </Box>
+      ) : (
+        introDone && (
+          <Typography sx={{ color: c.text.ghost, fontSize: '0.95rem' }}>
+            Connect a model in Settings to get started.
+          </Typography>
+        )
       )}
     </Box>
   );
