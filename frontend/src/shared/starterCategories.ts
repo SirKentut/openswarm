@@ -21,9 +21,9 @@ export const STARTER_CATEGORIES: StarterCategory[] = [
     id: 'research', label: 'Research', Icon: Search,
     prompts: [
       'Plan a 3-day Tokyo trip and turn it into a printable PDF itinerary',
-      'Compare the 5 best robot vacuums and make me a one-page buying guide',
-      'Spin up 3 agents to research 3 competitors at once and tell me who wins',
-      "Find the latest on a topic I'll name and write me a brief with real sources",
+      'Send 3 agents to plan my weekend at once: where to eat, what to do, what to watch',
+      'Break down how black holes really work into a printable one-page cheat sheet',
+      'Find the strangest world record I could actually break and how to pull it off',
     ],
   },
   {
