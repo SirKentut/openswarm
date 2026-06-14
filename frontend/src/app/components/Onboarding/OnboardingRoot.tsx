@@ -18,7 +18,12 @@ import {
 import AgenticCursor, { type AgenticCursorHandle } from './ac/AgenticCursor';
 import { onboardingDirector } from './OnboardingDirector';
 import { STEPS } from './steps';
-import { hasAnyAgentCompleted } from './steps/skipPredicates';
+import {
+  hasAnyAgentCompleted,
+  hasAnyAgentLaunched,
+  hasFreeTrialActive,
+  hasModelConnected,
+} from './steps/skipPredicates';
 import OnboardingPanel from './OnboardingPanel';
 import { onboardingBus } from './eventBus';
 import { report } from './telemetry';
@@ -33,6 +38,15 @@ const OnboardingRoot: React.FC = () => {
   const progress = useAppSelector((s) => s.onboardingProgress);
   const settingsLoaded = useAppSelector((s) => s.settings.loaded);
   const firstAgentDone = useAppSelector(hasAnyAgentCompleted);
+  const autoOpenedRef = useRef(false);
+  // Ready to auto-open the chat: a way to run exists, nothing launched yet, and the
+  // first step isn't already done.
+  const firstRunReady = useAppSelector(
+    (s) =>
+      (hasFreeTrialActive(s) || hasModelConnected(s)) &&
+      !hasAnyAgentLaunched(s) &&
+      !s.onboardingProgress.completedSteps.includes('launch_agent'),
+  );
 
   // The one gentle nudge: open the quiet pill ONCE, but only AFTER the first agent
   // actually finishes, so it never pops mid-run. Respects a panel they've hidden or
@@ -49,6 +63,22 @@ const OnboardingRoot: React.FC = () => {
     progress.panelMode,
     dispatch,
   ]);
+
+  // First-run assist: the agentic cursor opens the chat and asks "what do you want
+  // done?" on its own, so the user never hunts for the input. Fires once, only on the
+  // dashboard with the AC idle. Fail-safe: if it can't run, the empty state + chat
+  // still work by hand, so a missed auto-open never blocks anything.
+  useEffect(() => {
+    if (autoOpenedRef.current || !progress.initialized || !firstRunReady) return;
+    if (onboardingDirector.isRunning()) return;
+    if (!window.location.hash.includes('/dashboard/')) return;
+    autoOpenedRef.current = true;
+    const t = window.setTimeout(() => {
+      if (onboardingDirector.isRunning()) return;
+      onboardingDirector.startStep('launch_agent', { x: window.innerWidth - 80, y: 110 });
+    }, 1400); // let the dashboard + cursor settle before it drives
+    return () => window.clearTimeout(t);
+  }, [progress.initialized, firstRunReady]);
 
   useEffect(() => {
     if (progress.initialized) return;
