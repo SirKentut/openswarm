@@ -50,6 +50,23 @@ const OnboardingRoot: React.FC = () => {
     dispatch,
   ]);
 
+  // First-run cursor nudge: a beat after the welcome chat pops, the cursor points at the
+  // top-right "Continue" pill. Armed by the once-ever 'welcome:shown' event (so it never
+  // re-fires across reloads), fail-safe (a missing AC / off-dashboard route just no-ops).
+  const nudgeFiredRef = useRef(false);
+  const nudgeTimerRef = useRef<number | null>(null);
+  useEffect(() => {
+    const off = onboardingBus.on('welcome:shown', () => {
+      if (nudgeFiredRef.current || !window.location.hash.includes('/dashboard/')) return;
+      nudgeFiredRef.current = true;
+      nudgeTimerRef.current = window.setTimeout(() => {
+        if (!window.location.hash.includes('/dashboard/') || onboardingDirector.isRunning()) return;
+        onboardingDirector.startStep('welcome_nudge', { x: window.innerWidth - 120, y: 80 });
+      }, 1000);
+    });
+    return () => { off(); if (nudgeTimerRef.current) window.clearTimeout(nudgeTimerRef.current); };
+  }, []);
+
   useEffect(() => {
     if (progress.initialized) return;
     if (!settingsLoaded) return;

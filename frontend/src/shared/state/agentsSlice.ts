@@ -101,6 +101,9 @@ export interface AgentSession {
   connection_state?: 'live' | 'reconnecting';
   /** Aux-LLM verb-phrase for the current turn; ThinkingBubble swaps in then back when turn ends. */
   turn_label?: { label: string; turn_id: string } | null;
+  /** Frontend-only: this draft is the first-run welcome (seeded greeting + quick-reply chips).
+   *  Dropped on the server swap in launchAndSendFirstMessage.fulfilled, so it never persists. */
+  is_welcome_draft?: boolean;
 }
 
 export interface AgentConfig {
@@ -508,8 +511,8 @@ const agentsSlice = createSlice({
   initialState,
   reducers: {
     createDraftSession: {
-      reducer(state, action: PayloadAction<{ draftId: string; mode: string; setActive: boolean; targetDirectory?: string; model?: string; provider?: string; thinkingLevel?: 'off' | 'low' | 'medium' | 'high' | 'auto' }>) {
-        const { draftId, mode, setActive, targetDirectory, model, provider, thinkingLevel } = action.payload;
+      reducer(state, action: PayloadAction<{ draftId: string; mode: string; setActive: boolean; targetDirectory?: string; model?: string; provider?: string; thinkingLevel?: 'off' | 'low' | 'medium' | 'high' | 'auto'; seededMessages?: AgentMessage[]; welcome?: boolean; dashboardId?: string }>) {
+        const { draftId, mode, setActive, targetDirectory, model, provider, thinkingLevel, seededMessages, welcome, dashboardId } = action.payload;
         state.sessions[draftId] = {
           id: draftId,
           name: 'New chat',
@@ -526,13 +529,17 @@ const agentsSlice = createSlice({
           created_at: new Date().toISOString(),
           cost_usd: 0,
           tokens: { input: 0, output: 0 },
-          messages: [],
+          // A seeded greeting is purely cosmetic: launchAndSendFirstMessage.fulfilled deletes this
+          // draft and swaps in the raw server session, so seeded messages never reach the backend.
+          messages: seededMessages ?? [],
           pending_approvals: [],
           branches: { main: { id: 'main', parent_branch_id: null, fork_point_message_id: null, created_at: new Date().toISOString() } },
           active_branch_id: 'main',
           target_directory: targetDirectory || null,
           tool_group_meta: {},
           thinking_level: thinkingLevel,
+          dashboard_id: dashboardId,
+          is_welcome_draft: welcome === true,
         };
         if (setActive) {
           state.activeSessionId = draftId;
@@ -541,7 +548,7 @@ const agentsSlice = createSlice({
           }
         }
       },
-      prepare(opts?: { mode?: string; setActive?: boolean; targetDirectory?: string; model?: string; provider?: string; thinkingLevel?: 'off' | 'low' | 'medium' | 'high' | 'auto' }) {
+      prepare(opts?: { mode?: string; setActive?: boolean; targetDirectory?: string; model?: string; provider?: string; thinkingLevel?: 'off' | 'low' | 'medium' | 'high' | 'auto'; seededMessages?: AgentMessage[]; welcome?: boolean; dashboardId?: string }) {
         return {
           payload: {
             draftId: `draft-${Date.now().toString(36)}`,
@@ -551,6 +558,9 @@ const agentsSlice = createSlice({
             model: opts?.model,
             provider: opts?.provider,
             thinkingLevel: opts?.thinkingLevel,
+            seededMessages: opts?.seededMessages,
+            welcome: opts?.welcome,
+            dashboardId: opts?.dashboardId,
           },
         };
       },

@@ -15,6 +15,7 @@ import { useDashboardClipboard } from '../interaction/useDashboardClipboard';
 import { useCardDrag } from '../interaction/useCardDrag';
 import { useSubAgentLifecycle } from '../lifecycle/useSubAgentLifecycle';
 import { useDashboardLifecycle } from '../lifecycle/useDashboardLifecycle';
+import { useWelcomeDraft } from '../lifecycle/useWelcomeDraft';
 import { useDashboardThumbnail } from './useDashboardThumbnail';
 import { useSiblingRestack } from '../lifecycle/useSiblingRestack';
 import { useAgentSpawn } from '../lifecycle/useAgentSpawn';
@@ -127,6 +128,17 @@ export function useDashboardController(dashboardId: string, isActive: boolean) {
     handleHighlightCard,
     hasFittedRef,
     restoredExpandedRef,
+  });
+
+  // First-run: auto-pop a welcome chat (seeded greeting + chips) on the empty dashboard.
+  useWelcomeDraft({
+    dashboardId,
+    isActive,
+    canvasEmpty,
+    expandedSessionIds,
+    viewportRef: canvas.viewportRef,
+    canvasStateRef,
+    spawnOriginsRef,
   });
 
   // ---- Auto-reveal / collapse / unreveal sub-agent cards ----

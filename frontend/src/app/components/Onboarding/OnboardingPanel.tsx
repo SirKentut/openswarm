@@ -16,6 +16,7 @@ import { clearJustCompleted } from '@/shared/state/onboardingProgressSlice';
 import { STEPS, findStepById } from './steps';
 import { useUnlockedStepIds } from './steps/stepUnlock';
 import { STAGE_LABELS } from './steps/types';
+import { S } from './selectors';
 import { onboardingDirector } from './OnboardingDirector';
 import { report } from './telemetry';
 import { cursorStore } from './ac/cursorStore';
@@ -166,6 +167,7 @@ const OnboardingPanel: React.FC = () => {
               style={{ pointerEvents: 'auto' }}
             >
               <ButtonBase
+                data-onboarding={S.onboardingContinueButton}
                 onClick={() => {
                   report('panel_expanded', { from: 'pill' });
                   progress.setPanelMode('expanded');

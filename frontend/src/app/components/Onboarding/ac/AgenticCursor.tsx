@@ -95,12 +95,16 @@ const AgenticCursor = forwardRef<AgenticCursorHandle>((_props, ref) => {
     async fadeIn(from) {
       stopTrackingInternal();
       writePos(from.x, from.y, true);
-      controls.set({ x: from.x, y: from.y, opacity: 0, scale: 0.5 });
+      controls.set({ x: from.x, y: from.y, opacity: 0, scale: 0.3 });
       setVisible(true);
+      // A little "pop!": scale overshoots past 1 then settles, while opacity snaps in.
       await controls.start({
         opacity: 1,
-        scale: 1,
-        transition: { duration: 0.32, ease: 'easeOut' },
+        scale: [0.3, 1.15, 1],
+        transition: {
+          opacity: { duration: 0.16, ease: 'easeOut' },
+          scale: { duration: 0.36, ease: 'easeOut', times: [0, 0.62, 1] },
+        },
       });
     },
     async moveTo(x, y, transition) {

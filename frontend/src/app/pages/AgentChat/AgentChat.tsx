@@ -45,6 +45,7 @@ import { store } from '@/shared/state/store';
 import { fetchModes } from '@/shared/state/modesSlice';
 import { createSessionWs, acquireSessionWs, releaseSessionWs } from '@/shared/ws/WebSocketManager';
 import StreamingBubble from './bubbles/StreamingBubble';
+import WelcomeQuickReplies from './WelcomeQuickReplies';
 import MessageBubble from './bubbles/MessageBubble';
 import { estimateRenderedTextHeight, RECHECK_VISIBILITY_EVENT } from './bubbles/markdownMeasure';
 import CompactionMarker from './bubbles/CompactionMarker';
@@ -1847,6 +1848,15 @@ const AgentChat: React.FC<AgentChatProps> = ({ sessionId: sessionIdProp, onClose
                   </Typography>
                 </Box>
               </Box>
+            )}
+            {/* First-run welcome: quick-reply chips under the seeded greeting; vanish the
+                moment a user message exists (i.e. once they answer). */}
+            {session.is_welcome_draft && isDraft && !session.messages.some((m) => m.role === 'user') && (
+              <WelcomeQuickReplies
+                c={c}
+                onPick={(p) => handleSend(p)}
+                onPickBuilder={(p) => chatInputRef.current?.setContent(p)}
+              />
             )}
             </Box>
           </Box>
