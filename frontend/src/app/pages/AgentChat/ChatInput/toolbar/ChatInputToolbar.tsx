@@ -8,6 +8,8 @@ import { ModelPickerMenu } from '../model-picker/ModelPickerMenu';
 import { ThinkingLevelControl } from './ThinkingLevelControl';
 import { ToolbarActions } from './ToolbarActions';
 import { ModelPickerState } from '../hooks/useModelPicker';
+import { useAppSelector } from '@/shared/hooks';
+import { hasFreeTrialActive, hasModelConnected } from '@/app/components/Onboarding/steps/skipPredicates';
 
 type ThinkingLevel = 'off' | 'low' | 'medium' | 'high' | 'auto';
 
@@ -79,6 +81,11 @@ export const ChatInputToolbar: React.FC<Props> = (p) => {
     },
   };
 
+  // On the free trial the run is fixed (model + thinking forced server-side), so hide both
+  // the model picker and the thinking selector, there's nothing to choose. Returns the moment
+  // a real model is connected.
+  const hideForTrial = useAppSelector((s) => hasFreeTrialActive(s) && !hasModelConnected(s));
+
   return (
     <Box
       sx={{
@@ -138,16 +145,18 @@ export const ChatInputToolbar: React.FC<Props> = (p) => {
         pendingPayloadEstimate={pendingPayloadEstimate}
       />
 
-      <ThinkingLevelControl
-        c={c}
-        model={model}
-        allModelFlat={allModelFlat}
-        thinkingLevel={thinkingLevel}
-        onThinkingLevelChange={onThinkingLevelChange}
-        thinkingAnchor={thinkingAnchor}
-        setThinkingAnchor={setThinkingAnchor}
-        menuPaperProps={menuPaperProps}
-      />
+      {!hideForTrial && (
+        <ThinkingLevelControl
+          c={c}
+          model={model}
+          allModelFlat={allModelFlat}
+          thinkingLevel={thinkingLevel}
+          onThinkingLevelChange={onThinkingLevelChange}
+          thinkingAnchor={thinkingAnchor}
+          setThinkingAnchor={setThinkingAnchor}
+          menuPaperProps={menuPaperProps}
+        />
+      )}
 
       <Box sx={{ flex: 1 }} />
 

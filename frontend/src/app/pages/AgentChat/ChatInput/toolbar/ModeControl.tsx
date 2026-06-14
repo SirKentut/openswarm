@@ -8,7 +8,7 @@ import Typography from '@mui/material/Typography';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import { ClaudeTokens } from '@/shared/styles/claudeTokens';
 import { useAppSelector } from '@/shared/hooks';
-import { hasFreeTrialActive } from '@/app/components/Onboarding/steps/skipPredicates';
+import { hasFreeTrialActive, hasModelConnected } from '@/app/components/Onboarding/steps/skipPredicates';
 
 interface ModeConf { label: string; icon: React.ReactNode; color: string }
 
@@ -31,8 +31,9 @@ export const ModeControl: React.FC<Props> = ({
   c, menuPaperProps, modeConf, modesArr, mode, onModeChange, iconMap, modeAnchor, setModeAnchor, setModelAnchor, allModelFlat, model,
 }) => {
   // On the free trial the model is fixed server-side, so there's nothing to pick: hide the
-  // whole model control (no picker, no model name) until the user connects their own model.
-  const freeTrialActive = useAppSelector(hasFreeTrialActive);
+  // model control. The moment a real model is connected we show it again, even if trial state
+  // lingers (gate on !hasModelConnected, not just the trial flag).
+  const hideModelPicker = useAppSelector((s) => hasFreeTrialActive(s) && !hasModelConnected(s));
   return (
     <>
       <Box
@@ -92,7 +93,7 @@ export const ModeControl: React.FC<Props> = ({
         })}
       </Menu>
 
-      {!freeTrialActive && (
+      {!hideModelPicker && (
         <Box
           onClick={(e) => setModelAnchor(e.currentTarget)}
           sx={{
