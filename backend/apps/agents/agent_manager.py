@@ -1649,6 +1649,10 @@ class AgentManager:
                     "CLAUDE_CODE_SUBAGENT_MODEL": "claude-sonnet-4-6",
                     "ANTHROPIC_SMALL_FAST_MODEL": "claude-haiku-4-5-20251001",
                     "ANTHROPIC_DEFAULT_HAIKU_MODEL": "claude-haiku-4-5-20251001",
+                    # auto, never the bare default: tengu_defer_all_bn4 marks every tool
+                    # defer_loading=true, which collides with our cache_control and 400s the
+                    # first tool-laden request (the other anthropic branches all set this).
+                    "ENABLE_TOOL_SEARCH": "auto",
                 }
                 # Free lane meters one run per agent session: tag every call to the cloud with the
                 # session id so 1 task = 1 run (without it the cloud falls back to token-coarse runs).
