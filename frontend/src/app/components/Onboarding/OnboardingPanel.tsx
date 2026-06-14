@@ -10,8 +10,9 @@ import HelpOutlineIcon from '@mui/icons-material/HelpOutline';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import CloseIcon from '@mui/icons-material/Close';
 import { useClaudeTokens } from '@/shared/styles/ThemeContext';
-import { useAppDispatch } from '@/shared/hooks';
+import { useAppDispatch, useAppSelector } from '@/shared/hooks';
 import { useOnboardingProgress } from './hooks/useOnboardingProgress';
+import { hasAnyAgentCompleted } from './steps/skipPredicates';
 import { clearJustCompleted } from '@/shared/state/onboardingProgressSlice';
 import { STEPS, findStepById } from './steps';
 import { useUnlockedStepIds } from './steps/stepUnlock';
@@ -53,6 +54,7 @@ const OnboardingPanel: React.FC = () => {
   const c = useClaudeTokens();
   const dispatch = useAppDispatch();
   const progress = useOnboardingProgress();
+  const firstAgentDone = useAppSelector(hasAnyAgentCompleted);
   const infoBtnRef = useRef<HTMLButtonElement | null>(null);
   const [infoOpen, setInfoOpen] = useState(false);
 
@@ -133,6 +135,10 @@ const OnboardingPanel: React.FC = () => {
 
   if (!currentStep && !justDoneStep) return null;
   if (progress.panelMode === 'hidden') return null;
+  // Gate it like a game: on first run the tour stays out of the way entirely. The pill only
+  // appears once the user has earned it (their first agent finishes), at which point the
+  // reveal-after-win effect flips the panel to 'expanded' with the next single nudge.
+  if (progress.panelMode === 'pill' && !firstAgentDone && !progress.revealedAfterWin) return null;
 
   // Slide panel off-screen while AC runs so it doesn't sit on top of top-right targets (Skills install, "+ New app", etc).
   const panelHidden = progress.running;
@@ -195,9 +201,6 @@ const OnboardingPanel: React.FC = () => {
                 <Typography sx={{ fontSize: 14.5, fontWeight: 600, color: c.text.primary }}>
                   Finish setup
                 </Typography>
-                <Typography sx={{ fontSize: 13.5, color: c.text.muted, fontWeight: 500 }}>
-                  {done}/{total}
-                </Typography>
                 <Box sx={{ flexGrow: 1, minWidth: 12 }} />
                 <Typography
                   sx={{
@@ -254,9 +257,6 @@ const OnboardingPanel: React.FC = () => {
                         sx={{ fontSize: 12.5, fontWeight: 600, color: c.text.primary }}
                       >
                         {STAGE_LABELS[stageOf]}
-                      </Typography>
-                      <Typography sx={{ fontSize: 11, color: c.text.muted }}>
-                        {done}/{total}
                       </Typography>
                     </Box>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.2 }}>
