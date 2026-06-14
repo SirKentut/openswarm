@@ -52,6 +52,8 @@ import {
 } from '@/shared/state/skillRegistrySlice';
 import { onboardingBus } from '@/app/components/Onboarding/eventBus';
 import ShareButton from '@/app/components/share/ShareButton';
+import { IMPORT_OPEN_EVENT } from '@/app/components/share/ImportEntryPoint';
+import UploadFileIcon from '@mui/icons-material/UploadFile';
 import SkillBuilderChat, { SkillPreviewData } from './SkillBuilderChat';
 
 interface SkillForm {
@@ -315,6 +317,15 @@ const Skills: React.FC = () => {
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', px: 2, pt: 2, pb: 1 }}>
           <Typography sx={{ fontSize: '0.92rem', fontWeight: 700, color: c.text.primary }}>Skills</Typography>
           <Box sx={{ display: 'flex', gap: 0.25 }}>
+            <Tooltip title="Import .swarm">
+              <IconButton
+                size="small"
+                onClick={() => window.dispatchEvent(new CustomEvent(IMPORT_OPEN_EVENT))}
+                sx={{ color: c.text.tertiary, '&:hover': { color: c.text.primary } }}
+              >
+                <UploadFileIcon sx={{ fontSize: 18 }} />
+              </IconButton>
+            </Tooltip>
             <Tooltip title="Search">
               <IconButton
                 size="small"

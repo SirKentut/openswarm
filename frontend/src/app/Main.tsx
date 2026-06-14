@@ -20,6 +20,7 @@ import {
   setUpdateError,
 } from '@/shared/state/updateSlice';
 import AppShell from './components/Layout/AppShell';
+import ImportEntryPoint from './components/share/ImportEntryPoint';
 import DashboardSelection from './pages/DashboardSelection/DashboardSelection';
 import ErrorBoundary from './components/feedback/ErrorBoundary';
 import { setPanelMode, disableOnboardingAfterCrash } from '@/shared/state/onboardingProgressSlice';
@@ -468,6 +469,7 @@ const ThemedApp: React.FC = () => {
             <DefaultModelGuard>
             <UpdateListener>
               <CrashRecoveryChip />
+              <ImportEntryPoint />
               <DeepLinkListener>
                 <ErrorBoundary scope="routes">
                   <Suspense fallback={null}>
