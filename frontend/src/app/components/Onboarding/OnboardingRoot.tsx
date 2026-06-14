@@ -12,10 +12,13 @@ import {
   loadFromStorage,
   persistToStorage,
   markStepCompleted,
+  setPanelMode,
+  markRevealedAfterWin,
 } from '@/shared/state/onboardingProgressSlice';
 import AgenticCursor, { type AgenticCursorHandle } from './ac/AgenticCursor';
 import { onboardingDirector } from './OnboardingDirector';
 import { STEPS } from './steps';
+import { hasAnyAgentLaunched } from './steps/skipPredicates';
 import OnboardingPanel from './OnboardingPanel';
 import { onboardingBus } from './eventBus';
 import { report } from './telemetry';
@@ -29,6 +32,23 @@ const OnboardingRoot: React.FC = () => {
   const tokens = useClaudeTokens();
   const progress = useAppSelector((s) => s.onboardingProgress);
   const settingsLoaded = useAppSelector((s) => s.settings.loaded);
+  const firstAgentLaunched = useAppSelector(hasAnyAgentLaunched);
+
+  // The one gentle nudge: after the first agent win, open the quiet pill ONCE so
+  // the user sees "here's what's next". Respects a panel they've hidden or already
+  // expanded themselves, and never re-fires (revealedAfterWin sticks).
+  useEffect(() => {
+    if (!progress.initialized || !firstAgentLaunched) return;
+    if (progress.revealedAfterWin || progress.panelMode !== 'pill') return;
+    dispatch(setPanelMode('expanded'));
+    dispatch(markRevealedAfterWin());
+  }, [
+    firstAgentLaunched,
+    progress.initialized,
+    progress.revealedAfterWin,
+    progress.panelMode,
+    dispatch,
+  ]);
 
   useEffect(() => {
     if (progress.initialized) return;

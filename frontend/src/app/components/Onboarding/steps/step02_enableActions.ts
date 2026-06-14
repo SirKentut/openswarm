@@ -13,9 +13,11 @@ export const step02: OnboardingStep = {
   videoDurationLabel: '0:24',
   // Narrowed to YouTube so users with other tools still get walked.
   skipIf: isYoutubeEnabled,
+  // Two beats only (open Actions, flip YouTube on); the chevron-peek and permission
+  // fine-tune popups were trimmed to give the step room to breathe.
   ops: [
     { kind: 'move_to', target: S.sidebarActions },
-    { kind: 'popup', text: 'Peek at Actions.' },
+    { kind: 'popup', text: 'Open Actions.' },
     {
       kind: 'wait_user',
       condition: { kind: 'click_target', target: S.sidebarActions },
@@ -32,18 +34,7 @@ export const step02: OnboardingStep = {
       },
       timeoutMs: 90000,
     },
-    { kind: 'move_to', target: S.actionsYoutubeChevron },
-    { kind: 'popup', text: 'Tap to peek inside.' },
-    {
-      kind: 'wait_user',
-      condition: { kind: 'click_target', target: S.actionsYoutubeChevron },
-    },
-    { kind: 'move_to', target: S.actionsPermissionToggle },
-    {
-      kind: 'popup',
-      text: 'Wanna fine tune what each action can do? Right here.',
-    },
-    { kind: 'delay', ms: 3500 },
+    { kind: 'delay', ms: 1200 },
     { kind: 'outro' },
   ],
 };

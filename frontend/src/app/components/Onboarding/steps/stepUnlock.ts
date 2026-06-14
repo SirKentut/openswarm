@@ -1,38 +1,66 @@
 // Soft, earned unlocks for the onboarding panel. A locked step is still fully
 // usable in the app, this only gates the guided spotlight + shows a lock icon
-// with a one-line teaser, so the tour reveals things in an order you earn by
-// doing real actions. Unlocks fire off the same milestone predicates the
-// skipIf scanner uses, so exploring (e.g. opening a browser yourself) unlocks
-// the next thing immediately, never punished for going off-script.
+// with a one-line teaser, so the tour reveals things ONE AT A TIME instead of
+// dumping the whole feature surface at once.
+//
+// Tiers:
+//   - get_started (launch an agent, connect a model): unlocked from the start.
+//   - Tier 1 "the basics": the FIRST feature unlocks on your first agent win.
+//   - Tier 2 "going further": a CHAIN, each feature unlocks once you finish the
+//     previous tour step, so the panel only ever surfaces the NEXT thing.
+//
+// Off-script still counts: doing a thing yourself (opening a browser, installing
+// a skill) unlocks its step immediately, so exploring is never punished.
 
 import { useMemo } from 'react';
 import type { RootState } from '@/shared/state/store';
 import { useAppSelector } from '@/shared/hooks';
-import { hasAnyAgentLaunched, hasAnyBrowserSpawned } from './skipPredicates';
+import {
+  hasAnyAgentLaunched,
+  hasAnyBrowserSpawned,
+  hasAnySkillInstalled,
+} from './skipPredicates';
 import { STEPS } from './index';
 
-interface UnlockRule {
-  by: (s: RootState) => boolean;
-  hint: string;
-}
+// Order features reveal in. Index 0 is tier 1 (first thing after the win); the
+// rest are the tier-2 chain, each gated on finishing the one before it.
+const FEATURE_CHAIN = [
+  'enable_actions',
+  'use_browser',
+  'agent_use_browser',
+  'agent_control_agents',
+  'install_skill',
+  'make_app',
+];
 
-// Steps without a rule are unlocked from the start (the get-started entry points).
-const RULES: Record<string, UnlockRule> = {
-  enable_actions: { by: hasAnyAgentLaunched, hint: 'Run your first agent' },
-  use_browser: { by: hasAnyAgentLaunched, hint: 'Run your first agent' },
-  install_skill: { by: hasAnyAgentLaunched, hint: 'Run your first agent' },
-  make_app: { by: hasAnyAgentLaunched, hint: 'Run your first agent' },
-  agent_control_agents: { by: hasAnyAgentLaunched, hint: 'Run your first agent' },
-  agent_use_browser: { by: hasAnyBrowserSpawned, hint: 'Open a browser' },
+// A feature can ALSO unlock when its real-world milestone is met off-script.
+const OFF_SCRIPT: Record<string, (s: RootState) => boolean> = {
+  use_browser: hasAnyBrowserSpawned,
+  agent_use_browser: hasAnyBrowserSpawned,
+  install_skill: hasAnySkillInstalled,
+};
+
+const HINTS: Record<string, string> = {
+  enable_actions: 'Run your first agent',
+  use_browser: 'Finish the step above',
+  agent_use_browser: 'Finish the step above',
+  agent_control_agents: 'Finish the step above',
+  install_skill: 'Finish the step above',
+  make_app: 'Finish the step above',
 };
 
 export function isStepUnlocked(stepId: string, s: RootState): boolean {
-  const rule = RULES[stepId];
-  return rule ? rule.by(s) : true;
+  const idx = FEATURE_CHAIN.indexOf(stepId);
+  if (idx === -1) return true; // get_started entry points are always open
+  if (idx === 0) return hasAnyAgentLaunched(s); // tier 1 opens on the first win
+  const prevDone = (s.onboardingProgress?.completedSteps ?? []).includes(
+    FEATURE_CHAIN[idx - 1],
+  );
+  return prevDone || (OFF_SCRIPT[stepId]?.(s) ?? false);
 }
 
 export function unlockHintFor(stepId: string): string | null {
-  return RULES[stepId]?.hint ?? null;
+  return HINTS[stepId] ?? null;
 }
 
 /** Set of currently-unlocked step ids. Keyed on a stable string so the selector

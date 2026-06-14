@@ -30,6 +30,8 @@ export interface OnboardingProgressState {
   justCompletedStepId: string | null;
   /** True after explicit restart-from-Settings; suppresses skipIf so the tour feels fresh. */
   disableSkipIf: boolean;
+  /** True once we've gently auto-opened the panel after the first agent win (once, ever). */
+  revealedAfterWin?: boolean;
 }
 
 export function loadFromStorage(): OnboardingProgressState | null {
@@ -89,14 +91,16 @@ const initialState: OnboardingProgressState = {
   startedAt: 0,
   completedSteps: [],
   currentStepId: null,
-  // Default expanded so users see next milestone + video preview on dashboard land.
-  panelMode: 'expanded',
+  // Quiet on launch: a small pill, not the full roadmap, so the starter chips are
+  // the focus for the first win. It gently auto-opens once after that win.
+  panelMode: 'pill',
   dismissedAt: null,
   perStepState: {},
   running: false,
   initialized: false,
   justCompletedStepId: null,
   disableSkipIf: false,
+  revealedAfterWin: false,
 };
 
 const slice = createSlice({
@@ -116,14 +120,15 @@ const slice = createSlice({
       state.startedAt = Date.now();
       state.completedSteps = action.payload.preCompleted;
       state.currentStepId = action.payload.currentStepId;
-      // Default expanded on first init (matches initialState's documented intent);
-      // returning users skip this branch (initialized) so their saved choice holds.
-      state.panelMode = 'expanded';
+      // Quiet pill on first init (the chips carry the first win); returning users
+      // skip this branch (initialized) so their saved choice holds.
+      state.panelMode = 'pill';
       state.dismissedAt = null;
       state.perStepState = {};
       state.running = false;
       state.initialized = true;
       state.disableSkipIf = Boolean(action.payload.disableSkipIf);
+      state.revealedAfterWin = false;
     },
     hydrate(state, action: PayloadAction<OnboardingProgressState>) {
       Object.assign(state, action.payload, { running: false, initialized: true });
@@ -154,6 +159,9 @@ const slice = createSlice({
     clearJustCompleted(state) {
       state.justCompletedStepId = null;
     },
+    markRevealedAfterWin(state) {
+      state.revealedAfterWin = true;
+    },
     unmarkStepCompleted(state, action: PayloadAction<string>) {
       state.completedSteps = state.completedSteps.filter((id) => id !== action.payload);
     },
@@ -172,11 +180,12 @@ const slice = createSlice({
     resetTour(state) {
       state.completedSteps = [];
       state.currentStepId = null;
-      state.panelMode = 'expanded';
+      state.panelMode = 'pill';
       state.dismissedAt = null;
       state.perStepState = {};
       state.running = false;
       state.startedAt = Date.now();
+      state.revealedAfterWin = false;
       // Explicit restart: suppress skipIf so residual prior-tour data can't auto-mark.
       state.disableSkipIf = true;
     },
@@ -190,6 +199,7 @@ export const {
   setCurrentStep,
   markStepCompleted,
   clearJustCompleted,
+  markRevealedAfterWin,
   unmarkStepCompleted,
   setRunning,
   recordMultiChoice,
