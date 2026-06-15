@@ -18,6 +18,32 @@ FRONTEND_DIR_ABSPATH="$(dirname "$RUN_FRONTEND_ABSPATH")"
 
 cd "$FRONTEND_DIR_ABSPATH"
 
+# --- Agent bridge check -------------------------------------------------------
+# Every OpenSwarm app must register window.OPENSWARM_APP so an agent can drive
+# it. The plumbing ships in src/agentBridge.ts; what an app can still forget is
+# to CALL register(...) with its own actions. Scan the app source for that call.
+# Missing -> warn loudly but DON'T block (work-in-progress apps must still load).
+# The real gate is the runtime check in the app agent; OPENSWARM_REQUIRE_BRIDGE=1
+# turns this into a hard failure for anyone who wants strict mode.
+check_agent_bridge() {
+    local src_dir="$FRONTEND_DIR_ABSPATH/src"
+    [ -d "$src_dir" ] || return 0
+    if grep -rEl --include='*.ts' --include='*.tsx' \
+        'OPENSWARM_APP\.register|window\.OPENSWARM_APP[[:space:]]*=' \
+        "$src_dir" 2>/dev/null | grep -qv 'agentBridge\.'; then
+        return 0
+    fi
+    echo ""
+    printf '\033[31m❌ BRIDGE MISSING: window.OPENSWARM_APP not registered - this app is not agent-operable.\033[0m\n'
+    printf '\033[31m   Call window.OPENSWARM_APP.register({ rules, controls, getState, invoke }) when your app mounts (see SKILL.md).\033[0m\n'
+    echo ""
+    if [[ "${OPENSWARM_REQUIRE_BRIDGE:-}" == "1" ]]; then
+        echo "OPENSWARM_REQUIRE_BRIDGE=1 set; refusing to start without the agent bridge."
+        exit 1
+    fi
+}
+check_agent_bridge
+
 # Put the bundled Node on PATH so `npm`, `node`, and the vite child
 # processes all resolve even on a machine with no system Node. The
 # packaged Electron shell exports OPENSWARM_NODE_PATH (e.g.

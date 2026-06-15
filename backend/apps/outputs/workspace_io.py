@@ -68,6 +68,7 @@ _WALK_SKIP_DIRS = frozenset({
     ".pytest_cache",
     ".mypy_cache",
     ".ruff_cache",
+    ".openswarm",
 })
 
 # Cap per-file response size at 256 KB. Hand-written source rarely

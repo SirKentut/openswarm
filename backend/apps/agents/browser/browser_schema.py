@@ -678,13 +678,16 @@ APP_TOOLS_SCHEMA = [
     {
         "name": "AppDescribe",
         "description": (
-            "Read the app's CURRENT list of actions you can take, straight from the "
-            "app itself (window.OPENSWARM_APP.describe()). Returns an array of "
-            "{name, args, description}. The app's controls are DYNAMIC, they appear "
-            "and disappear as state changes, so call this again after any AppInvoke "
-            "that could add or remove actions; never assume the list is stable. "
-            "Returns null if the app does not expose the bridge (then fall back to "
-            "BrowserListInteractives/BrowserScreenshot)."
+            "Read the app's rules and CURRENT list of actions, straight from the "
+            "app itself (window.OPENSWARM_APP.describe()). Returns "
+            "{rules, controls, __rev}: rules is what the app is and its objective, "
+            "controls is an array of {name, args, description, keys}, and __rev is "
+            "a revision number. (Older apps may return a bare array of controls.) "
+            "These are ALREADY front-loaded into your first message, so you rarely "
+            "need to call this. The app's controls are DYNAMIC: call this again "
+            "ONLY when AppGetState reports a changed __rev (e.g. after an AppInvoke "
+            "added or removed actions). Returns null if the app exposes no bridge "
+            "(then fall back to BrowserListInteractives/BrowserScreenshot)."
         ),
         "input_schema": {"type": "object", "properties": {}, "required": []},
     },
@@ -693,7 +696,10 @@ APP_TOOLS_SCHEMA = [
         "description": (
             "Read a small JSON snapshot of the app's current state "
             "(window.OPENSWARM_APP.getState()). Use it to check what's on screen "
-            "and to verify an action landed. Returns null if the bridge is absent."
+            "and to verify an action landed. The snapshot includes __rev, the "
+            "controls revision: if it differs from the __rev you were given, the "
+            "controls changed, so call AppDescribe to refresh them. Returns null "
+            "if the bridge is absent."
         ),
         "input_schema": {"type": "object", "properties": {}, "required": []},
     },
@@ -978,22 +984,25 @@ APP_SYSTEM_PROMPT = (
     "## How you see and act: the app's own bridge (this is the fast path)\n"
     "The app exposes a native bridge, window.OPENSWARM_APP, with three calls you "
     "reach through tools:\n"
-    "- AppDescribe -> the CURRENT list of actions {name, args, description}.\n"
-    "- AppGetState -> a small JSON snapshot of what's on screen.\n"
+    "- AppDescribe -> {rules, controls, __rev}: the app's objective and its "
+    "current actions {name, args, description, keys}.\n"
+    "- AppGetState -> a small JSON snapshot of what's on screen (includes __rev).\n"
     "- AppInvoke(name, args) -> perform one action.\n"
-    "Always start with AppDescribe to learn the real action names and arg shapes, "
-    "then AppInvoke them. This reads the app's true structure directly, so you do "
-    "NOT need screenshots, the DOM, or the accessibility tree.\n"
+    "The app's rules and controls have ALREADY been read for you and placed in "
+    "your first message, so you can start invoking actions immediately; you do "
+    "NOT need screenshots, the DOM, or the accessibility tree, and you usually do "
+    "NOT need to call AppDescribe at all.\n"
     "Only ever call actions that AppDescribe actually returned. You operate the app, "
     "you do NOT change it: never invent action names, and never try to add, remove, "
     "or redefine the app's available actions or edit its code. If what the user wants "
     "isn't reachable through the exposed actions, say so in Done.\n\n"
 
-    "## Controls are DYNAMIC\n"
-    "Actions and state change as you interact (the app adds and removes controls). "
-    "Never cache the action list: after any AppInvoke that could change what's "
-    "available, call AppDescribe again before relying on it. Verify outcomes with "
-    "AppGetState rather than assuming.\n\n"
+    "## Controls are DYNAMIC, but you only re-read on a __rev change\n"
+    "Actions can change as you interact (the app adds and removes controls). The "
+    "front-loaded controls came with a __rev number. Use AppGetState to verify "
+    "outcomes; if its __rev differs from the one you have, the controls changed, "
+    "so call AppDescribe ONCE to refresh them. As long as __rev is unchanged, "
+    "trust the controls you already have and do not re-describe.\n\n"
 
     "## If there is no bridge\n"
     "If AppDescribe (or AppGetState) returns null, this app doesn't expose the "

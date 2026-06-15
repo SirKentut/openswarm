@@ -9,6 +9,7 @@ Sub-agents appear as visible AgentSession cards on the dashboard.
 import asyncio
 import json
 import logging
+import os
 import re
 import time
 from datetime import datetime
@@ -114,6 +115,110 @@ def _app_bridge_expression(tool_name: str, tool_input: dict) -> str:
     )
 
 
+# App-bridge readiness. The template ships window.OPENSWARM_APP from first paint
+# but in a "not ready" state until the app calls register(...). On the agent's
+# first turn the app may still be mounting (Vite cold-boot is 10-30s), so the
+# reads poll briefly for the bridge to come up instead of declaring it absent.
+_BRIDGE_READY_WAIT_MS = 8000
+_BRIDGE_POLL_INTERVAL_MS = 400
+
+
+def _parse_bridge_result(result: dict) -> object:
+    """Decode the JSON string an app-bridge evaluate returns (it always returns
+    JSON text and never throws). Returns the decoded value, or None when it is
+    undecodable or errored at the transport level."""
+    if not isinstance(result, dict) or "error" in result:
+        return None
+    raw = result.get("text")
+    if raw is None:
+        return None
+    try:
+        return json.loads(raw)
+    except (TypeError, ValueError):
+        return None
+
+
+def _bridge_ready(value: object) -> bool:
+    """True when a decoded describe()/getState() value means a registered bridge.
+    Legacy apps return a plain array (ready); the template stub returns
+    {'__ready': False} until register() runs; None means no bridge present yet."""
+    if isinstance(value, list):
+        return True
+    if isinstance(value, dict):
+        return value.get("__ready") is not False and "__error__" not in value
+    return value is not None
+
+
+def _app_output_id(browser_id: str) -> str | None:
+    return browser_id[4:] if browser_id.startswith("app:") else None
+
+
+def _app_workspace_dir(browser_id: str) -> str | None:
+    """Resolve the on-disk workspace folder for an `app:<output_id>` target."""
+    oid = _app_output_id(browser_id)
+    if not oid:
+        return None
+    try:
+        from backend.apps.outputs.workspace_io import load_output
+        from backend.config.paths import OUTPUTS_WORKSPACE_DIR
+        out = load_output(oid)
+        if not out or not getattr(out, "workspace_id", None):
+            return None
+        return os.path.join(OUTPUTS_WORKSPACE_DIR, out.workspace_id)
+    except Exception:
+        return None
+
+
+def _render_app_controls(describe_value: object) -> tuple[str, str] | None:
+    """From a decoded describe() value build (rules_md, controls_md). Returns
+    None when the value is not a ready, usable describe."""
+    if isinstance(describe_value, list):
+        rules, controls = "", describe_value
+    elif _bridge_ready(describe_value) and isinstance(describe_value, dict):
+        rules = str(describe_value.get("rules") or "")
+        controls = describe_value.get("controls") or []
+    else:
+        return None
+    lines = ["# Controls", ""]
+    for c in controls:
+        if not isinstance(c, dict):
+            continue
+        row = f"- `{c.get('name', '')}`"
+        if c.get("args"):
+            row += f" args={json.dumps(c['args'])}"
+        if c.get("keys"):
+            row += f" [{c['keys']}]"
+        if c.get("description"):
+            row += f": {c['description']}"
+        lines.append(row)
+    controls_md = "\n".join(lines) + "\n"
+    rules_md = (rules.strip() + "\n") if rules.strip() else ""
+    return rules_md, controls_md
+
+
+def _persist_app_controls(browser_id: str, describe_value: object) -> None:
+    """Cache rules.md + controls.md into the app workspace so the agent reads them
+    up front and only re-describes when controls change. Best-effort; written
+    under .openswarm/ so they stay out of the app's own file tree."""
+    rendered = _render_app_controls(describe_value)
+    if not rendered:
+        return
+    folder = _app_workspace_dir(browser_id)
+    if not folder or not os.path.isdir(folder):
+        return
+    rules_md, controls_md = rendered
+    try:
+        cache_dir = os.path.join(folder, ".openswarm")
+        os.makedirs(cache_dir, exist_ok=True)
+        with open(os.path.join(cache_dir, "controls.md"), "w", encoding="utf-8") as f:
+            f.write(controls_md)
+        if rules_md:
+            with open(os.path.join(cache_dir, "rules.md"), "w", encoding="utf-8") as f:
+                f.write(rules_md)
+    except Exception:
+        logger.debug("[app-agent] failed to persist controls cache", exc_info=True)
+
+
 async def execute_browser_tool(
     tool_name: str, tool_input: dict, browser_id: str, tab_id: str = "",
 ) -> dict:
@@ -128,14 +233,28 @@ async def execute_browser_tool(
         action = "evaluate"
         expr = _app_bridge_expression(tool_name, tool_input)
         params = {"expression": expr}
-        request_id = uuid4().hex
-        if _trace:
-            logger.info(f"[app-agent] DISPATCH {tool_name} -> {browser_id} (req {request_id[:8]}) js={expr[:120]}")
-        result = await ws_manager.send_browser_command(
-            request_id, action, browser_id, params, tab_id=tab_id,
-        )
-        if _trace:
-            logger.info(f"[app-agent] RESULT   {tool_name} <- {browser_id}: {json.dumps(result)[:300]}")
+
+        async def _eval_once() -> dict:
+            rid = uuid4().hex
+            if _trace:
+                logger.info(f"[app-agent] DISPATCH {tool_name} -> {browser_id} (req {rid[:8]}) js={expr[:120]}")
+            r = await ws_manager.send_browser_command(rid, action, browser_id, params, tab_id=tab_id)
+            if _trace:
+                logger.info(f"[app-agent] RESULT   {tool_name} <- {browser_id}: {json.dumps(r)[:300]}")
+            return r
+
+        result = await _eval_once()
+        # Reads poll for the bridge to come up (app still mounting on turn 1).
+        # AppInvoke does not wait: its action either exists right now or it does
+        # not, and a missing action should surface immediately.
+        if tool_name in ("AppDescribe", "AppGetState"):
+            waited = 0
+            while waited < _BRIDGE_READY_WAIT_MS and not _bridge_ready(_parse_bridge_result(result)):
+                await asyncio.sleep(_BRIDGE_POLL_INTERVAL_MS / 1000)
+                waited += _BRIDGE_POLL_INTERVAL_MS
+                result = await _eval_once()
+        if tool_name == "AppDescribe":
+            _persist_app_controls(browser_id, _parse_bridge_result(result))
         return result
 
     action = ACTION_MAP.get(tool_name)
@@ -572,10 +691,66 @@ async def run_browser_agent(
         )
         clear_browser_history(browser_id)
         prior_messages = []
+    # App mode: read the bridge's rules + controls ONCE up front and front-load
+    # them, so the agent knows the app's purpose and every control before its
+    # first action (no screenshot fumbling) and need not call AppDescribe again
+    # until controls change. This is also the runtime bridge gate: if the bridge
+    # never comes up, fail loudly into the logs + the agent's first message (and,
+    # under OPENSWARM_REQUIRE_BRIDGE=1, end the run rather than UI-fumble).
+    app_front_load = ""
+    if app_mode and not prior_messages:
+        try:
+            _dv = _parse_bridge_result(await execute_browser_tool("AppDescribe", {}, browser_id, tab_id))
+        except Exception:
+            _dv = None
+            logger.debug("[app-agent] startup AppDescribe failed", exc_info=True)
+        _rendered = _render_app_controls(_dv)
+        if _rendered:
+            _rules_md, _controls_md = _rendered
+            _rev = _dv.get("__rev") if isinstance(_dv, dict) else None
+            _block = [
+                "\n\n[The app's bridge is live; its rules and controls were read "
+                "for you. Act directly; do NOT call AppDescribe again unless "
+                "AppGetState reports a changed __rev.]"
+            ]
+            if _rules_md.strip():
+                _block.append("App rules / objective:\n" + _rules_md.strip())
+            _block.append(_controls_md.strip())
+            if _rev is not None:
+                _block.append(f"(controls __rev: {_rev})")
+            app_front_load = "\n\n".join(_block)
+        else:
+            _oid = _app_output_id(browser_id) or browser_id
+            _msg = (
+                f"BRIDGE MISSING: window.OPENSWARM_APP not registered - "
+                f"app '{_oid}' is not agent-operable"
+            )
+            logger.error(f"[app-agent] {_msg}")
+            if os.environ.get("OPENSWARM_REQUIRE_BRIDGE") == "1":
+                session.status = "completed"
+                agent_manager._sync_session_close(session)
+                await ws_manager.send_to_session(session_id, "agent:status", {
+                    "session_id": session_id, "status": "completed",
+                    "session": session.model_dump(mode="json"),
+                })
+                return {
+                    "session_id": session_id, "browser_id": browser_id,
+                    "summary": f"This app is not agent-operable: {_msg}.",
+                    "done": True, "success": False,
+                    "action_log": [], "final_screenshot": None,
+                }
+            app_front_load = (
+                f"\n\n[{_msg}. AppDescribe/AppInvoke will not work. Fall back to "
+                "driving the UI directly (BrowserListInteractives, "
+                "BrowserClickIndex, BrowserBatch, BrowserScreenshot). If you "
+                "cannot operate it, say so in Done with success=false.]"
+            )
+
     # Front-load the prefetched perception into the first user turn so the model
     # can act immediately (only when this is a fresh conversation; a resumed one
     # already knows the page). The visible task text stays clean.
-    first_user_content = task + preloaded_perception if (preloaded_perception and not prior_messages) else task
+    _front = preloaded_perception or app_front_load
+    first_user_content = task + _front if (_front and not prior_messages) else task
     messages: list[dict] = list(prior_messages) + [{"role": "user", "content": first_user_content}]
     # Seed with the front-loaded reads: they really ran and returned content, so a
     # read task the agent answers straight from them is NOT a "did nothing" ghost.

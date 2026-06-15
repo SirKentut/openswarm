@@ -146,3 +146,98 @@ def test_selected_app_context_advertises_app_agent(monkeypatch):
     assert ctx is not None
     assert "App id (for AppAgent): abc" in ctx
     assert "AppAgent(output_id, task)" in ctx
+
+
+# --- bridge readiness + parsing ---------------------------------------------
+def test_parse_bridge_result_decodes_json_text():
+    assert BA._parse_bridge_result({"text": json.dumps([{"name": "x"}])}) == [{"name": "x"}]
+    assert BA._parse_bridge_result({"text": "null"}) is None
+    assert BA._parse_bridge_result({"error": "boom"}) is None
+    assert BA._parse_bridge_result({"text": "not json"}) is None
+    assert BA._parse_bridge_result({}) is None
+
+
+def test_bridge_ready_distinguishes_stub_from_registered():
+    assert BA._bridge_ready([{"name": "x"}]) is True            # legacy array
+    assert BA._bridge_ready({"controls": [], "__rev": 1}) is True
+    assert BA._bridge_ready({"__ready": False, "__rev": 0}) is False  # template stub
+    assert BA._bridge_ready({"__error__": "threw"}) is False
+    assert BA._bridge_ready(None) is False
+
+
+def test_render_app_controls_array_and_object_forms():
+    # Legacy array form: no rules, controls rendered.
+    rules_md, controls_md = BA._render_app_controls([{"name": "clear", "description": "wipe"}])
+    assert rules_md == ""
+    assert "- `clear`: wipe" in controls_md
+
+    # New object form: rules + keys + args rendered.
+    rules_md, controls_md = BA._render_app_controls({
+        "rules": "Flappy Bird. Keep the bird airborne.",
+        "controls": [{"name": "flap", "keys": "Space = flap", "args": {"force": "number"}, "description": "Flap once"}],
+        "__rev": 3,
+    })
+    assert "Flappy Bird" in rules_md
+    assert "- `flap`" in controls_md
+    assert "[Space = flap]" in controls_md
+    assert '"force"' in controls_md
+
+    # Not-ready / absent bridge yields nothing to render.
+    assert BA._render_app_controls({"__ready": False}) is None
+    assert BA._render_app_controls(None) is None
+
+
+# --- AppDescribe waits for a still-booting bridge ----------------------------
+def test_app_describe_polls_until_bridge_ready(monkeypatch):
+    calls = {"n": 0}
+    ready = {"rules": "r", "controls": [{"name": "x"}], "__rev": 1}
+
+    async def _send(request_id, action, browser_id, params, tab_id=""):
+        calls["n"] += 1
+        if calls["n"] < 3:
+            return {"text": json.dumps({"__ready": False, "__rev": 0})}
+        return {"text": json.dumps(ready)}
+
+    async def _no_sleep(_s):
+        return None
+
+    monkeypatch.setattr(BA.ws_manager, "send_browser_command", _send, raising=False)
+    monkeypatch.setattr(BA.asyncio, "sleep", _no_sleep, raising=True)
+    monkeypatch.setattr(BA, "_persist_app_controls", lambda *a, **k: None, raising=True)
+
+    out = asyncio.run(BA.execute_browser_tool("AppDescribe", {}, "app:abc"))
+    assert calls["n"] == 3  # polled twice, succeeded on the third
+    assert BA._parse_bridge_result(out) == ready
+
+
+def test_app_invoke_does_not_poll(monkeypatch):
+    calls = {"n": 0}
+
+    async def _send(request_id, action, browser_id, params, tab_id=""):
+        calls["n"] += 1
+        return {"text": json.dumps({"__ready": False})}  # would loop forever if AppInvoke waited
+
+    async def _no_sleep(_s):
+        return None
+
+    monkeypatch.setattr(BA.ws_manager, "send_browser_command", _send, raising=False)
+    monkeypatch.setattr(BA.asyncio, "sleep", _no_sleep, raising=True)
+
+    asyncio.run(BA.execute_browser_tool("AppInvoke", {"name": "flap"}, "app:abc"))
+    assert calls["n"] == 1  # single shot, no readiness wait
+
+
+def test_app_describe_persists_controls_cache(monkeypatch, tmp_path):
+    ready = {"rules": "Keep the bird airborne.", "controls": [{"name": "flap", "keys": "Space"}], "__rev": 1}
+
+    async def _send(request_id, action, browser_id, params, tab_id=""):
+        return {"text": json.dumps(ready)}
+
+    monkeypatch.setattr(BA.ws_manager, "send_browser_command", _send, raising=False)
+    monkeypatch.setattr(BA, "_app_workspace_dir", lambda bid: str(tmp_path), raising=True)
+
+    asyncio.run(BA.execute_browser_tool("AppDescribe", {}, "app:abc"))
+    controls = (tmp_path / ".openswarm" / "controls.md").read_text()
+    rules = (tmp_path / ".openswarm" / "rules.md").read_text()
+    assert "- `flap`" in controls and "[Space]" in controls
+    assert "Keep the bird airborne." in rules
