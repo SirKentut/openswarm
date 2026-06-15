@@ -860,12 +860,25 @@ function waitForCondition(
             )
           ) {
             finish(false);
+            return;
           }
+          // Off-script click during a wait for a specific target: if it's not any
+          // tour control and not the cursor/popup, the user has gone their own
+          // way, so tell the director to back off (it aborts the step silently).
+          // Scoped here to click-target waits so free-interaction waits
+          // (redux_predicate / event_bus) never cancel on a stray click.
+          if (!(el instanceof Element)) return;
+          if (el.closest('[data-onboarding], [data-select-type]')) return;
+          for (let n: Element | null = el; n; n = n.parentElement) {
+            if (parseInt(window.getComputedStyle(n).zIndex || '0', 10) >= 10500) return;
+          }
+          window.dispatchEvent(new CustomEvent('openswarm:onboarding:user_offscript', { detail: { target: cond.target } }));
         };
         document.addEventListener('click', handler, true);
         cleanup = () => document.removeEventListener('click', handler, true);
         return;
       }
+
       case 'redux_predicate': {
         const check = () => {
           const value = cond.selector(store.getState());

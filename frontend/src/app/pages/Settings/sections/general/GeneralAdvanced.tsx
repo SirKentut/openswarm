@@ -117,6 +117,10 @@ const GeneralAdvanced: React.FC<{
             dispatch(resetTour());
             dispatch(closeSettingsModal());
             onboardingBus.emit('settings:closed');
+            // In-place reset can't re-arm the welcome cursor's once-per-mount
+            // guard, so the tour never re-fired without a reload; reload from the
+            // now-cleared storage is the reliable restart (matches the workaround).
+            window.location.reload();
           }}
           sx={{
             color: c.text.secondary,
