@@ -9,6 +9,7 @@ import Alert from '@mui/material/Alert';
 import { store } from '../shared/state/store';
 import { useAppDispatch, useAppSelector } from '@/shared/hooks';
 import { fetchSettings, updateSettings, markFreeTrialArmSettled } from '@/shared/state/settingsSlice';
+import { fetchSubscriptionStatus } from '@/shared/state/subscriptionsSlice';
 import { fetchModels } from '@/shared/state/modelsSlice';
 import { API_BASE } from '@/shared/config';
 import {
@@ -222,6 +223,11 @@ const SettingsLoader: React.FC<{ children: React.ReactNode }> = ({ children }) =
   useEffect(() => {
     dispatch(fetchSettings());
     dispatch(fetchModels());
+    // Connected subscriptions live in their own slice; without this the dashboard
+    // (and the onboarding gate) think no model is connected until the user opens
+    // Settings > Models, so a fresh launch shows a false "connect a model" empty
+    // state and the welcome cursor never fires. Refetched after sync + on focus below.
+    dispatch(fetchSubscriptionStatus());
     fetch(`${API_BASE}/subscription/sync`, { method: 'POST' })
       .then((r) => {
         if (r.ok) dispatch(fetchSettings());
@@ -236,12 +242,12 @@ const SettingsLoader: React.FC<{ children: React.ReactNode }> = ({ children }) =
           // The backend arms server-side regardless of whether the browser can read the mint
           // response (a transient boot-time CORS/timing miss makes `data` unreadable), so refetch
           // unconditionally, the GET is the only reliable signal the UI gets that it armed.
-          .finally(() => { dispatch(fetchSettings()); dispatch(markFreeTrialArmSettled()); });
+          .finally(() => { dispatch(fetchSettings()); dispatch(fetchSubscriptionStatus()); dispatch(markFreeTrialArmSettled()); });
       });
   }, [dispatch]);
 
   useEffect(() => {
-    const onFocus = () => { dispatch(fetchSettings()); };
+    const onFocus = () => { dispatch(fetchSettings()); dispatch(fetchSubscriptionStatus()); };
     window.addEventListener('focus', onFocus);
     return () => window.removeEventListener('focus', onFocus);
   }, [dispatch]);
