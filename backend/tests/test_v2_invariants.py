@@ -550,6 +550,50 @@ def test_error_classify_gemini_resource_exhausted_is_transient():
     assert not _is_transient_capacity_error(Exception("403 permission denied"))
 
 
+@pytest.mark.asyncio
+async def test_mcp_gate_only_forwards_activated_servers():
+    """Dispatch-layer security invariant (the non-bypassable enforcement of
+    'MCP tools only via MCPActivate'): for a GATED session (active_mcps is a
+    list), _build_mcp_servers forwards ONLY servers whose sanitized name is in
+    active_mcps; an empty list forwards ZERO; None is the legacy all-allowed
+    path. The model cannot reach an unactivated server no matter what it asks
+    for. Property-checked over random installed sets and random activation
+    subsets, plus the two boundary cases."""
+    import random
+    from types import SimpleNamespace
+    from backend.apps.agents.agent_manager import AgentManager
+    mgr = AgentManager()
+    names = ["gmail", "drive", "slack", "reddit", "notion", "airtable"]
+
+    def installed():
+        return [SimpleNamespace(name=n, mcp_config={"x": 1}, enabled=True,
+                                auth_status="configured", auth_type="apikey") for n in names]
+
+    # allowed_tools == get_all_tool_names() bypasses the (separate) permission
+    # gate so we isolate the ACTIVATION gate. _sanitize_server_name -> identity.
+    with patch("backend.apps.agents.agent_manager.load_all_tools", side_effect=installed), \
+         patch("backend.apps.agents.agent_manager.get_all_tool_names", return_value=["__ALL__"]), \
+         patch("backend.apps.agents.agent_manager._sanitize_server_name", side_effect=lambda n: n), \
+         patch("backend.apps.agents.agent_manager._is_fully_denied", return_value=False), \
+         patch("backend.apps.agents.agent_manager.derive_mcp_config", side_effect=lambda t: {"command": "x"}):
+        allowed = ["__ALL__"]
+        # Boundary 1: empty activation list -> zero servers, always.
+        assert await mgr._build_mcp_servers(allowed, active_mcps=[]) == {}
+        # Boundary 2: None (legacy) -> permission gate only, all forwarded.
+        assert set((await mgr._build_mcp_servers(allowed, active_mcps=None)).keys()) == set(names)
+        # Property: forwarded set is ALWAYS a subset of the activated set, and
+        # equals exactly the activated-and-installed intersection.
+        rng = random.Random(1234)
+        for _ in range(400):
+            active = rng.sample(names, rng.randint(0, len(names)))
+            # throw in a bogus name the gate must never invent a server for
+            if rng.random() < 0.3:
+                active = active + ["ghost-not-installed"]
+            forwarded = set((await mgr._build_mcp_servers(allowed, active_mcps=active)).keys())
+            assert forwarded <= set(active), f"leaked {forwarded - set(active)} for active={active}"
+            assert forwarded == (set(active) & set(names)), f"mismatch for active={active}"
+
+
 def test_banned_models_not_offered():
     """Claude Fable (banned) and Gemini 3.1 Pro (no working lane: AG can't serve
     it, AI Studio key 429s pro-preview) were pulled from the picker. Guard so a
