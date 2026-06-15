@@ -79,3 +79,21 @@ def find_denied_keys(value: Any, _path: str = "") -> list[str]:
         for i, v in enumerate(value):
             found.extend(find_denied_keys(v, f"{_path}[{i}]"))
     return found
+
+
+def _looks_secret(text: str) -> bool:
+    return any(pat.search(text) for pat in _CONTENT_PATTERNS)
+
+
+def find_secrets_in_files(files: dict[str, bytes]) -> list[str]:
+    """Paths of any file whose text body holds a secret-shaped literal. Payloads
+    get scrubbed key-and-content, but raw workspace files (an app's source) were
+    only key-scanned, so a key hardcoded in a .js would slip. Binary files are
+    skipped (a null byte means it isn't text someone pasted a token into)."""
+    hits: list[str] = []
+    for path, data in files.items():
+        if b"\x00" in data[:4096]:
+            continue
+        if _looks_secret(data.decode("utf-8", errors="ignore")):
+            hits.append(path)
+    return hits

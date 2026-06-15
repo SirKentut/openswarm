@@ -99,6 +99,19 @@ def test_pack_refuses_denied_key():
         pack({"format_version": 1}, {"bid1": {"api_key": "leak"}}, {})
 
 
+def test_pack_refuses_secret_in_workspace_file():
+    # A key hardcoded in app source (not .env) must not ride along; pack scans
+    # file bytes, not just payload keys.
+    leak = b"const KEY = 'sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAA';\n"
+    with pytest.raises(BundleError):
+        pack({"format_version": 1}, {"bid1": {"name": "ok"}}, {"entities/bid1/files/config.js": leak})
+
+
+def test_pack_allows_clean_workspace_file():
+    raw = pack({"format_version": 1}, {"bid1": {"name": "ok"}}, {"entities/bid1/files/app.js": b"export default 1"})
+    assert zipfile.is_zipfile(io.BytesIO(raw))
+
+
 def test_app_export_drops_machine_env(tmp_path, monkeypatch):
     # The live .env holds the source machine's absolute paths + pinned port; it
     # must never ride along. .env.example (portable) does.

@@ -12,7 +12,7 @@ import shutil
 import tempfile
 import zipfile
 
-from .redact import find_denied_keys
+from .redact import find_denied_keys, find_secrets_in_files
 
 MANIFEST_NAME = "manifest.json"
 
@@ -46,6 +46,12 @@ def pack(manifest: dict, payloads: dict[str, dict], files: dict[str, bytes]) -> 
             raise BundleError(
                 f"refusing to export: secret-shaped field(s) in {bid}: {leaked[:3]}"
             )
+    leaky_files = find_secrets_in_files(files)
+    if leaky_files:
+        raise BundleError(
+            f"refusing to export: a secret-shaped value is in {leaky_files[0]}; "
+            "remove it (use an environment variable) and try again"
+        )
     entries: dict[str, bytes] = {}
     for bid, payload in payloads.items():
         entries[f"entities/{bid}/payload.json"] = json.dumps(payload, indent=2).encode("utf-8")
