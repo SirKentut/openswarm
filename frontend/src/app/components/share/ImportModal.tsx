@@ -56,26 +56,11 @@ const ImportModal: React.FC<Props> = ({ preflight, open, committing, onConfirm, 
           <Box sx={{ px: 3, pb: 3 }}>
             <IncludesList summary={preflight.summary} />
             {preflight.review && preflight.review.findings.length > 0 && (
-              <Box
-                sx={{
-                  mt: 1.5,
-                  p: 1.25,
-                  display: 'flex',
-                  gap: 1,
-                  alignItems: 'flex-start',
-                  borderRadius: `${c.radius.md}px`,
-                  border: `1px solid ${c.status.warning}33`,
-                  bgcolor: `${c.status.warning}12`,
-                }}
-              >
-                <ShieldOutlinedIcon sx={{ fontSize: 16, color: c.status.warning, mt: '2px', flexShrink: 0 }} />
-                <Box>
-                  {preflight.review.findings.map((f, i) => (
-                    <Typography key={`rv-${i}`} sx={{ fontSize: '0.78rem', color: c.text.secondary, lineHeight: 1.5 }}>
-                      {f}
-                    </Typography>
-                  ))}
-                </Box>
+              <Box sx={{ mt: 1.75, display: 'flex', gap: 0.85, alignItems: 'center' }}>
+                <ShieldOutlinedIcon sx={{ fontSize: 15, color: c.status.warning, flexShrink: 0 }} />
+                <Typography sx={{ fontSize: '0.78rem', color: c.text.muted, lineHeight: 1.4 }}>
+                  {preflight.review.findings.join(' ')}
+                </Typography>
               </Box>
             )}
             {preflight.conflicts.length > 0 && (

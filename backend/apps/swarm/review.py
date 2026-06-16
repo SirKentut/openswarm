@@ -30,5 +30,5 @@ def scan_app_files(files: dict[str, bytes]) -> ReviewSummary:
     verdict = "warn" if findings else "clean"
     if runnable:
         verdict = "warn"
-        findings.insert(0, "This app runs code on your computer when you open it. Only import apps you trust.")
+        findings.insert(0, "This app runs code on your computer. Only import apps you trust.")
     return ReviewSummary(verdict=verdict, findings=findings, scanned_files=scanned)
