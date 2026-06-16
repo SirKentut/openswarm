@@ -333,13 +333,15 @@ def test_dashboard_serialize_rewrites_refs_to_bundle_ids():
 
     data = {"name": "D", "layout": {
         "cards": {"S": {"session_id": "S", "x": 1}},
-        "view_cards": {"A": {"output_id": "A", "x": 2}},
+        "view_cards": {"A": {"output_id": "A", "x": 2, "parent_session_id": "S"}},
         "browser_cards": {"b1": {"browser_id": "b1", "url": "u", "spawned_by": "S"}},
         "expanded_session_ids": ["S"],
     }}
     L = DashboardExportable("d1", "D", data).serialize(Ctx())["layout"]
     assert L["cards"]["SBID"]["session_id"] == "SBID"
     assert L["view_cards"]["ABID"]["output_id"] == "ABID"
+    # the app card's tether to its builder agent is a session id, so it remaps too
+    assert L["view_cards"]["ABID"]["parent_session_id"] == "SBID"
     assert L["browser_cards"]["b1"]["spawned_by"] == "SBID"
     assert L["expanded_session_ids"] == ["SBID"]
 
@@ -356,14 +358,19 @@ def test_dashboard_import_remaps_to_fresh_local_ids(monkeypatch):
     remap.assign("ABID", "newapp")
     payload = {"name": "D", "layout": {
         "cards": {"SBID": {"session_id": "SBID"}},
-        "view_cards": {"ABID": {"output_id": "ABID"}},
+        "view_cards": {
+            "ABID": {"output_id": "ABID", "parent_session_id": "SBID"},
+            "ABID2": {"output_id": "ABID2", "parent_session_id": "GONE"},
+        },
         "browser_cards": {"b1": {"browser_id": "b1", "spawned_by": "SBID"}},
         "expanded_session_ids": ["SBID", "ORPHAN"],
     }}
+    remap.assign("ABID2", "newapp2")
     did = dmod.DashboardExportable.import_(payload, {}, remap)
     L = written[did]["layout"]
     assert L["cards"]["newsess"]["session_id"] == "newsess"
-    assert "newapp" in L["view_cards"]
+    assert L["view_cards"]["newapp"]["parent_session_id"] == "newsess"
+    assert L["view_cards"]["newapp2"]["parent_session_id"] is None  # parent not in bundle
     assert list(L["browser_cards"].values())[0]["spawned_by"] == "newsess"
     assert L["expanded_session_ids"] == ["newsess"]  # the dangling ref is dropped
 
@@ -402,7 +409,11 @@ def test_dashboard_remap_invariant_generative(monkeypatch):
 
         layout = {
             "cards": {s: {"session_id": s, "x": rng.randint(0, 9)} for s in sess},
-            "view_cards": {a: {"output_id": a} for a in apps},
+            "view_cards": {
+                a: {"output_id": a,
+                    "parent_session_id": (rng.choice(sess + ["ORPHAN"]) if sess and rng.random() < 0.7 else None)}
+                for a in apps
+            },
             "browser_cards": {
                 f"b{i}": {"browser_id": f"b{i}", "url": "u",
                           "spawned_by": (rng.choice(sess) if sess and rng.random() < 0.7 else None)}
@@ -430,6 +441,8 @@ def test_dashboard_remap_invariant_generative(monkeypatch):
             assert cid not in forbidden and card["session_id"] == cid
         for oid, card in L["view_cards"].items():
             assert oid not in forbidden and card["output_id"] == oid
+            p = card["parent_session_id"]
+            assert p is None or (p in set(fresh_sess.values()) and p not in forbidden)
         assert set(L["expanded_session_ids"]) <= set(fresh_sess.values())
         for card in L["browser_cards"].values():
             assert card["spawned_by"] is None or card["spawned_by"] in set(fresh_sess.values())

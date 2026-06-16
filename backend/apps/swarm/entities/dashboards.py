@@ -39,7 +39,13 @@ class DashboardExportable:
         for oid, card in (layout.get("view_cards") or {}).items():
             bid = ctx.bundle_id_for(EntityType.app, oid)
             if bid:
-                view_cards[bid] = {**card, "output_id": bid}
+                # parent_session_id tethers the app card to the agent that built it;
+                # it's a session id, so it remaps like spawned_by on browser cards.
+                parent = card.get("parent_session_id")
+                view_cards[bid] = {
+                    **card, "output_id": bid,
+                    "parent_session_id": ctx.bundle_id_for(EntityType.session, parent) if parent else None,
+                }
         browser_cards = {}
         for bkey, card in (layout.get("browser_cards") or {}).items():
             c = dict(card)
@@ -78,7 +84,11 @@ class DashboardExportable:
         for bid, card in (layout.get("view_cards") or {}).items():
             noid = remap.local(bid)
             if noid:
-                view_cards[noid] = {**card, "output_id": noid}
+                parent = card.get("parent_session_id")
+                view_cards[noid] = {
+                    **card, "output_id": noid,
+                    "parent_session_id": remap.local(parent) if parent else None,
+                }
         browser_cards = {}
         for _bkey, card in (layout.get("browser_cards") or {}).items():
             nbid = "browser-" + uuid4().hex[:10]
