@@ -11,6 +11,7 @@ import FormControlLabel from '@mui/material/FormControlLabel';
 import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 import SendIcon from '@mui/icons-material/Send';
 import CheckIcon from '@mui/icons-material/Check';
+import DoneAllIcon from '@mui/icons-material/DoneAll';
 import CloseIcon from '@mui/icons-material/Close';
 import TerminalIcon from '@mui/icons-material/Terminal';
 import DescriptionIcon from '@mui/icons-material/Description';
@@ -163,7 +164,7 @@ function getMcpInputSummary(actionName: string, toolInput: Record<string, any>):
 
 interface Props {
   request: ApprovalRequest;
-  onApprove: (requestId: string, updatedInput?: Record<string, any>, trustPattern?: boolean) => void;
+  onApprove: (requestId: string, updatedInput?: Record<string, any>, trustPattern?: boolean, alwaysAllow?: boolean) => void;
   onDeny: (requestId: string, message?: string) => void;
 }
 
@@ -304,7 +305,7 @@ type Answers = Record<number, string | string[]>;
 
 export interface QuestionFormProps {
   request: ApprovalRequest;
-  onApprove: (requestId: string, updatedInput?: Record<string, any>, trustPattern?: boolean) => void;
+  onApprove: (requestId: string, updatedInput?: Record<string, any>, trustPattern?: boolean, alwaysAllow?: boolean) => void;
   onDeny: (requestId: string, message?: string) => void;
   compact?: boolean;
 }
@@ -560,8 +561,6 @@ export const QuestionForm: React.FC<QuestionFormProps> = ({ request, onApprove, 
 
 const GenericApprovalBar: React.FC<Props> = ({ request, onApprove, onDeny }) => {
   const c = useClaudeTokens();
-  const [denyMessage, setDenyMessage] = useState('');
-  const [showDenyInput, setShowDenyInput] = useState(false);
   const [detailsExpanded, setDetailsExpanded] = useState(false);
   const [trustPattern, setTrustPattern] = useState(false);
 
@@ -661,26 +660,7 @@ const GenericApprovalBar: React.FC<Props> = ({ request, onApprove, onDeny }) => 
           />
         )}
 
-        {showDenyInput && (
-          <TextField
-            placeholder="Reason for denying (optional)..."
-            value={denyMessage}
-            onChange={(e) => setDenyMessage(e.target.value)}
-            fullWidth
-            size="small"
-            sx={{
-              mb: 1.5,
-              '& .MuiOutlinedInput-root': {
-                color: c.text.primary,
-                fontSize: '0.8rem',
-                '& fieldset': { borderColor: c.border.strong },
-                '&.Mui-focused fieldset': { borderColor: c.status.error },
-              },
-            }}
-          />
-        )}
-
-        <Box sx={{ display: 'flex', gap: 1 }}>
+        <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
           <Button
             variant="contained"
             startIcon={<CheckIcon />}
@@ -689,24 +669,24 @@ const GenericApprovalBar: React.FC<Props> = ({ request, onApprove, onDeny }) => 
           >
             Approve
           </Button>
-          {showDenyInput ? (
-            <Button
-              variant="contained"
-              startIcon={<CloseIcon />}
-              onClick={() => { onDeny(request.id, denyMessage || undefined); setShowDenyInput(false); setDenyMessage(''); }}
-              sx={{ bgcolor: c.status.error, '&:hover': { bgcolor: '#8f2828' }, fontWeight: 600, fontSize: '0.8rem' }}
-            >
-              Deny
-            </Button>
-          ) : (
+          {!isSensitive && (
             <Button
               variant="outlined"
-              onClick={() => setShowDenyInput(true)}
-              sx={{ borderColor: c.status.error, color: c.status.error, '&:hover': { borderColor: '#8f2828', bgcolor: 'rgba(181,51,51,0.04)' }, fontWeight: 600, fontSize: '0.8rem' }}
+              startIcon={<DoneAllIcon />}
+              onClick={() => onApprove(request.id, undefined, false, true)}
+              sx={{ borderColor: c.status.success, color: c.status.success, '&:hover': { borderColor: '#1e4d15', bgcolor: 'rgba(45,122,31,0.06)' }, fontWeight: 600, fontSize: '0.8rem' }}
             >
-              Deny
+              Always approve
             </Button>
           )}
+          <Button
+            variant="outlined"
+            startIcon={<CloseIcon />}
+            onClick={() => onDeny(request.id)}
+            sx={{ borderColor: c.status.error, color: c.status.error, '&:hover': { borderColor: '#8f2828', bgcolor: 'rgba(181,51,51,0.04)' }, fontWeight: 600, fontSize: '0.8rem' }}
+          >
+            Deny
+          </Button>
         </Box>
       </Box>
     );
@@ -818,28 +798,7 @@ const GenericApprovalBar: React.FC<Props> = ({ request, onApprove, onDeny }) => 
         </Collapse>
       </Box>
 
-      {showDenyInput && (
-        <Box sx={{ px: 2, pb: 0.5 }}>
-          <TextField
-            placeholder="Reason for denying (optional)..."
-            value={denyMessage}
-            onChange={(e) => setDenyMessage(e.target.value)}
-            fullWidth
-            size="small"
-            autoFocus
-            sx={{
-              '& .MuiOutlinedInput-root': {
-                color: c.text.primary,
-                fontSize: '0.8rem',
-                '& fieldset': { borderColor: c.border.strong },
-                '&.Mui-focused fieldset': { borderColor: c.status.error },
-              },
-            }}
-          />
-        </Box>
-      )}
-
-      <Box sx={{ display: 'flex', gap: 1, px: 2, pt: 1, pb: 1.75 }}>
+      <Box sx={{ display: 'flex', gap: 1, px: 2, pt: 1, pb: 1.75, flexWrap: 'wrap' }}>
         <Button
           variant="contained"
           startIcon={<CheckIcon />}
@@ -856,41 +815,40 @@ const GenericApprovalBar: React.FC<Props> = ({ request, onApprove, onDeny }) => 
         >
           Approve
         </Button>
-        {showDenyInput ? (
-          <Button
-            variant="contained"
-            startIcon={<CloseIcon />}
-            onClick={() => { onDeny(request.id, denyMessage || undefined); setShowDenyInput(false); setDenyMessage(''); }}
-            sx={{
-              bgcolor: c.status.error,
-              '&:hover': { bgcolor: '#8f2828' },
-              fontWeight: 600,
-              fontSize: '0.8rem',
-              textTransform: 'none',
-              borderRadius: 1.5,
-              px: 2,
-            }}
-          >
-            Deny
-          </Button>
-        ) : (
-          <Button
-            variant="outlined"
-            onClick={() => setShowDenyInput(true)}
-            sx={{
-              borderColor: c.status.error,
-              color: c.status.error,
-              '&:hover': { borderColor: '#8f2828', bgcolor: 'rgba(181,51,51,0.04)' },
-              fontWeight: 600,
-              fontSize: '0.8rem',
-              textTransform: 'none',
-              borderRadius: 1.5,
-              px: 2,
-            }}
-          >
-            Deny
-          </Button>
-        )}
+        <Button
+          variant="outlined"
+          startIcon={<DoneAllIcon />}
+          onClick={() => onApprove(request.id, undefined, false, true)}
+          sx={{
+            borderColor: c.status.success,
+            color: c.status.success,
+            '&:hover': { borderColor: '#1e4d15', bgcolor: 'rgba(45,122,31,0.06)' },
+            fontWeight: 600,
+            fontSize: '0.8rem',
+            textTransform: 'none',
+            borderRadius: 1.5,
+            px: 2,
+          }}
+        >
+          Always approve
+        </Button>
+        <Button
+          variant="outlined"
+          startIcon={<CloseIcon />}
+          onClick={() => onDeny(request.id)}
+          sx={{
+            borderColor: c.status.error,
+            color: c.status.error,
+            '&:hover': { borderColor: '#8f2828', bgcolor: 'rgba(181,51,51,0.04)' },
+            fontWeight: 600,
+            fontSize: '0.8rem',
+            textTransform: 'none',
+            borderRadius: 1.5,
+            px: 2,
+          }}
+        >
+          Deny
+        </Button>
       </Box>
     </Box>
   );
@@ -911,7 +869,7 @@ interface ToolGroup {
 
 interface BatchApprovalBarProps {
   requests: ApprovalRequest[];
-  onApprove: (requestId: string, updatedInput?: Record<string, any>, trustPattern?: boolean) => void;
+  onApprove: (requestId: string, updatedInput?: Record<string, any>, trustPattern?: boolean, alwaysAllow?: boolean) => void;
   onDeny: (requestId: string, message?: string) => void;
 }
 
@@ -1050,7 +1008,7 @@ interface GroupRowProps {
   group: ToolGroup;
   expanded: boolean;
   onToggle: () => void;
-  onApprove: (requestId: string, updatedInput?: Record<string, any>, trustPattern?: boolean) => void;
+  onApprove: (requestId: string, updatedInput?: Record<string, any>, trustPattern?: boolean, alwaysAllow?: boolean) => void;
   onDeny: (requestId: string, message?: string) => void;
   onApproveGroup: () => void;
   onDenyGroup: () => void;

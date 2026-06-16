@@ -406,17 +406,19 @@ export const handleApproval = createAsyncThunk(
     message,
     updatedInput,
     trustPattern,
+    setAlwaysAllow,
   }: {
     requestId: string;
     behavior: 'allow' | 'deny';
     message?: string;
     updatedInput?: Record<string, any>;
     trustPattern?: boolean;
+    setAlwaysAllow?: boolean;
   }) => {
     const res = await fetch(`${AGENTS_API}/approval`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ request_id: requestId, behavior, message, updated_input: updatedInput, trust_pattern: !!trustPattern }),
+      body: JSON.stringify({ request_id: requestId, behavior, message, updated_input: updatedInput, trust_pattern: !!trustPattern, set_always_allow: !!setAlwaysAllow }),
     });
     if (!res.ok) {
       throw new Error(`Approval request failed (${res.status})`);

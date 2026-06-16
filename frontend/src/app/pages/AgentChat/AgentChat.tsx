@@ -879,8 +879,8 @@ const AgentChat: React.FC<AgentChatProps> = ({ sessionId: sessionIdProp, onClose
     if (!isDraft) dispatch(updateThinkingLevel({ sessionId: id, level }));
   }, [id, isDraft, dispatch]);
 
-  const handleApprove = (requestId: string, updatedInput?: Record<string, any>, trustPattern?: boolean) => {
-    dispatch(handleApproval({ requestId, behavior: 'allow', updatedInput, trustPattern }));
+  const handleApprove = (requestId: string, updatedInput?: Record<string, any>, trustPattern?: boolean, alwaysAllow?: boolean) => {
+    dispatch(handleApproval({ requestId, behavior: 'allow', updatedInput, trustPattern, setAlwaysAllow: alwaysAllow }));
   };
 
   const handleDeny = (requestId: string, message?: string) => {
