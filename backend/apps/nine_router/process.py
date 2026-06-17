@@ -55,6 +55,34 @@ NINE_ROUTER_V1 = f"{NINE_ROUTER_URL}/v1"
 # routed via an `openai-compatible` node that honors `baseUrl`) STAYS necessary.
 NINE_ROUTER_NPM_VERSION = os.environ.get("OPENSWARM_ROUTER_VERSION", "0.3.60")
 
+# 9Router (our pinned 0.3.60) appends every request to ~/.9router/request-details.json and
+# reloads the WHOLE file on each write; once it reaches tens of MB the router's node process
+# OOM-aborts and takes the app down, even while idle (verified from crash dumps). Two cheap,
+# pin-safe guards until the real fix (a 9Router bump past 0.4.66, which moved off this file):
+#   1. rotate that log before we spawn 9Router when it gets large, so growth can't run away;
+#   2. give node an explicit, generous heap ceiling for legitimate large multimodal bodies.
+# Neither touches routing, so WebSearch/WebFetch translation and the 0.3.60 pin are unaffected.
+_REQUEST_LOG_PATH = os.path.expanduser("~/.9router/request-details.json")
+_REQUEST_LOG_MAX_BYTES = 5 * 1024 * 1024
+_NODE_HEAP_MB = 4096
+
+
+def _rotate_request_log() -> None:
+    """Rotate ~/.9router/request-details.json to a single .0 backup when it grows past the cap,
+    BEFORE 9Router is spawned (never racing a live writer). 9Router recreates a fresh file, exactly
+    like a clean install. The only consumer is the 'most recent 5' reasoning-token lookup, which
+    already tolerates an empty/missing file, so no feature loses data it depends on."""
+    try:
+        if os.path.exists(_REQUEST_LOG_PATH) and os.path.getsize(_REQUEST_LOG_PATH) > _REQUEST_LOG_MAX_BYTES:
+            os.replace(_REQUEST_LOG_PATH, _REQUEST_LOG_PATH + ".0")
+            logger.info(
+                "9Router request log rotated (exceeded %d MB) to avoid the router OOM",
+                _REQUEST_LOG_MAX_BYTES // (1024 * 1024),
+            )
+    except Exception as e:
+        logger.debug("9Router request-log rotation skipped: %s", e)
+
+
 _process: subprocess.Popen | None = None
 
 # Short TTL cache for positive is_running() results. The probe is a sync
@@ -361,6 +389,7 @@ async def ensure_running():
         else:
             logger.info("9Router already running on port %d", NINE_ROUTER_PORT)
             return
+    _rotate_request_log()
     _9router_dir = _find_9router_dir()
     _patch = _gpt5_patch_path()
 
@@ -383,7 +412,7 @@ async def ensure_running():
             _report_start_failure("node_not_found", router_dir_found=True, server_found=True)
             return
         logger.info("Starting 9Router (production) on port %d...", NINE_ROUTER_PORT)
-        cmd = [node] + (["--require", _patch] if _patch else []) + [standalone_server]
+        cmd = [node, f"--max-old-space-size={_NODE_HEAP_MB}"] + (["--require", _patch] if _patch else []) + [standalone_server]
         cwd = os.path.dirname(standalone_server)
         env = {**os.environ, "PORT": str(NINE_ROUTER_PORT), "NODE_ENV": "production"}
         if node == os.environ.get("OPENSWARM_ELECTRON_PATH"):
@@ -403,7 +432,7 @@ async def ensure_running():
             "Starting 9Router (dev cache, 9router@%s) on port %d...",
             NINE_ROUTER_NPM_VERSION, NINE_ROUTER_PORT,
         )
-        cmd = [node] + (["--require", _patch] if _patch else []) + [cached_server]
+        cmd = [node, f"--max-old-space-size={_NODE_HEAP_MB}"] + (["--require", _patch] if _patch else []) + [cached_server]
         cwd = os.path.dirname(cached_server)
         env = {**os.environ, "PORT": str(NINE_ROUTER_PORT), "NODE_ENV": "production"}
 
