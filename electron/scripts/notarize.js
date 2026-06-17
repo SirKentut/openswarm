@@ -12,8 +12,15 @@ exports.default = async function notarizing(context) {
     return;
   }
 
-  if (!process.env.APPLE_ID || !process.env.APPLE_TEAM_ID) {
-    console.log('Skipping notarization (APPLE_ID or APPLE_TEAM_ID not set)');
+  // Prefer a stored notarytool keychain profile: an app-specific password in env
+  // silently 401s the day Apple rotates it, taking a release down with it; the
+  // keychain profile is durable and is the canonical local-publish credential.
+  const keychainProfile = process.env.APPLE_KEYCHAIN_PROFILE;
+  const hasEnvCreds =
+    process.env.APPLE_ID && process.env.APPLE_APP_SPECIFIC_PASSWORD && process.env.APPLE_TEAM_ID;
+
+  if (!keychainProfile && !hasEnvCreds) {
+    console.log('Skipping notarization (no APPLE_KEYCHAIN_PROFILE and no APPLE_ID/password/team)');
     return;
   }
 
@@ -22,15 +29,20 @@ exports.default = async function notarizing(context) {
   const appName = context.packager.appInfo.productFilename;
   const appPath = `${appOutDir}/${appName}.app`;
 
-  console.log(`Notarizing ${appPath}...`);
-
-  await notarize({
-    appBundleId: 'com.clusterlabs.openswarm',
-    appPath,
-    appleId: process.env.APPLE_ID,
-    appleIdPassword: process.env.APPLE_APP_SPECIFIC_PASSWORD,
-    teamId: process.env.APPLE_TEAM_ID,
-  });
+  if (keychainProfile) {
+    console.log(`Notarizing ${appPath} via keychain profile "${keychainProfile}"...`);
+    await notarize({ tool: 'notarytool', appPath, keychainProfile });
+  } else {
+    console.log(`Notarizing ${appPath} via Apple ID env credentials...`);
+    await notarize({
+      tool: 'notarytool',
+      appBundleId: 'com.clusterlabs.openswarm',
+      appPath,
+      appleId: process.env.APPLE_ID,
+      appleIdPassword: process.env.APPLE_APP_SPECIFIC_PASSWORD,
+      teamId: process.env.APPLE_TEAM_ID,
+    });
+  }
 
   console.log('Notarization complete.');
 };
