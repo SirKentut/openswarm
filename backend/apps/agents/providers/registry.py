@@ -312,8 +312,10 @@ async def resolve_aux_model(
     paying for (Codex chat → Codex aux, OR chat → OR aux, etc.).
     Returns (model_id, base_url); base_url=None means default Anthropic.
     """
+    # Must track the canonical Anthropic entries in BUILTIN_MODELS (sonnet/haiku); a stale id here
+    # 404s every aux call (sonnet was pinned to the long-dead 4.0 "20250514" and silently broke).
     haiku_bare = "claude-haiku-4-5-20251001"
-    sonnet_bare = "claude-sonnet-4-20250514"
+    sonnet_bare = "claude-sonnet-4-6"
     or_haiku = "openrouter/anthropic/claude-haiku-4.5"
     or_sonnet = "openrouter/anthropic/claude-sonnet-4.5"
     bare = haiku_bare if preferred_tier == "haiku" else sonnet_bare
