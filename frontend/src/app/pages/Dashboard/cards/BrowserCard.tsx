@@ -1199,6 +1199,10 @@ const BrowserCard: React.FC<Props> = ({
                   border: 'none',
                   visibility: tab.id === activeTabId ? 'visible' : 'hidden',
                   zIndex: tab.id === activeTabId ? 1 : 0,
+                  // Unselected: ignore host clicks so the select-catcher above actually gets
+                  // them (a webview paints over plain DOM and would swallow them); the agent
+                  // drives the page over CDP, which bypasses this, so agents are unaffected.
+                  pointerEvents: isSelected ? 'auto' : 'none',
                 }}
               />
             ))}
@@ -1320,7 +1324,7 @@ const BrowserCard: React.FC<Props> = ({
             <iframe
               src={activeUrl}
               // No sandbox: a restrictive sandbox blocks some sites from rendering, and our renderer is already isolated by Electron's contextIsolation + sub_frame XFO/CSP frame-ancestors strip in main.js. onLoad/onError add definitive instrumentation so we can tell whether the iframe loaded successfully (with empty body from anti-iframe JS) or genuinely failed (network error, CSP block, etc.).
-              style={{ width: '100%', height: '100%', border: 'none' }}
+              style={{ width: '100%', height: '100%', border: 'none', pointerEvents: isSelected ? 'auto' : 'none' }}
               title="Browser"
               referrerPolicy="no-referrer-when-downgrade"
               onError={(e) => {
