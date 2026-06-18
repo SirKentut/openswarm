@@ -42,6 +42,7 @@ async def settings_lifespan():
 
         async def _boot_router_then_sync():
             """Boot 9Router then push key-based connections (sequential: sync helpers no-op pre-boot)."""
+            logger.info("[perf] bg settings._boot_router_then_sync entered")
             needs_router = any([
                 getattr(s, "google_api_key", None),
                 getattr(s, "openai_api_key", None),
