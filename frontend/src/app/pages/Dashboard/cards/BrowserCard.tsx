@@ -1118,21 +1118,6 @@ const BrowserCard: React.FC<Props> = ({
 
       {/* Browser body: stacked webviews */}
       <Box sx={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
-        {/* Select-then-interact: the body is a live webview that swallows clicks, so
-            only the header used to select/drag the card. While the card is unselected
-            (and not cmd-panning or element-picking) lay a transparent catcher over the
-            body: a plain click bubbles to the card onClick (select), a drag runs the
-            same move handler as the header. It lifts the instant the card is selected,
-            so the page goes live again. Sits above the webview but below the end/crash
-            pills (z5/z6) and the agent overlay (z16) so it never steals their clicks. */}
-        {!isSelected && !cmdHeld && !isElementSelectMode && (
-          <Box
-            onPointerDown={handleDragPointerDown}
-            onPointerMove={handleDragPointerMove}
-            onPointerUp={handleDragPointerUp}
-            sx={{ position: 'absolute', inset: 0, zIndex: 4, cursor: isDragging ? 'grabbing' : 'grab' }}
-          />
-        )}
         {isElementSelectMode && (
           <Box sx={{ position: 'absolute', inset: 0, zIndex: 10, pointerEvents: 'none' }} />
         )}
@@ -1199,10 +1184,6 @@ const BrowserCard: React.FC<Props> = ({
                   border: 'none',
                   visibility: tab.id === activeTabId ? 'visible' : 'hidden',
                   zIndex: tab.id === activeTabId ? 1 : 0,
-                  // Unselected: ignore host clicks so the select-catcher above actually gets
-                  // them (a webview paints over plain DOM and would swallow them); the agent
-                  // drives the page over CDP, which bypasses this, so agents are unaffected.
-                  pointerEvents: isSelected ? 'auto' : 'none',
                 }}
               />
             ))}
@@ -1324,7 +1305,7 @@ const BrowserCard: React.FC<Props> = ({
             <iframe
               src={activeUrl}
               // No sandbox: a restrictive sandbox blocks some sites from rendering, and our renderer is already isolated by Electron's contextIsolation + sub_frame XFO/CSP frame-ancestors strip in main.js. onLoad/onError add definitive instrumentation so we can tell whether the iframe loaded successfully (with empty body from anti-iframe JS) or genuinely failed (network error, CSP block, etc.).
-              style={{ width: '100%', height: '100%', border: 'none', pointerEvents: isSelected ? 'auto' : 'none' }}
+              style={{ width: '100%', height: '100%', border: 'none' }}
               title="Browser"
               referrerPolicy="no-referrer-when-downgrade"
               onError={(e) => {
