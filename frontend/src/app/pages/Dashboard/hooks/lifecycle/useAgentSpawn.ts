@@ -160,6 +160,7 @@ export function useAgentSpawn({
           contextPaths: contextPaths?.map((cp) => ({ path: cp.path, type: cp.type })),
           forcedTools,
           attachedSkills,
+          selectedBrowserIds,
           expand: expandNewChats,
         }),
       ).then((action) => {
