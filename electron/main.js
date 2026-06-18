@@ -1752,7 +1752,13 @@ app.whenReady().then(async () => {
       console.log(`[drm-req] ${details.method} ${details.url}`);
       for (const [k, v] of Object.entries(details.requestHeaders || {})) {
         if (/content-type|origin|referer|auth|accept/i.test(k)) {
-          console.log(`[drm-req]   ${k}: ${v}`);
+          // Keep the auth scheme for debugging, never the token itself.
+          let safe = v;
+          if (/authorization/i.test(k)) {
+            const sp = String(v).indexOf(' ');
+            safe = sp > 0 ? `${String(v).slice(0, sp)} <redacted>` : '<redacted>';
+          }
+          console.log(`[drm-req]   ${k}: ${safe}`);
         }
       }
     },
