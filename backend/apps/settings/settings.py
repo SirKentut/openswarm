@@ -306,6 +306,33 @@ async def reset_system_prompt():
     return {"ok": True, "settings": current.model_dump()}
 
 
+# A preferences reset (the iOS "Reset All Settings" analogue): everything back to
+# defaults EXCEPT the things a "reset my preferences" click must never silently
+# sever, your connections (server-owned subscription fields AND your pasted
+# provider credentials) and your identity. Hard-erase is the separate flow.
+_RESET_PRESERVE_FIELDS = SERVER_OWNED_FIELDS + (
+    "anthropic_api_key",
+    "openai_api_key",
+    "google_api_key",
+    "openrouter_api_key",
+    "custom_providers",
+    "user_name",
+    "user_email",
+    "analytics_opt_in",
+    "first_opened_at",
+)
+
+
+@settings.router.post("/reset-to-defaults")
+async def reset_to_defaults():
+    old = load_settings()
+    fresh = AppSettings()
+    for k in _RESET_PRESERVE_FIELDS:
+        setattr(fresh, k, getattr(old, k, None))
+    await save_settings_async(fresh)
+    return {"ok": True, "settings": fresh.model_dump()}
+
+
 class BrowseResponse(BaseModel):
     current: str
     parent: Optional[str]
