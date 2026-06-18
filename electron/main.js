@@ -2083,6 +2083,53 @@ app.on('web-contents-created', (_event, contents) => {
         })();
       `).catch(() => {});
 
+      // Agent bridge (window.OPENSWARM_APP). Injected into EVERY app's main world
+      // from the shell so it exists regardless of frontend/src — the lightweight
+      // App Builder mode deletes frontend/src (and with it the template's own
+      // agentBridge.ts), so this is the only entry point a trimmed app can't lose.
+      // Idempotent + guarded: a workspace app that imports its own bridge installs
+      // first and this no-ops, so we never clobber a registered bridge. An app
+      // becomes agent-operable by calling OPENSWARM_APP.register({rules, controls,
+      // getState, invoke}); until it does, describe()/getState() report __ready:false
+      // (the agent then falls back to native keyboard/mouse). Keep this in sync with
+      // backend/apps/outputs/webapp_template/frontend/src/agentBridge.ts.
+      contents.executeJavaScript(`
+        (function() {
+          if (window.OPENSWARM_APP) return;
+          var registration = null;
+          function resolveControls() {
+            if (!registration) return [];
+            var c = registration.controls;
+            try { return (typeof c === 'function' ? c() : c) || []; } catch (e) { return []; }
+          }
+          var bridge = {
+            __openswarm: true, __ready: false, __rev: 0,
+            register: function(api) { registration = api; bridge.__ready = true; bridge.__rev += 1; },
+            refresh: function() { bridge.__rev += 1; },
+            describe: function() {
+              if (!bridge.__ready || !registration) return { __ready: false, __rev: bridge.__rev };
+              return { rules: registration.rules || '', controls: resolveControls(), __rev: bridge.__rev };
+            },
+            getState: function() {
+              if (!bridge.__ready || !registration) return { __ready: false, __rev: bridge.__rev };
+              var state = {};
+              try { state = registration.getState ? registration.getState() : {}; }
+              catch (e) { return { __error__: String((e && e.message) || e), __rev: bridge.__rev }; }
+              if (state && typeof state === 'object' && !Array.isArray(state)) {
+                state.__rev = bridge.__rev; return state;
+              }
+              return { value: state, __rev: bridge.__rev };
+            },
+            invoke: function(name, args) {
+              if (!bridge.__ready || !registration) throw 'OPENSWARM_APP not registered yet';
+              return registration.invoke(name, args || {});
+            },
+          };
+          window.OPENSWARM_APP = bridge;
+          try { console.warn('[openswarm:bridge] shell-injected window.OPENSWARM_APP at', location.href); } catch (_) {}
+        })();
+      `).catch(() => {});
+
       const url = contents.getURL();
       if (url.includes('spotify')) {
         contents.executeJavaScript(`
