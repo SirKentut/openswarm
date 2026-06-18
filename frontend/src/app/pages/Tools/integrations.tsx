@@ -54,7 +54,7 @@ export const INTEGRATIONS: Integration[] = [
     id: 'github',
     name: 'GitHub',
     description: 'Repos, issues, pull requests, Actions, code search, and gists. Connects with your GitHub account.',
-    mcp_config: { type: 'http', url: 'https://api.githubcopilot.com/mcp/' },
+    mcp_config: { type: 'http', url: 'https://api.githubcopilot.com/mcp/x/all' },
     color: '#181717',
     website: 'https://github.com/github/github-mcp-server',
     icon: (
