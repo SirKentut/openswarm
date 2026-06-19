@@ -1378,6 +1378,27 @@ class AgentManager:
                 "type": "stdio",
             }
 
+            # Always-on settings-meta server: SettingsRead / SettingsWrite let the
+            # agent read and edit its own OpenSwarm Settings autonomously. The
+            # backend (/api/settings-meta) enforces the only two guardrails: it
+            # can't disconnect the credential powering this run, and reads come
+            # back with secrets redacted. No activation gate, Settings is the
+            # agent's own house, not a third-party MCP.
+            settings_meta_server_path = os.path.join(
+                os.path.dirname(__file__), "settings_meta_server.py"
+            )
+            from backend.auth import get_auth_token as _get_auth_token4
+            mcp_servers["openswarm-settings-meta"] = {
+                "command": sys.executable,
+                "args": [settings_meta_server_path],
+                "env": {
+                    "OPENSWARM_PORT": os.environ.get("OPENSWARM_PORT", "8324"),
+                    "OPENSWARM_AUTH_TOKEN": _get_auth_token4(),
+                    "OPENSWARM_PARENT_SESSION_ID": session.id,
+                },
+                "type": "stdio",
+            }
+
 
             # The CLI's built-in WebSearch/WebFetch wraps Anthropic's
             # web_search_20250305. For non-Claude primaries the CLI
