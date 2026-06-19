@@ -24,7 +24,7 @@ export type { AttachedImage, ForcedToolGroup, ChatInputHandle };
 export type { AttachedSkill } from '@/app/components/editor/richEditorUtils';
 
 interface Props {
-  onSend: (message: string, images?: Array<{ data: string; media_type: string }>, contextPaths?: ContextPath[], forcedTools?: string[], attachedSkills?: Array<{ id: string; name: string; content: string }>, selectedBrowserIds?: string[], selectedAppIds?: string[]) => void;
+  onSend: (message: string, images?: Array<{ data: string; media_type: string }>, contextPaths?: ContextPath[], forcedTools?: string[], attachedSkills?: Array<{ id: string; name: string; content: string }>, selectedBrowserIds?: string[], selectedAppIds?: string[], selectedSettingIds?: string[]) => void;
   disabled?: boolean;
   mode: string;
   onModeChange: (mode: string) => void;
@@ -263,6 +263,9 @@ const ChatInput = forwardRef<ChatInputHandle, Props>(({ onSend, disabled, mode, 
     const appIds = selectedEls
       .filter((el) => el.semanticType === 'view-card' && el.semanticData?.selectId)
       .map((el) => el.semanticData!.selectId as string);
+    const settingIds = selectedEls
+      .filter((el) => el.semanticType === 'settings-option' && el.semanticData?.selectId)
+      .map((el) => el.semanticData!.selectId as string);
     onSend(
       trimmed,
       sendImages,
@@ -271,6 +274,7 @@ const ChatInput = forwardRef<ChatInputHandle, Props>(({ onSend, disabled, mode, 
       sendSkills,
       browserIds.length > 0 ? browserIds : undefined,
       appIds.length > 0 ? appIds : undefined,
+      settingIds.length > 0 ? settingIds : undefined,
     );
     if (editor.tagName === 'TEXTAREA') (editor as unknown as HTMLTextAreaElement).value = ''; else editor.innerHTML = '';
     deleteDraft(ownerId);

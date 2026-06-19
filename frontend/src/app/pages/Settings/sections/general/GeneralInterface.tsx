@@ -27,7 +27,7 @@ const GeneralInterface: React.FC<{
     <>
       <Typography sx={{ ...sectionSx, mt: 3 }}>Interface</Typography>
 
-      <Box sx={inlineRowSx}>
+      <Box sx={inlineRowSx} data-select-type="settings-option" data-select-id="theme" data-select-meta={JSON.stringify({ name: 'Theme', category: 'Interface', fieldName: 'theme', description: 'Application color scheme.' })}>
         <Box sx={{ mr: 3 }}>
           <Typography sx={labelSx}>Theme</Typography>
           <Typography sx={descSx}>Application color scheme.</Typography>
@@ -64,7 +64,7 @@ const GeneralInterface: React.FC<{
         </ToggleButtonGroup>
       </Box>
 
-      <Box sx={rowSx}>
+      <Box sx={rowSx} data-select-type="settings-option" data-select-id="zoom_sensitivity" data-select-meta={JSON.stringify({ name: 'Zoom sensitivity', category: 'Interface', fieldName: 'zoom_sensitivity', description: 'Scroll-to-zoom responsiveness.' })}>
         <Typography sx={labelSx}>Zoom sensitivity</Typography>
         <Typography sx={{ ...descSx, mb: 1 }}>
           Scroll-to-zoom responsiveness. Lower for trackpads, higher for mouse wheels.
@@ -91,7 +91,7 @@ const GeneralInterface: React.FC<{
         </Box>
       </Box>
 
-      <Box sx={inlineRowSx}>
+      <Box sx={inlineRowSx} data-select-type="settings-option" data-select-id="new_agent_shortcut" data-select-meta={JSON.stringify({ name: 'New agent shortcut', category: 'Interface', fieldName: 'new_agent_shortcut', description: 'Keyboard shortcut to create an agent.' })}>
         <Box sx={{ mr: 3 }}>
           <Typography sx={labelSx}>New agent shortcut</Typography>
           <Typography sx={descSx}>Keyboard shortcut to create an agent.</Typography>
@@ -149,7 +149,7 @@ const GeneralInterface: React.FC<{
         </Box>
       </Box>
 
-      <Box sx={inlineRowSx}>
+      <Box sx={inlineRowSx} data-select-type="settings-option" data-select-id="auto_select_mode_on_new_agent" data-select-meta={JSON.stringify({ name: 'Auto-enable element selection', category: 'Interface', fieldName: 'auto_select_mode_on_new_agent', description: 'Enter element selection mode when creating a new agent.' })}>
         <Box sx={{ mr: 3 }}>
           <Typography sx={labelSx}>Auto-enable element selection</Typography>
           <Typography sx={descSx}>Automatically enter element selection mode when creating a new agent.</Typography>
@@ -164,7 +164,7 @@ const GeneralInterface: React.FC<{
         />
       </Box>
 
-      <Box sx={inlineRowSx}>
+      <Box sx={inlineRowSx} data-select-type="settings-option" data-select-id="expand_new_chats_in_dashboard" data-select-meta={JSON.stringify({ name: 'Default agent spawn state in dashboard', category: 'Interface', fieldName: 'expand_new_chats_in_dashboard', description: 'New agents spawn expanded instead of collapsed.' })}>
         <Box sx={{ mr: 3 }}>
           <Typography sx={labelSx}>Default agent spawn state in dashboard</Typography>
           <Typography sx={descSx}>When enabled, new agents spawn expanded instead of collapsed.</Typography>
@@ -179,7 +179,7 @@ const GeneralInterface: React.FC<{
         />
       </Box>
 
-      <Box sx={inlineRowLastSx}>
+      <Box sx={inlineRowLastSx} data-select-type="settings-option" data-select-id="auto_reveal_sub_agents" data-select-meta={JSON.stringify({ name: 'Auto-reveal sub-agents on dashboard', category: 'Interface', fieldName: 'auto_reveal_sub_agents', description: 'Show sub-agent cards tethered to their parent on the dashboard.' })}>
         <Box sx={{ mr: 3 }}>
           <Typography sx={labelSx}>Auto-reveal sub-agents on dashboard</Typography>
           <Typography sx={descSx}>Automatically show sub-agent cards (from CreateAgent / InvokeAgent) tethered to their parent on the dashboard.</Typography>
@@ -196,7 +196,7 @@ const GeneralInterface: React.FC<{
 
       <Typography sx={{ ...sectionSx, mt: 3 }}>Browser</Typography>
 
-      <Box sx={rowLastSx}>
+      <Box sx={rowLastSx} data-select-type="settings-option" data-select-id="browser_homepage" data-select-meta={JSON.stringify({ name: 'Default homepage', category: 'Browser', fieldName: 'browser_homepage', description: 'URL loaded when opening a new browser card.' })}>
         <Typography sx={labelSx}>Default homepage</Typography>
         <Typography sx={{ ...descSx, mb: 1.5 }}>
           URL loaded when opening a new browser card on the dashboard.

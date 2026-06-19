@@ -98,6 +98,7 @@ export function appendSelectedElements(trimmed: string, selectedEls: SelectedEle
         'tool-group': 'Tool Group',
         'view-card': 'App Card',
         'browser-card': 'Browser Card',
+        'settings-option': 'Setting',
         'dom-element': 'Element',
       }[el.semanticType] || el.semanticType;
       lines.push(`${i + 1}. [${typeLabel}] ${el.semanticLabel || ''}`);
