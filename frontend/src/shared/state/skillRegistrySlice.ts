@@ -125,3 +125,53 @@ const skillRegistrySlice = createSlice({
 
 export const { clearSkillDetail } = skillRegistrySlice.actions;
 export default skillRegistrySlice.reducer;
+
+// ---------------------------------------------------------------------------
+// Community source (skills.sh wild registry). Kept as plain async helpers, not
+// slice thunks: the CommunitySkillsDialog owns its own local state, so there's
+// nothing to put in the store. Auth headers are injected by the global fetch
+// interceptor (see shared/config.ts).
+// ---------------------------------------------------------------------------
+
+export interface CommunitySkill {
+  name: string;
+  description: string;
+  source: string;   // GitHub owner/repo, e.g. "anthropics/skills"
+  skillId: string;
+  installs: number;
+}
+
+export interface InstallDisclosure {
+  name: string;
+  description: string;
+  repo_url: string;
+  skill_md: string;
+  files: string[];
+  scripts: string[];
+  has_scripts: boolean;
+}
+
+export async function searchCommunitySkills(q: string): Promise<CommunitySkill[]> {
+  const params = new URLSearchParams({ q, limit: '30', source: 'community' });
+  const res = await fetch(`${SKILL_REGISTRY_API}/search?${params}`);
+  if (!res.ok) throw new Error(`community search failed: ${res.status}`);
+  const data = await res.json();
+  return (data.skills ?? []) as CommunitySkill[];
+}
+
+export async function installCommunitySkill(
+  source: string,
+  skillId: string,
+  confirm: boolean,
+): Promise<{ installed: boolean; disclosure: InstallDisclosure }> {
+  const res = await fetch(`${SKILL_REGISTRY_API}/install`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ source, skill_id: skillId, confirm }),
+  });
+  if (!res.ok) {
+    const detail = await res.json().catch(() => ({}));
+    throw new Error(detail.detail || `install failed: ${res.status}`);
+  }
+  return res.json();
+}

@@ -55,6 +55,8 @@ import ShareButton from '@/app/components/share/ShareButton';
 import { IMPORT_OPEN_EVENT } from '@/app/components/share/ImportEntryPoint';
 import UploadFileIcon from '@mui/icons-material/UploadFile';
 import SkillBuilderChat, { SkillPreviewData } from './SkillBuilderChat';
+import CommunitySkillsDialog from './CommunitySkillsDialog';
+import PublicIcon from '@mui/icons-material/Public';
 
 interface SkillForm {
   name: string;
@@ -97,6 +99,7 @@ const Skills: React.FC = () => {
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string }>({ open: false, message: '' });
   const [builderPreview, setBuilderPreview] = useState<SkillPreviewData | null>(null);
   const [builderOpen, setBuilderOpen] = useState(false);
+  const [communityOpen, setCommunityOpen] = useState(false);
 
   const handleBuilderPreview = useCallback((data: SkillPreviewData | null) => {
     setBuilderPreview(data);
@@ -333,6 +336,15 @@ const Skills: React.FC = () => {
                 sx={{ color: c.text.tertiary, '&:hover': { color: c.text.primary } }}
               >
                 <SearchIcon sx={{ fontSize: 18 }} />
+              </IconButton>
+            </Tooltip>
+            <Tooltip title="Browse community skills (skills.sh)">
+              <IconButton
+                size="small"
+                onClick={() => setCommunityOpen(true)}
+                sx={{ color: c.text.tertiary, '&:hover': { color: c.text.primary } }}
+              >
+                <PublicIcon sx={{ fontSize: 18 }} />
               </IconButton>
             </Tooltip>
             <Tooltip title="Create skill">
@@ -749,6 +761,16 @@ const Skills: React.FC = () => {
           </Button>
         </DialogActions>
       </Dialog>
+
+      <CommunitySkillsDialog
+        open={communityOpen}
+        onClose={() => setCommunityOpen(false)}
+        onInstalled={(name) => {
+          dispatch(fetchSkills());
+          onboardingBus.emit('skill:installed');
+          setSnackbar({ open: true, message: `Installed "${name}" from skills.sh` });
+        }}
+      />
 
       <SkillBuilderChat
         onSkillPreview={handleBuilderPreview}
