@@ -141,7 +141,11 @@ class AgentManager:
     def __init__(self):
         self.sessions: dict[str, AgentSession] = {}
         self.tasks: dict[str, asyncio.Task] = {}
-    
+        # Live mirror of the in-flight streamed assistant text per session, so a
+        # stop can persist the partial reply instantly instead of waiting out the
+        # multi-second SDK teardown the cancel handler sits behind.
+        self._live_partial: dict[str, dict] = {}
+
     def _resolve_mode(self, mode_id: str) -> tuple[list[str], str | None, str | None]:
         return _resolve_mode(mode_id, get_all_tool_names)
 
@@ -2610,6 +2614,11 @@ class AgentManager:
                                 _text_chunk = delta.get("text", "")
                                 _turn_assistant_text_chars += len(_text_chunk)
                                 _stream_text_accum += _text_chunk
+                                self._live_partial[session_id] = {
+                                    "msg_id": stream_text_msg_id,
+                                    "text": _stream_text_accum,
+                                    "branch_id": session.active_branch_id,
+                                }
                                 await ws_manager.send_to_session(session_id, "agent:stream_delta", {
                                     "session_id": session_id,
                                     "message_id": msg_id,
@@ -2817,6 +2826,7 @@ class AgentManager:
                                 )
                                 session.messages.append(asst_msg)
                                 _stream_text_accum = ""
+                                self._live_partial.pop(session_id, None)
                                 await ws_manager.send_to_session(session_id, "agent:message", {
                                     "session_id": session_id,
                                     "message": asst_msg.model_dump(mode="json"),
@@ -3090,6 +3100,7 @@ class AgentManager:
                             })
                             stream_text_msg_id = None
                         _stream_text_accum = ""
+                        self._live_partial.pop(session_id, None)
                         for _tool_msg_id in stream_tool_msg_ids_ordered:
                             await ws_manager.send_to_session(session_id, "agent:stream_end", {
                                 "session_id": session_id,
@@ -3131,41 +3142,24 @@ class AgentManager:
             except Exception:
                 logger.exception("auto-continuation dispatch failed")
         except asyncio.CancelledError:
-            session.status = "stopped"
-            # A cancelled turn desyncs the CLI's resume transcript from
-            # session.messages: the SDK never recorded the interrupted turn,
-            # so resuming that sdk_session_id replays a history with no trace
-            # of the stopped reply and the model insists it wrote nothing
-            # ("nothing to continue"). Force the next turn (resume OR a fresh
-            # message) to rebuild history from session.messages so the model
-            # sees the same conversation the user does.
-            session.needs_fresh_session = True
-            # Stopped mid-stream. The SDK's commit envelope never arrives on
-            # cancel, so persist whatever text already streamed; otherwise the
-            # reply the user just watched appear vanishes (the frontend wipes
-            # its streaming overlay the moment the status goes 'stopped') and
-            # the chat is left with a dangling, unanswered question.
-            if stream_text_msg_id and _stream_text_accum.strip():
-                partial = Message(
-                    id=stream_text_msg_id,
-                    role="assistant",
-                    content=_stream_text_accum,
-                    branch_id=session.active_branch_id,
-                )
-                session.messages.append(partial)
-                try:
-                    await ws_manager.send_to_session(session_id, "agent:message", {
-                        "session_id": session_id,
-                        "message": partial.model_dump(mode="json"),
-                    })
-                    await ws_manager.send_to_session(session_id, "agent:stream_end", {
-                        "session_id": session_id,
-                        "message_id": stream_text_msg_id,
-                    })
-                except Exception:
-                    pass
-                stream_text_msg_id = None
-                _stream_text_accum = ""
+            # Only act if we're still the session's live task. A user stop pops
+            # this task (stop_agent already finalized status + partial), and a
+            # follow-up message may have started a newer turn; either way this
+            # dying task must NOT clobber the live status or pop the new turn's
+            # in-flight partial mirror.
+            if self.tasks.get(session_id) is asyncio.current_task():
+                session.status = "stopped"
+                # A cancelled turn desyncs the CLI's resume transcript from
+                # session.messages (the SDK never recorded the interrupted
+                # turn), so force the next turn to rebuild history from
+                # session.messages, else resume/follow-ups replay a transcript
+                # with no trace of the stopped reply ("nothing to continue").
+                session.needs_fresh_session = True
+                # Persist whatever streamed before the cancel (edit / branch
+                # switch paths; the user-stop path already did this in stop_agent).
+                await self._commit_partial_now(session)
+            stream_text_msg_id = None
+            _stream_text_accum = ""
         except Exception as e:
             logger.exception(f"Agent {session_id} error: {e}")
             session.status = "error"
@@ -3389,7 +3383,15 @@ class AgentManager:
                 "message": error_msg.model_dump(mode="json"),
             })
         finally:
-            if session_id in self.sessions:
+            # Only the session's live task finalizes. A stopped task (popped by
+            # stop_agent, which already finalized status + saved) or one
+            # superseded by a newer turn must not pop the new turn's partial
+            # mirror, broadcast a stale terminal status, or overwrite the
+            # snapshot the live turn is writing.
+            _is_live_task = self.tasks.get(session_id) is asyncio.current_task()
+            if _is_live_task:
+                self._live_partial.pop(session_id, None)
+            if session_id in self.sessions and _is_live_task:
                 # For canvas-launched App Builder sessions, the workspace
                 # folder IS the session_id (see launch_agent), so meta.json
                 # lives at outputs_workspace/<session_id>/meta.json. Read it
@@ -3859,21 +3861,77 @@ class AgentManager:
             session.pending_approvals = []
 
             session.status = "stopped"
+            session.needs_fresh_session = True
             if not session.closed_at:
                 session.closed_at = datetime.now()
+            # Persist the partial reply NOW, before tearing down the SDK. The
+            # cancel handler also does this, but it sits behind the generator's
+            # teardown, which can take several seconds; doing it here means the
+            # streamed text stays put the instant Stop is pressed instead of
+            # blinking out and reappearing once teardown finishes.
+            await self._commit_partial_now(session)
             await ws_manager.send_to_session(session_id, "agent:status", {
                 "session_id": session_id,
                 "status": "stopped",
                 "session": session.model_dump(mode="json"),
             })
+            # Snapshot now: the cancelled task's finally skips the save (it's no
+            # longer the live task once we pop it below), so persist the partial
+            # here or it'd live only in memory until the next turn / shutdown.
+            try:
+                _save_session(session_id, session.model_dump(mode="json"))
+            except Exception:
+                pass
 
-        task = self.tasks.get(session_id)
+        # Drop the task from the registry immediately so a follow-up message
+        # isn't rejected as "still running" while the cancelled task slowly
+        # tears down (that window was eating user messages). Drain it in the
+        # background; we've already captured the partial above.
+        task = self.tasks.pop(session_id, None)
         if task and not task.done():
             task.cancel()
-            try:
-                await task
-            except asyncio.CancelledError:
-                pass
+            asyncio.create_task(self._drain_task(task))
+
+    async def _commit_partial_now(self, session) -> bool:
+        """Persist the in-flight streamed assistant text as a real message and
+        push it to the client, idempotently. Lets a stop show the partial
+        instantly instead of waiting out the SDK teardown the cancel handler
+        sits behind. Returns True if it committed something."""
+        live = self._live_partial.pop(session.id, None)
+        if not live:
+            return False
+        text = live.get("text") or ""
+        msg_id = live.get("msg_id")
+        if not msg_id or not text.strip():
+            return False
+        if any(getattr(m, "id", None) == msg_id for m in session.messages):
+            return False
+        partial = Message(
+            id=msg_id,
+            role="assistant",
+            content=text,
+            branch_id=live.get("branch_id") or session.active_branch_id,
+        )
+        session.messages.append(partial)
+        try:
+            await ws_manager.send_to_session(session.id, "agent:message", {
+                "session_id": session.id,
+                "message": partial.model_dump(mode="json"),
+            })
+            await ws_manager.send_to_session(session.id, "agent:stream_end", {
+                "session_id": session.id,
+                "message_id": msg_id,
+            })
+        except Exception:
+            pass
+        return True
+
+    async def _drain_task(self, task) -> None:
+        """Await a cancelled task's (possibly slow) teardown off the hot path."""
+        try:
+            await task
+        except (asyncio.CancelledError, Exception):
+            pass
 
     def handle_approval(self, request_id: str, decision: dict):
         """Resolve a pending HITL approval."""
