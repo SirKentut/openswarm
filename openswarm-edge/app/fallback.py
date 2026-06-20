@@ -40,7 +40,3 @@ def apex_page() -> str:
         "OpenSwarm Apps",
         "Apps published from OpenSwarm live at their own subdomain here.",
     )
-
-
-def report_footer_note() -> str:
-    return "See something off with an app? Report it in our Discord."
