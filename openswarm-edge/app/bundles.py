@@ -22,7 +22,7 @@ from botocore.exceptions import ClientError
 logger = logging.getLogger(__name__)
 
 _ENDPOINT = os.environ.get("TIGRIS_ENDPOINT", "https://fly.storage.tigris.dev")
-_BUCKET = os.environ.get("TIGRIS_BUCKET", "openswarm-apps")
+_BUCKET = os.environ.get("TIGRIS_BUCKET", "openswarm-app-bundles")
 _TTL_SECONDS = int(os.environ.get("EDGE_BUNDLE_TTL_SECONDS", "120"))
 _MAX_CACHED_BUNDLES = int(os.environ.get("EDGE_BUNDLE_CACHE_MAX", "200"))
 _MAX_UNPACKED_BYTES = 100 * 1024 * 1024  # guard against a decompression bomb
