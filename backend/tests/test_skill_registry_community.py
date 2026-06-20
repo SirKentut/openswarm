@@ -139,6 +139,47 @@ def test_install_dedups_instead_of_clobbering_existing_skill(skills_dir):
     assert {"pdf", "pdf-2"} <= ids
 
 
+def test_confirm_install_writes_folder_lists_and_injects(skills_dir, monkeypatch):
+    """End-to-end install->usable: confirm=true through the real /install endpoint
+    writes the folder skill, it shows up in /api/skills/list with supporting
+    files, and _resolve_attached_skills injects it with the folder path so an
+    agent can read its scripts. (resolve is mocked to skip the network; the live
+    GitHub resolve is proven separately.)"""
+    import secrets as _secrets
+    from fastapi.testclient import TestClient
+    from backend.main import app
+    from backend.apps.agents.manager.prompt.prompt_context import _resolve_attached_skills
+    import backend.auth as auth_mod
+    if not auth_mod._TOKEN:
+        auth_mod._TOKEN = _secrets.token_urlsafe(32)
+    client = TestClient(app, headers={"Authorization": f"Bearer {auth_mod._TOKEN}"})
+
+    async def fake_resolve(source, skill_id):
+        return {
+            "name": "PDF Tools", "description": "work with pdfs", "repo_url": "https://github.com/o/r",
+            "skill_id": skill_id,
+            "files": {"SKILL.md": "# PDF Tools\nRun scripts/extract.py to pull text.",
+                      "scripts/extract.py": "print('extract')"},
+            "scripts": ["scripts/extract.py"], "secret_findings": [],
+        }
+    monkeypatch.setattr("backend.apps.skill_registry.skill_registry.resolve_community_skill", fake_resolve)
+
+    r = client.post("/api/skill-registry/install", json={"source": "o/r", "skill_id": "pdf-tools", "confirm": True})
+    assert r.status_code == 200 and r.json()["installed"] is True
+    slug = r.json()["skill"]["id"]
+
+    # Listed via the real skills API, flagged as multi-file.
+    listed = {s["id"]: s for s in client.get("/api/skills/list").json()["skills"]}
+    assert slug in listed and listed[slug]["has_supporting_files"] is True
+    # On disk as a folder with the script.
+    assert (skills_dir / slug / "SKILL.md").exists()
+    assert (skills_dir / slug / "scripts" / "extract.py").exists()
+    # Injectable: the agent gets the body AND a pointer to the folder for on-demand reads.
+    block = _resolve_attached_skills([{"id": slug, "name": "PDF Tools", "content": "# PDF Tools\nRun scripts/extract.py to pull text."}])
+    assert "[Using skill: PDF Tools]" in block
+    assert str(skills_dir / slug) in block
+
+
 def test_write_folder_skill_blocks_path_traversal(skills_dir):
     skills_mod.write_folder_skill(
         "evil",
