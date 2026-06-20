@@ -26,6 +26,7 @@ import {
 import { streamStart, streamDelta, streamEnd, clearStreamingForSession } from '../state/streamingSlice';
 import { addBrowserCardFromBackend, markBrowserCardEnding, keepBrowserCardOpen, placeInParentColumn, setBrowserCardPosition, setGlowingBrowserCards } from '../state/dashboardLayoutSlice';
 import { upsertOutput } from '../state/outputsSlice';
+import { fetchSettings } from '../state/settingsSlice';
 import { displaySessionName } from '../state/sessionDisplay';
 import { getAuthToken } from '../config';
 import { notifyAgentCompletion } from '../notifications';
@@ -821,6 +822,13 @@ class WebSocketManager {
             }
           }
         }
+        break;
+
+      case 'settings:changed':
+        // An agent wrote settings under us (not the user via the modal), so refetch
+        // now instead of waiting for the next window-focus. The slice's latestWriteId
+        // guard drops this if a newer user save is already in flight.
+        store.dispatch(fetchSettings());
         break;
     }
 

@@ -840,6 +840,14 @@ async def settings_meta(action: str, request: Request):
                         for f in staged:
                             outcomes[f] = {"status": "error", "reason": f"write failed: {e}"}
 
+        if any(o.get("status") == "applied" for o in outcomes.values()):
+            # An agent wrote settings (not the user via the modal), so nudge every
+            # open window to refetch instead of waiting for the next window-focus.
+            # Pure signal: the renderer refetches the authoritative state, so nothing
+            # (least of all a secret) needs to ride the broadcast.
+            from backend.apps.agents.core.ws_manager import ws_manager as _wsm
+            await _wsm.broadcast_global("settings:changed", {})
+
         return JSONResponse({"outcomes": outcomes})
 
     return JSONResponse({"error": f"unknown action: {action}"}, status_code=400)
