@@ -193,6 +193,37 @@ def quick_ast_gate(output: Output) -> list[str]:
 
 # --- build + bundle ----------------------------------------------------------
 
+def _safe_build_config(fe: str) -> tuple[list[str], Optional[str]]:
+    """vite-plugin-terminal injects a dev-only `virtual:terminal` module that
+    breaks `vite build` in older workspaces (the template later gated it to dev,
+    but apps seeded before that still carry the ungated plugin). Build against a
+    temp config that makes that plugin a no-op (Vite drops null plugins) so ANY
+    workspace builds clean. The user's own vite.config is never touched.
+
+    Returns (extra build args, temp-config path to delete) or ([], None)."""
+    cfg_name = next(
+        (n for n in ("vite.config.ts", "vite.config.js", "vite.config.mjs")
+         if os.path.exists(os.path.join(fe, n))),
+        None,
+    )
+    if not cfg_name:
+        return [], None
+    with open(os.path.join(fe, cfg_name), "r", encoding="utf-8") as f:
+        content = f.read()
+    if "vite-plugin-terminal" not in content:
+        return [], None
+    patched = re.sub(
+        r"import\s+terminal\s+from\s+['\"]vite-plugin-terminal['\"];?",
+        "const terminal = () => null;",
+        content,
+    )
+    ext = os.path.splitext(cfg_name)[1]
+    temp_name = f"vite.config.openswarm-publish{ext}"
+    with open(os.path.join(fe, temp_name), "w", encoding="utf-8") as f:
+        f.write(patched)
+    return ["--config", temp_name], os.path.join(fe, temp_name)
+
+
 async def build_static(output: Output) -> Optional[str]:
     """Webapp apps -> build `frontend/dist`, return its path. Flat apps need no
     build (the files dict is the artifact), return None. Raises PublishError with
@@ -206,8 +237,9 @@ async def build_static(output: Output) -> Optional[str]:
         raise PublishError(
             "This app isn't set up to build yet. Open it once in the editor, then try publishing again."
         )
+    config_args, temp_cfg = _safe_build_config(fe)
     proc = await asyncio.create_subprocess_exec(
-        node, "node_modules/vite/bin/vite.js", "build",
+        node, "node_modules/vite/bin/vite.js", "build", *config_args,
         cwd=fe,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
@@ -219,6 +251,12 @@ async def build_static(output: Output) -> Optional[str]:
         proc.kill()
         await proc.wait()
         raise PublishError("Building your app took too long and was stopped.")
+    finally:
+        if temp_cfg:
+            try:
+                os.remove(temp_cfg)
+            except OSError:
+                pass
     if proc.returncode != 0:
         logger.error("vite build failed (%s): %s", output.id, err.decode(errors="replace")[-2000:])
         raise PublishError("We couldn't build your app. Make sure it runs in the editor, then try again.")
