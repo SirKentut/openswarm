@@ -16,6 +16,7 @@ from backend.apps.agents.core.ws_manager import ws_manager
 from backend.apps.settings.settings import load_settings
 from backend.apps.tools_lib.tools_lib import (
     _load_all as load_all_tools,
+    _save as save_tool,
     _sanitize_server_name,
     derive_mcp_config,
     load_builtin_permissions,
@@ -23,6 +24,7 @@ from backend.apps.tools_lib.tools_lib import (
     refresh_airtable_token,
     refresh_google_token,
     refresh_hubspot_token,
+    resolve_policy_slot,
     save_builtin_permissions,
     save_trusted_sensitive_paths,
 )
@@ -718,29 +720,38 @@ class AgentManager:
             return policy, None
 
         def _get_effective_policy(tool_name: str) -> str:
-            """Return 'always_allow', 'deny', or 'ask' for any tool."""
-            if tool_name in _builtin_perms:
-                return _builtin_perms[tool_name]
-
-            import re as _re
-
-            bm = _re.match(r"mcp__openswarm-browser-agent__(.+)", tool_name)
-            if bm:
-                return _builtin_perms.get(bm.group(1), _default_for(bm.group(1)))
-
-            im = _re.match(r"mcp__openswarm-invoke-agent__(.+)", tool_name)
-            if im:
-                return _builtin_perms.get(im.group(1), _default_for(im.group(1)))
-
-            m = _re.match(r"mcp__([^_]+(?:-[^_]+)*)__(.+)", tool_name)
-            if m:
-                server_slug, mcp_tool_name = m.group(1), m.group(2)
-                for t in load_all_tools():
-                    if not t.mcp_config or not t.enabled:
-                        continue
-                    if _sanitize_server_name(t.name) == server_slug:
-                        return t.tool_permissions.get(mcp_tool_name, "ask")
+            """Return 'always_allow', 'deny', or 'ask' for any tool. Keyed through
+            the shared resolver so the read slot matches the write slot exactly."""
+            tools = load_all_tools()
+            slot = resolve_policy_slot(tool_name, tools)
+            if slot.store == "builtin":
+                return _builtin_perms.get(slot.key, _default_for(slot.key))
+            if slot.key is not None:
+                for t in tools:
+                    if t.id == slot.key:
+                        return t.tool_permissions.get(slot.action, "ask")
             return _default_for(tool_name)
+
+        def _set_tool_policy(tool_name: str, policy: str) -> None:
+            """Inverse of _get_effective_policy: persist `policy` into the SAME slot
+            the gate reads, AND update the live in-memory snapshot, so an 'Always
+            approve' takes effect for this running agent, not only after a restart.
+            (The old code wrote the raw tool name to the file and never touched the
+            captured _builtin_perms, so it behaved like a one-time accept.)"""
+            tools = load_all_tools()
+            slot = resolve_policy_slot(tool_name, tools)
+            if slot.store == "builtin":
+                _builtin_perms[slot.key] = policy
+                perms = load_builtin_permissions()
+                perms[slot.key] = policy
+                save_builtin_permissions(perms)
+                return
+            if slot.key is not None:
+                for t in tools:
+                    if t.id == slot.key:
+                        t.tool_permissions[slot.action] = policy
+                        save_tool(t)
+                        return
 
         async def _request_user_approval(
             tool_name: str,
@@ -802,9 +813,7 @@ class AgentManager:
             # on always_allow, so this can't disarm an rm -rf or a key-path write.
             if decision.get("behavior") == "allow" and decision.get("set_always_allow"):
                 try:
-                    perms = load_builtin_permissions()
-                    perms[tool_name] = "always_allow"
-                    save_builtin_permissions(perms)
+                    _set_tool_policy(tool_name, "always_allow")
                 except Exception:
                     logger.exception("Failed to persist always-allow for %s", tool_name)
 

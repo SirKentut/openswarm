@@ -2,10 +2,11 @@ import asyncio
 import json
 import logging
 import os
+import re
 import shutil
 import time
 from contextlib import asynccontextmanager
-from typing import Any
+from typing import Any, NamedTuple
 from urllib.parse import urlencode
 
 import httpx
@@ -202,6 +203,40 @@ def _load(tool_id: str) -> ToolDefinition:
 @tools_lib.router.get("/builtin")
 async def list_builtin_tools():
     return {"tools": [t.model_dump() for t in BUILTIN_TOOLS]}
+
+
+class PolicySlot(NamedTuple):
+    """Where a tool's permission policy is stored.
+
+    store == "builtin": policy lives in builtin_permissions under `key`.
+    store == "mcp":      policy lives on the owning tool's tool_permissions[action];
+                         `key` is that tool's id, or None when no such tool exists.
+    """
+    store: str
+    key: str | None
+    action: str | None
+
+
+def resolve_policy_slot(tool_name: str, tools: list[ToolDefinition]) -> PolicySlot:
+    """Single source of truth for WHERE a tool's permission policy is stored, so the
+    dispatch gate (read) and the 'Always approve' writer (write) can never key it
+    differently. That divergence was the bug behind 'Always approve' acting like a
+    one-time accept: writes landed under the raw mcp__server__action name while the
+    gate read the parsed inner action, so the next call never saw the policy."""
+    bm = re.match(r"mcp__openswarm-browser-agent__(.+)", tool_name)
+    if bm:
+        return PolicySlot("builtin", bm.group(1), None)
+    im = re.match(r"mcp__openswarm-invoke-agent__(.+)", tool_name)
+    if im:
+        return PolicySlot("builtin", im.group(1), None)
+    m = re.match(r"mcp__([^_]+(?:-[^_]+)*)__(.+)", tool_name)
+    if m:
+        server_slug, action = m.group(1), m.group(2)
+        for t in tools:
+            if t.mcp_config and t.enabled and _sanitize_server_name(t.name) == server_slug:
+                return PolicySlot("mcp", t.id, action)
+        return PolicySlot("mcp", None, action)
+    return PolicySlot("builtin", tool_name, None)
 
 
 def load_builtin_permissions() -> dict[str, str]:
