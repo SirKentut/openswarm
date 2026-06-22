@@ -261,13 +261,22 @@ const SettingsLoader: React.FC<{ children: React.ReactNode }> = ({ children }) =
   // machine where it never comes up doesn't poll forever.
   const nineRouterUp = useAppSelector((s) => s.subscriptions.status?.running === true);
   useEffect(() => {
-    if (nineRouterUp) return;
+    if (nineRouterUp) {
+      // 9Router answered, but its provider list (/api/providers) can lag is_running by
+      // a beat on a cold start, so the fetch that flipped us 'up' may still be missing
+      // subscription rows. Two bounded follow-up pulls catch them, then we stop. When
+      // there's genuinely no sub this is just a couple of cheap localhost GETs, never a
+      // wait on something that doesn't exist.
+      const t1 = window.setTimeout(() => { dispatch(fetchSubscriptionStatus()); dispatch(fetchModels()); }, 1500);
+      const t2 = window.setTimeout(() => { dispatch(fetchSubscriptionStatus()); dispatch(fetchModels()); }, 3500);
+      return () => { window.clearTimeout(t1); window.clearTimeout(t2); };
+    }
     let ticks = 0;
     const id = window.setInterval(() => {
       ticks += 1;
       dispatch(fetchSubscriptionStatus());
       dispatch(fetchModels());
-      if (ticks >= 20) window.clearInterval(id);
+      if (ticks >= 30) window.clearInterval(id);
     }, 1500);
     return () => window.clearInterval(id);
   }, [nineRouterUp, dispatch]);
