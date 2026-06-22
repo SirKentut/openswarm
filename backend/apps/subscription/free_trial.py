@@ -139,6 +139,13 @@ async def clear_free_trial(settings_obj) -> None:
     (so the UI knows it's spent) and never touches a real paid mode."""
     if getattr(settings_obj, "connection_mode", "own_key") == "free-trial":
         settings_obj.connection_mode = "own_key"
+        # arm() pinned default_model to "haiku" for the free run; once the wheel is
+        # handed back, don't let that forced pick linger (it'd silently default a
+        # real subscription user to Haiku). "sonnet" is the fresh default; the
+        # frontend's DefaultModelGuard reconciles it to a reachable model if the
+        # connected provider isn't Anthropic.
+        if getattr(settings_obj, "default_model", None) == "haiku":
+            settings_obj.default_model = "sonnet"
     settings_obj.free_trial_token = None
     await save_settings_async(settings_obj)
     await _sync_routing(settings_obj)
@@ -152,7 +159,22 @@ async def arm_free_trial(settings_obj) -> dict:
     mode = getattr(settings_obj, "connection_mode", "own_key")
     if mode not in ("own_key", "free-trial"):
         return {"armed": False, "reason": "other_mode"}
-    if _has_own_model(settings_obj) or await _has_connected_subscription():
+    own = _has_own_model(settings_obj)
+    if not own:
+        # A subscription lives in 9Router, not settings, and 9Router now starts in
+        # the BACKGROUND (non-blocking boot), so at first-launch mint time it isn't
+        # up yet. Without this wait _has_connected_subscription() reads False and
+        # we'd arm the free trial OVER a real Claude/ChatGPT/Gemini sub, pinning the
+        # user to Haiku until they manually reload. Bring 9Router up so the sub is
+        # actually visible before we decide. Bounded + idempotent (shares the start
+        # lock with the boot auto-start), and skipped when a settings-level model
+        # already proves there's nothing to shadow.
+        try:
+            from backend.apps.nine_router import ensure_running as _ensure_9r
+            await _ensure_9r()
+        except Exception:
+            pass
+    if own or await _has_connected_subscription():
         # A real model exists now (key, custom provider, or a 9Router sub). If we
         # were on the free lane, hand the wheel back instead of re-arming.
         if mode == "free-trial":
