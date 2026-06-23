@@ -110,6 +110,31 @@ def test_loop_builds_direct_openai_key_env(monkeypatch):
     assert "openai-passthrough" in env["OPENAI_BASE_URL"]
 
 
+def test_loop_builds_direct_gemini_key_env(monkeypatch):
+    # Direct Google AI Studio key: routed through the local anthropic-proxy that scrubs the
+    # JSON-Schema fields Gemini rejects. Pin the Gemini keys + the proxy base url.
+    from backend.apps.settings.models import AppSettings
+    settings = AppSettings(google_api_key="g-key-test")
+    env = _capture_env(monkeypatch, settings, "gemini", "cp-gemini/gemini-2.5-pro",
+                       {"route": "api", "api": "gemini"})
+    assert env["GEMINI_API_KEY"] == "g-key-test"
+    assert env["GOOGLE_API_KEY"] == "g-key-test"
+    assert "anthropic-proxy" in env["ANTHROPIC_BASE_URL"]
+
+
+def test_loop_builds_openrouter_env(monkeypatch):
+    # OpenRouter: routes through 9Router (must be up). Pin the 9Router base + that subagent ids
+    # fall back to OR's resold Claude when the user has no Anthropic key.
+    from backend.apps.settings.models import AppSettings
+    import backend.apps.nine_router as nr
+    monkeypatch.setattr(nr, "is_running", lambda: True, raising=True)
+    settings = AppSettings(openrouter_api_key="or-key-test")
+    env = _capture_env(monkeypatch, settings, "openrouter", "openrouter/anthropic/claude-sonnet-4.5", None)
+    assert env["ANTHROPIC_API_KEY"] == "9router"
+    assert env["ANTHROPIC_BASE_URL"] == "http://localhost:20128"
+    assert env["CLAUDE_CODE_SUBAGENT_MODEL"] == "openrouter/anthropic/claude-sonnet-4.5"
+
+
 def test_loop_builds_direct_anthropic_key_env(monkeypatch):
     # Pin the provider env/route config the loop builds, the part the hook flagged as untested.
     # Drive the REAL loop with a direct-Anthropic-key config (own_key, a non-9router model, no
