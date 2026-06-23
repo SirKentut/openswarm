@@ -110,6 +110,30 @@ def test_loop_builds_direct_openai_key_env(monkeypatch):
     assert "openai-passthrough" in env["OPENAI_BASE_URL"]
 
 
+def test_loop_builds_pinned_anthropic_api_route_env(monkeypatch):
+    # A *-api route Claude model with a direct Anthropic key bypasses 9Router straight to
+    # api.anthropic.com, and pins the subagent + small-fast models so they don't drift to the proxy.
+    from backend.apps.settings.models import AppSettings
+    settings = AppSettings(anthropic_api_key="sk-ant-pinned")
+    env = _capture_env(monkeypatch, settings, "anthropic", "claude-3-5-api",
+                       {"route": "api", "api": "anthropic"})
+    assert env["ANTHROPIC_API_KEY"] == "sk-ant-pinned"
+    assert env["ANTHROPIC_BASE_URL"] == "https://api.anthropic.com"
+    assert env["CLAUDE_CODE_SUBAGENT_MODEL"] == "claude-sonnet-4-6"
+
+
+def test_loop_builds_9router_default_env(monkeypatch):
+    # A subscription-route Claude model (cc/ -> 9Router) with no direct key and no Pro falls to
+    # the 9Router default lane. Pin that it routes through 9Router on localhost:20128.
+    from backend.apps.settings.models import AppSettings
+    import backend.apps.nine_router as nr
+    monkeypatch.setattr(nr, "is_running", lambda: True, raising=True)
+    settings = AppSettings(connection_mode="own_key")  # no keys at all
+    env = _capture_env(monkeypatch, settings, "anthropic", "cc/claude-sonnet-4-6", None)
+    assert env["ANTHROPIC_API_KEY"] == "9router"
+    assert env["ANTHROPIC_BASE_URL"] == "http://localhost:20128"
+
+
 def test_loop_builds_direct_gemini_key_env(monkeypatch):
     # Direct Google AI Studio key: routed through the local anthropic-proxy that scrubs the
     # JSON-Schema fields Gemini rejects. Pin the Gemini keys + the proxy base url.
