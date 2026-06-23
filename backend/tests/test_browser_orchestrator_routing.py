@@ -13,7 +13,7 @@ from backend.apps.agents.manager.prompt import prompt_context as pc
 
 
 def _fake_dashboard(monkeypatch):
-    # _build_browser_context loads the dashboard; give it a minimal one so it
+    # build_browser_context loads the dashboard; give it a minimal one so it
     # gets past the load and emits the static delegation guidance.
     import backend.apps.dashboards.dashboards as dash
 
@@ -25,7 +25,7 @@ def _fake_dashboard(monkeypatch):
 
 def test_orchestrator_routes_same_flow_batches_to_one_agent(monkeypatch):
     _fake_dashboard(monkeypatch)
-    ctx = pc._build_browser_context("dash-1", selected_browser_ids=[])
+    ctx = pc.build_browser_context("dash-1", selected_browser_ids=[])
     assert ctx is not None
     # the key guidance: one agent + the whole list, not one agent per item
     assert "Give ONE agent the whole list" in ctx
@@ -35,4 +35,4 @@ def test_orchestrator_routes_same_flow_batches_to_one_agent(monkeypatch):
 
 
 def test_browser_context_is_none_without_a_dashboard():
-    assert pc._build_browser_context(None) is None
+    assert pc.build_browser_context(None) is None

@@ -1,6 +1,6 @@
 import os
 
-from backend.apps.agents.manager.prompt.prompt_context import _resolve_attached_skills, _resolve_forced_tools
+from backend.apps.agents.manager.prompt.prompt_context import resolve_attached_skills, resolve_forced_tools
 
 
 def _build_dir_tree(root: str, max_depth: int = 4, prefix: str = "") -> list[str]:
@@ -45,8 +45,8 @@ def _build_prompt_content(prompt: str, images: list | None = None, context_paths
     context_text, native_blocks, refusals = _resolve_attachments(
         context_paths, api_type=api_type, model=model,
     )
-    forced_tools_text = _resolve_forced_tools(forced_tools)
-    skills_text = _resolve_attached_skills(attached_skills)
+    forced_tools_text = resolve_forced_tools(forced_tools)
+    skills_text = resolve_attached_skills(attached_skills)
 
     refusal_text = "\n\n".join(refusals)
     parts = [p for p in (forced_tools_text, context_text, refusal_text, skills_text, prompt) if p]

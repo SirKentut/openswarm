@@ -42,10 +42,10 @@ def test_message_endpoint_threads_selected_setting_ids(client, monkeypatch):
 
 
 def test_selected_settings_context_block_targets_the_fields():
-    from backend.apps.agents.manager.prompt.prompt_context import _build_selected_settings_context
-    assert _build_selected_settings_context(None) is None
-    assert _build_selected_settings_context([]) is None
-    block = _build_selected_settings_context(["theme", "default_model"])
+    from backend.apps.agents.manager.prompt.prompt_context import build_selected_settings_context
+    assert build_selected_settings_context(None) is None
+    assert build_selected_settings_context([]) is None
+    block = build_selected_settings_context(["theme", "default_model"])
     assert "theme" in block and "default_model" in block
     # It tells the agent to use the always-on settings tools on exactly these fields.
     assert "SettingsRead" in block and "SettingsWrite" in block

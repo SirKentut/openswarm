@@ -12,11 +12,11 @@ from typeguard import typechecked
 from backend.apps.agents.core.models import AgentSession
 from backend.apps.agents.manager.prompt.tool_catalog import get_all_tool_names
 from backend.apps.agents.manager.prompt.prompt_context import (
-    _build_browser_context as build_browser_context,
-    _build_mcp_registry_summary as build_mcp_registry_summary,
-    _build_selected_app_context as build_selected_app_context,
-    _build_selected_settings_context as build_selected_settings_context,
-    _compose_system_prompt as compose_system_prompt,
+    build_browser_context,
+    build_mcp_registry_summary,
+    build_selected_app_context,
+    build_selected_settings_context,
+    compose_system_prompt,
 )
 
 

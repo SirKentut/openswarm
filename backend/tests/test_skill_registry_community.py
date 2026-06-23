@@ -142,13 +142,13 @@ def test_install_dedups_instead_of_clobbering_existing_skill(skills_dir):
 def test_confirm_install_writes_folder_lists_and_injects(skills_dir, monkeypatch):
     """End-to-end install->usable: confirm=true through the real /install endpoint
     writes the folder skill, it shows up in /api/skills/list with supporting
-    files, and _resolve_attached_skills injects it with the folder path so an
+    files, and resolve_attached_skills injects it with the folder path so an
     agent can read its scripts. (resolve is mocked to skip the network; the live
     GitHub resolve is proven separately.)"""
     import secrets as _secrets
     from fastapi.testclient import TestClient
     from backend.main import app
-    from backend.apps.agents.manager.prompt.prompt_context import _resolve_attached_skills
+    from backend.apps.agents.manager.prompt.prompt_context import resolve_attached_skills
     import backend.auth as auth_mod
     if not auth_mod._TOKEN:
         auth_mod._TOKEN = _secrets.token_urlsafe(32)
@@ -175,7 +175,7 @@ def test_confirm_install_writes_folder_lists_and_injects(skills_dir, monkeypatch
     assert (skills_dir / slug / "SKILL.md").exists()
     assert (skills_dir / slug / "scripts" / "extract.py").exists()
     # Injectable: the agent gets the body AND a pointer to the folder for on-demand reads.
-    block = _resolve_attached_skills([{"id": slug, "name": "PDF Tools", "content": "# PDF Tools\nRun scripts/extract.py to pull text."}])
+    block = resolve_attached_skills([{"id": slug, "name": "PDF Tools", "content": "# PDF Tools\nRun scripts/extract.py to pull text."}])
     assert "[Using skill: PDF Tools]" in block
     assert str(skills_dir / slug) in block
 

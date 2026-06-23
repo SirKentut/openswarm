@@ -82,11 +82,7 @@ from backend.apps.agents.manager.session.history_compaction import (
     _estimate_post_compact_input,
     _get_branch_messages,
 )
-from backend.apps.agents.manager.prompt.prompt_context import (
-    _resolve_attached_skills,
-    _resolve_forced_tools,
-    _resolve_mode,
-)
+from backend.apps.agents.manager.prompt.prompt_context import resolve_mode
 from backend.apps.agents.manager.prompt.attachments import (
     _build_dir_tree,
     _build_prompt_content,
@@ -107,9 +103,6 @@ class AgentManager:
         # stop can persist the partial reply instantly instead of waiting out the
         # multi-second SDK teardown the cancel handler sits behind.
         self._live_partial: dict[str, dict] = {}
-
-    def _resolve_mode(self, mode_id: str) -> tuple[list[str], str | None, str | None]:
-        return _resolve_mode(mode_id, get_all_tool_names)
 
     async def _build_mcp_servers(
         self,
@@ -188,7 +181,7 @@ class AgentManager:
     async def launch_agent(self, config: AgentConfig) -> AgentSession:
         session_id = uuid4().hex
 
-        mode_tools, _, mode_folder = self._resolve_mode(config.mode)
+        mode_tools, _, mode_folder = resolve_mode(config.mode, get_all_tool_names)
         tools = mode_tools
 
         global_settings = load_settings()
@@ -290,12 +283,6 @@ class AgentManager:
 
     def _build_dir_tree(self, root: str, max_depth: int = 4, prefix: str = "") -> list[str]:
         return _build_dir_tree(root, max_depth, prefix)
-
-    def _resolve_forced_tools(self, forced_tools: list[str] | None) -> str:
-        return _resolve_forced_tools(forced_tools)
-
-    def _resolve_attached_skills(self, attached_skills: list | None) -> str:
-        return _resolve_attached_skills(attached_skills)
 
     # ------------------------------------------------------------------
     # Compaction & token guard (Phase 2)
@@ -410,7 +397,7 @@ class AgentManager:
             return await tool_result_hook.post_tool_hook(hook_ctx, input_data, tool_use_id, context)
 
         try:
-            _, mode_sys_prompt, _ = self._resolve_mode(session.mode)
+            _, mode_sys_prompt, _ = resolve_mode(session.mode, get_all_tool_names)
 
             # Reconcile active_mcps against currently-enabled tools (Phase 3).
             # If the user toggled a server off in the Tools page mid-session,
@@ -2527,7 +2514,7 @@ class AgentManager:
             session_changed = True
         if mode and mode != session.mode:
             session.mode = mode
-            mode_tools, _, _ = self._resolve_mode(mode)
+            mode_tools, _, _ = resolve_mode(mode, get_all_tool_names)
             session.allowed_tools = mode_tools
             session_changed = True
         if session_changed:

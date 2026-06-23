@@ -14,7 +14,7 @@ import json
 import pytest
 
 import backend.apps.skills.skills as skills_mod
-from backend.apps.agents.manager.prompt.prompt_context import _resolve_attached_skills
+from backend.apps.agents.manager.prompt.prompt_context import resolve_attached_skills
 
 
 @pytest.fixture
@@ -116,7 +116,7 @@ def test_injection_points_at_folder_for_supporting_files(skills_dir):
     _write(str(base / "SKILL.md"), "use the template")
     _write(str(base / "template.html"), "<html></html>")
 
-    block = _resolve_attached_skills([{"id": "withfiles", "name": "WithFiles", "content": "use the template"}])
+    block = resolve_attached_skills([{"id": "withfiles", "name": "WithFiles", "content": "use the template"}])
     assert "[Using skill: WithFiles]" in block
     assert str(base) in block
     assert "Read" in block  # tells the agent to read supporting files
@@ -129,17 +129,17 @@ def test_skill_injection_is_provider_agnostic_by_construction(skills_dir):
     builtin set every provider gets. So a non-Claude agent receives byte-identical
     skill text and the same file-reading tools."""
     import inspect
-    from backend.apps.agents.manager.prompt.prompt_context import _resolve_attached_skills
+    from backend.apps.agents.manager.prompt.prompt_context import resolve_attached_skills
     from backend.apps.agents.manager.prompt.tool_catalog import FULL_TOOLS
 
     # 1. No provider/api parameter -> the injected text cannot branch on the model.
-    assert set(inspect.signature(_resolve_attached_skills).parameters) == {"attached_skills"}
+    assert set(inspect.signature(resolve_attached_skills).parameters) == {"attached_skills"}
 
     # 2. A folder skill yields the body + a pointer to its folder via Read/Glob/Bash.
     base = skills_dir / "vid"
     _write(str(base / "SKILL.md"), "render it")
     _write(str(base / "helper.py"), "x")
-    block = _resolve_attached_skills([{"id": "vid", "name": "Vid", "content": "render it"}])
+    block = resolve_attached_skills([{"id": "vid", "name": "Vid", "content": "render it"}])
     assert "[Using skill: Vid]" in block
     assert str(base) in block and "Read" in block
 
@@ -149,7 +149,7 @@ def test_skill_injection_is_provider_agnostic_by_construction(skills_dir):
 
 def test_injection_no_folder_note_for_flat_skill(skills_dir):
     _write(str(skills_dir / "plain.md"), "plain content")
-    block = _resolve_attached_skills([{"id": "plain", "name": "Plain", "content": "plain content"}])
+    block = resolve_attached_skills([{"id": "plain", "name": "Plain", "content": "plain content"}])
     assert "[Using skill: Plain]" in block
     assert "supporting files" not in block.lower()
 

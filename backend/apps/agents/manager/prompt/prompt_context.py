@@ -8,7 +8,7 @@ from backend.apps.tools_lib.tools_lib import (
 from backend.apps.agents.manager.prompt.tool_catalog import _get_denied_tool_names, _is_fully_denied
 
 
-def _resolve_mode(mode_id: str, get_all_tool_names: Callable[[], list[str]]) -> tuple[list[str], str | None, str | None]:
+def resolve_mode(mode_id: str, get_all_tool_names: Callable[[], list[str]]) -> tuple[list[str], str | None, str | None]:
     """Return (tools, system_prompt, default_folder) resolved from the mode store."""
     mode_def = load_mode(mode_id)
     if mode_def:
@@ -17,7 +17,7 @@ def _resolve_mode(mode_id: str, get_all_tool_names: Callable[[], list[str]]) -> 
     return get_all_tool_names(), None, None
 
 
-def _build_connected_tools_context(allowed_tools: list[str], get_all_tool_names: Callable[[], list[str]]) -> str | None:
+def build_connected_tools_context(allowed_tools: list[str], get_all_tool_names: Callable[[], list[str]]) -> str | None:
     """Build a context block describing connected MCP tools and their accounts.
 
     Tools set to 'deny' and fully-denied servers are excluded.
@@ -127,7 +127,7 @@ def toolsearch_loop_redirect(consecutive_toolsearch: int, gated_servers: list[st
     return reason
 
 
-def _build_browser_context(dashboard_id: str | None, selected_browser_ids: list[str] | None = None) -> str | None:
+def build_browser_context(dashboard_id: str | None, selected_browser_ids: list[str] | None = None) -> str | None:
     """Build a context block listing browser cards and delegation instructions.
 
     Only browser cards explicitly selected by the user are included.
@@ -203,7 +203,7 @@ def _build_browser_context(dashboard_id: str | None, selected_browser_ids: list[
     return "\n".join(lines)
 
 
-def _build_selected_app_context(selected_app_output_ids: list[str] | None) -> str | None:
+def build_selected_app_context(selected_app_output_ids: list[str] | None) -> str | None:
     """Build a context block for dashboard App cards the user selected to edit.
 
     Resolves each Output id to its on-disk workspace so the agent edits the
@@ -262,7 +262,7 @@ def _build_selected_app_context(selected_app_output_ids: list[str] | None) -> st
     )
 
 
-def _build_selected_settings_context(selected_setting_ids: list[str] | None) -> str | None:
+def build_selected_settings_context(selected_setting_ids: list[str] | None) -> str | None:
     """Context block when the user points the agent at specific Settings rows.
 
     A targeting aid, NOT a gate: the settings tools (SettingsRead/SettingsWrite)
@@ -284,7 +284,7 @@ def _build_selected_settings_context(selected_setting_ids: list[str] | None) -> 
     )
 
 
-def _build_mcp_registry_summary(allowed_tools: list[str], active_mcps: list[str], get_all_tool_names: Callable[[], list[str]]) -> str | None:
+def build_mcp_registry_summary(allowed_tools: list[str], active_mcps: list[str], get_all_tool_names: Callable[[], list[str]]) -> str | None:
     """Compact registry of installed MCP servers, one line per server.
 
     This is the visible surface that drives the activation gate: the model
@@ -411,14 +411,14 @@ AGENT_IDENTITY = (
 )
 
 
-def _compose_system_prompt(default_prompt: str | None, mode_prompt: str | None, session_prompt: str | None, connected_tools_ctx: str | None = None, browser_ctx: str | None = None, mcp_registry_ctx: str | None = None) -> str | None:
+def compose_system_prompt(default_prompt: str | None, mode_prompt: str | None, session_prompt: str | None, connected_tools_ctx: str | None = None, browser_ctx: str | None = None, mcp_registry_ctx: str | None = None) -> str | None:
     # Identity always leads so it overrides the preset's Claude Code persona, even
     # when the user has no custom default/mode/session prompt of their own.
     parts = [AGENT_IDENTITY] + [p for p in (default_prompt, mode_prompt, session_prompt, connected_tools_ctx, mcp_registry_ctx, browser_ctx) if p]
     return "\n\n".join(parts)
 
 
-def _resolve_forced_tools(forced_tools: list[str] | None) -> str:
+def resolve_forced_tools(forced_tools: list[str] | None) -> str:
     """Build a context block describing explicitly requested tools."""
     if not forced_tools:
         return ""
@@ -458,7 +458,7 @@ def _resolve_forced_tools(forced_tools: list[str] | None) -> str:
     )
 
 
-def _resolve_attached_skills(attached_skills: list | None) -> str:
+def resolve_attached_skills(attached_skills: list | None) -> str:
     """Build a context block injecting attached skill content into the prompt.
 
     For a multi-file (folder) skill we inject the SKILL.md body as text AND point
