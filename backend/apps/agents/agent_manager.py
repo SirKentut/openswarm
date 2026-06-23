@@ -1115,13 +1115,13 @@ class AgentManager(SessionLifecycleMixin, MessagingMixin, AgentLaunchMixin, RunS
                 # the row's name is still the default placeholder.
                 if session.mode == "view-builder":
                     try:
-                        from backend.apps.outputs.outputs import sync_output_from_meta_json
+                        from backend.apps.outputs.outputs import sync_output_from_meta_json, _load_all as load_outputs
                         if sync_output_from_meta_json(session_id, fallback_name=session.name):
                             # Broadcast the renamed row so the sidebar
                             # flips from "Untitled App" to the real name
                             # without waiting for the next mount.
                             try:
-                                matching = [o for o in p_load_all() if o.workspace_id == session_id]
+                                matching = [o for o in load_outputs() if o.workspace_id == session_id]
                                 if matching:
                                     await ws_manager.broadcast_global("agent:output_upserted", {
                                         "output": matching[0].model_dump(mode="json"),
