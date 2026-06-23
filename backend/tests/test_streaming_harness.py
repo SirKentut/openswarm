@@ -197,6 +197,38 @@ def test_loop_builds_direct_anthropic_key_env(monkeypatch):
     assert env == {"ANTHROPIC_API_KEY": "sk-ant-test123"}  # direct key, no 9router proxy
 
 
+def test_loop_with_session_cwd_runs_workspace_git_init(monkeypatch):
+    # Regression: a session WITH a cwd hits the workspace git-init call in the loop. Harness
+    # sessions normally have no cwd, which masked a NameError (the call said ensure_cwd_git_repo
+    # while only _ensure_cwd_git_repo was imported). raising=True here would fail if the name were
+    # missing again; the assertions confirm the cwd path actually runs and the turn completes.
+    import backend.apps.agents.agent_manager as am
+    called = {}
+
+    def fake_ensure(cwd, home=None):
+        called["cwd"] = cwd
+
+    monkeypatch.setattr(am, "ensure_cwd_git_repo", fake_ensure, raising=True)
+
+    events = []
+
+    async def fake_send(session_id, event, data):
+        events.append((event, data))
+
+    monkeypatch.setattr(ws_mod.ws_manager, "send_to_session", fake_send, raising=True)
+    monkeypatch.setattr(claude_agent_sdk, "query", _mock_query_yielding(
+        _assistant([TextBlock(text="done")]), _result()), raising=True)
+
+    mgr = AgentManager()
+    from backend.apps.agents.core.models import AgentSession
+    session = AgentSession(name="t", model="sonnet", dashboard_id="d", cwd="/tmp/openswarm-test-ws")
+    mgr.sessions[session.id] = session
+    asyncio.run(mgr.p_run_agent_loop(session.id, "hi"))
+
+    assert called.get("cwd") == "/tmp/openswarm-test-ws"  # the git-init path ran (no NameError)
+    assert session.status == "completed"
+
+
 def test_full_streaming_turn_drives_the_complete_ws_contract(monkeypatch):
     # The closest in-repo proxy for a live streaming run: drive the REAL loop with the exact
     # SDK sequence the live provider emits, partial StreamEvents (block start -> text deltas ->

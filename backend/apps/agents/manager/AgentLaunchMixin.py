@@ -21,8 +21,8 @@ from backend.apps.settings.settings import load_settings
 from backend.apps.agents.manager.session.session_store import _load_session_data as load_session_data
 from backend.apps.agents.manager.session.apply_context_window import apply_context_window
 from backend.apps.agents.manager.session.workspace_git import (
-    _detect_git_identity as detect_git_identity,
-    _ensure_cwd_git_repo as ensure_cwd_git_repo,
+    detect_git_identity,
+    ensure_cwd_git_repo,
 )
 from backend.apps.agents.manager.prompt.tool_catalog import get_all_tool_names
 from backend.apps.agents.manager.prompt.prompt_context import resolve_mode

@@ -71,7 +71,7 @@ from backend.apps.agents.manager.MessagingMixin import MessagingMixin
 from backend.apps.agents.manager.AgentLaunchMixin import AgentLaunchMixin
 from backend.apps.agents.manager.RunSupportMixin import RunSupportMixin
 from backend.apps.agents.manager.permissions import gate_hooks
-from backend.apps.agents.manager.session.workspace_git import _detect_git_identity as detect_git_identity, _ensure_cwd_git_repo
+from backend.apps.agents.manager.session.workspace_git import detect_git_identity, ensure_cwd_git_repo
 from backend.apps.agents.manager.prompt.tool_catalog import (
     FULL_TOOLS,
     get_all_known_tool_names,
