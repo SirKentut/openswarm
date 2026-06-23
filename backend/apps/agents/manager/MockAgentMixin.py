@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 class MockAgentMixin:
     @typechecked
-    async def p_run_mock_agent(self, session_id: str, prompt: str):
+    async def run_mock_agent(self, session_id: str, prompt: str):
         """Mock agent loop for development without claude_agent_sdk installed."""
         session = self.sessions.get(session_id)
         if not session:
@@ -55,7 +55,7 @@ class MockAgentMixin:
 
         tool_input_content = {"tool": "Bash", "input": {"command": f"echo 'Processing: {prompt}'"}, "approved": decision.get("behavior") == "allow"}
         tool_msg_id = uuid4().hex
-        await self.p_stream_tool_input(
+        await self.stream_tool_input(
             session_id, tool_msg_id, "Bash",
             json.dumps(tool_input_content["input"], indent=2),
         )
@@ -85,7 +85,7 @@ class MockAgentMixin:
             f"The agent was configured with:\n- Model: {session.model}\n- Mode: {session.mode}"
         )
         asst_msg_id = uuid4().hex
-        await self.p_stream_text(session_id, asst_msg_id, asst_text)
+        await self.stream_text(session_id, asst_msg_id, asst_text)
 
         asst_msg = Message(id=asst_msg_id, role="assistant", content=asst_text, branch_id=session.active_branch_id)
         session.messages.append(asst_msg)

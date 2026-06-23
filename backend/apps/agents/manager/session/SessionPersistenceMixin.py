@@ -1,7 +1,7 @@
 """Bulk session persistence across the WHOLE store, the startup/shutdown orchestration that
 operates on every session at once (reconcile stale-running, flush-all on shutdown, restore-all
 on boot). Split from SessionLifecycleMixin (which handles ONE session at a time) so each file is
-one concern. self.sessions / self.p_sync_session_close resolve across the MRO as before."""
+one concern. self.sessions / self.sync_session_close resolve across the MRO as before."""
 
 import logging
 
@@ -50,9 +50,9 @@ class SessionPersistenceMixin:
             # Tag this close as "shutdown" so the cloud can tell it apart
             # from a user-initiated close. The desktop doesn't care; the
             # tag rides along in the dump for whoever consumes it.
-            self.p_sync_session_close(session, close_reason="shutdown")
+            self.sync_session_close(session, close_reason="shutdown")
             doc_data = session.model_dump(mode="json")
-            doc_data["search_text"] = self.p_build_search_text(session)
+            doc_data["search_text"] = self.build_search_text(session)
             save_session(session_id, doc_data)
             logger.info(f"Persisted session {session_id} on shutdown")
         self.sessions.clear()

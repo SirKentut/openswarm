@@ -1,7 +1,7 @@
 """Formal proof (Z3 / SMT) of the MCP dispatch-gate security invariant.
 
 The product rule "MCP tools are reachable only after MCPActivate" is enforced at
-dispatch in agent_manager.p_build_mcp_servers: for a gated session a server is
+dispatch in agent_manager.build_mcp_servers: for a gated session a server is
 forwarded to the model only if its sanitized name is in session.active_mcps.
 
 tests/test_v2_invariants.py::test_mcp_gate_only_forwards_activated_servers

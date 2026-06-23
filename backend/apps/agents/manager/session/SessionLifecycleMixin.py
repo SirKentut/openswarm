@@ -31,11 +31,11 @@ logger = logging.getLogger(__name__)
 class SessionLifecycleMixin:
     @staticmethod
     @typechecked
-    def p_build_search_text(session: AgentSession, max_len: int = 5000) -> str:
+    def build_search_text(session: AgentSession, max_len: int = 5000) -> str:
         return build_search_text(session, max_len)
 
     @typechecked
-    def p_sync_session_close(self, session: AgentSession, close_reason: str = "user"):
+    def sync_session_close(self, session: AgentSession, close_reason: str = "user"):
         sync_session_close(session, close_reason)
 
     @typechecked
@@ -72,10 +72,10 @@ class SessionLifecycleMixin:
         if hasattr(session, '_cancel_event'):
             session._cancel_event.set()
 
-        self.p_sync_session_close(session)
+        self.sync_session_close(session)
 
         doc_data = session.model_dump(mode="json")
-        doc_data["search_text"] = self.p_build_search_text(session)
+        doc_data["search_text"] = self.build_search_text(session)
 
         save_session(session_id, doc_data)
 
@@ -91,18 +91,18 @@ class SessionLifecycleMixin:
             "dashboard_id": session.dashboard_id,
         })
 
-        self.p_purge_session_memory(session_id)
+        self.purge_session_memory(session_id)
         logger.info(f"Session {session_id} closed and persisted")
 
     @typechecked
-    def p_purge_session_memory(self, session_id: str) -> None:
+    def purge_session_memory(self, session_id: str) -> None:
         """Drop a session from EVERY in-memory structure keyed by its id, so a
         close or delete can't strand stale per-session state that lives until
         the process dies. One chokepoint on purpose: a new per-session cache
         wires its eviction in HERE and both removal paths get it for free."""
         self.sessions.pop(session_id, None)
         self.tasks.pop(session_id, None)
-        self.p_live_partial.pop(session_id, None)
+        self.live_partial.pop(session_id, None)
         view_builder_render_retry_counts.pop(session_id, None)
         view_builder_dirty_sessions.discard(session_id)
 
@@ -125,7 +125,7 @@ class SessionLifecycleMixin:
             except asyncio.CancelledError:
                 pass
 
-        self.p_purge_session_memory(session_id)
+        self.purge_session_memory(session_id)
 
         delete_session_file(session_id)
         logger.info(f"Session {session_id} permanently deleted")

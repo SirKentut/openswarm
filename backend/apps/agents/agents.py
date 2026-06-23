@@ -306,7 +306,7 @@ async def compact_session(session_id: str):
     session = agent_manager.sessions.get(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="session not found")
-    fired = agent_manager.p_maybe_compact(session, force=True)
+    fired = agent_manager.maybe_compact(session, force=True)
     if fired:
         from backend.apps.agents.core.ws_manager import ws_manager
         try:
@@ -315,7 +315,7 @@ async def compact_session(session_id: str):
                 "reason": "compacted",
                 "compacted_through_msg_id": session.compacted_through_msg_id,
             })
-            await agent_manager.p_emit_context_update(
+            await agent_manager.emit_context_update(
                 session_id,
                 session,
                 input_tokens=estimate_post_compact_input(session),
@@ -346,7 +346,7 @@ async def clear_session(session_id: str):
             "status": session.status,
             "session": session.model_dump(mode="json"),
         })
-        await agent_manager.p_emit_context_update(
+        await agent_manager.emit_context_update(
             session_id,
             session,
             input_tokens=0,

@@ -26,7 +26,7 @@ def aux_max_tokens_for(model: str | None, base: int = 100) -> int:
     return base
 
 
-def _safe_resp_text(resp) -> str:
+def safe_resp_text(resp) -> str:
     """Extract text from an Anthropic-shape response, tolerating Gemini/OpenAI
     edge cases. Gemini through 9Router occasionally returns `content=[]` (e.g.
     safety stop, function-call-only turn) which makes `resp.content[0].text`

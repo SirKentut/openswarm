@@ -63,7 +63,7 @@ async def try_fast_read(prompt: str, brief: str, settings, primary_api: str | No
 
         from backend.apps.settings.credentials import get_anthropic_client_for_model
         from backend.apps.agents.providers.registry import resolve_aux_model
-        from backend.apps.agents.core.aux_llm import _safe_resp_text
+        from backend.apps.agents.core.aux_llm import safe_resp_text
 
         aux_model, _ = await resolve_aux_model(
             settings, preferred_tier="haiku", primary_api=primary_api,
@@ -83,7 +83,7 @@ async def try_fast_read(prompt: str, brief: str, settings, primary_api: str | No
             ),
             timeout=15.0,
         )
-        answer = _safe_resp_text(resp).strip()
+        answer = safe_resp_text(resp).strip()
         answer_ms = int((time.monotonic() - t1) * 1000)
         if not answer or answer.upper().startswith("INSUFFICIENT"):
             logger.info(f"[browser-fast-read] aux found page insufficient ({answer_ms}ms); browser fallback")

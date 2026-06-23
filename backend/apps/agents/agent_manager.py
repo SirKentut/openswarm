@@ -81,7 +81,7 @@ class AgentManager(SessionLifecycleMixin, SessionPersistenceMixin, MessagingMixi
         # Live mirror of the in-flight streamed assistant text per session, so a
         # stop can persist the partial reply instantly instead of waiting out the
         # multi-second SDK teardown the cancel handler sits behind.
-        self.p_live_partial: Dict[str, LivePartial] = {}
+        self.live_partial: Dict[str, LivePartial] = {}
 
 
 
@@ -106,7 +106,7 @@ class AgentManager(SessionLifecycleMixin, SessionPersistenceMixin, MessagingMixi
 
 
     @typechecked
-    async def p_run_agent_loop(self, session_id: str, prompt: str, images: Optional[List] = None, context_paths: Optional[List] = None, forced_tools: Optional[List[str]] = None, attached_skills: Optional[List] = None, fork_session: bool = False, selected_browser_ids: Optional[List[str]] = None, selected_app_output_ids: Optional[List[str]] = None, selected_setting_ids: Optional[List[str]] = None):
+    async def run_agent_loop(self, session_id: str, prompt: str, images: Optional[List] = None, context_paths: Optional[List] = None, forced_tools: Optional[List[str]] = None, attached_skills: Optional[List] = None, fork_session: bool = False, selected_browser_ids: Optional[List[str]] = None, selected_app_output_ids: Optional[List[str]] = None, selected_setting_ids: Optional[List[str]] = None):
         """Run the Claude Agent SDK query loop for a session."""
         session = self.sessions.get(session_id)
         if not session:
@@ -114,7 +114,7 @@ class AgentManager(SessionLifecycleMixin, SessionPersistenceMixin, MessagingMixi
         
         from backend.apps.agents.providers.registry import get_api_type as p_get_api_type
         p_api = p_get_api_type(session.model)
-        prompt_content = self.p_build_prompt_content(
+        prompt_content = self.build_prompt_content(
             prompt, images, context_paths, forced_tools, attached_skills,
             api_type=p_api, model=session.model,
         )
@@ -129,7 +129,7 @@ class AgentManager(SessionLifecycleMixin, SessionPersistenceMixin, MessagingMixi
             )
         except ImportError:
             logger.warning("claude_agent_sdk not installed, running in mock mode")
-            await self.p_run_mock_agent(session_id, prompt)
+            await self.run_mock_agent(session_id, prompt)
             return
 
         session.status = "running"
@@ -181,7 +181,7 @@ class AgentManager(SessionLifecycleMixin, SessionPersistenceMixin, MessagingMixi
             # Reconcile active_mcps against currently-enabled tools (Phase 3).
             # If the user toggled a server off in the Tools page mid-session,
             # drop it from active_mcps automatically so the model isn't told
-            # "X is active" while p_build_mcp_servers silently filters it out.
+            # "X is active" while build_mcp_servers silently filters it out.
             # Emit a context_status event so the model and UI both know.
             try:
                 p_enabled = {
@@ -230,8 +230,8 @@ class AgentManager(SessionLifecycleMixin, SessionPersistenceMixin, MessagingMixi
             # Pass session.active_mcps as the activation filter. Empty list ⇒
             # no MCP tools shipped to the SDK; the model must MCPSearch and
             # MCPActivate first. The product invariant lives here at the
-            # dispatch layer (see p_build_mcp_servers docstring).
-            mcp_servers = await self.p_build_mcp_servers(session.allowed_tools, session.active_mcps)
+            # dispatch layer (see build_mcp_servers docstring).
+            mcp_servers = await self.build_mcp_servers(session.allowed_tools, session.active_mcps)
 
             browser_delegation_tools, invoke_agent_tools = register_builtin_mcp_servers(
                 mcp_servers, session, builtin_perms, selected_browser_ids, os.path.dirname(__file__)
@@ -338,7 +338,7 @@ class AgentManager(SessionLifecycleMixin, SessionPersistenceMixin, MessagingMixi
                 logger.info(f"[MCP-DEBUG] effective_disallowed: {effective_disallowed}")
 
             # `p_router_model_id` and `p_api_type_for_session` were resolved
-            # at the top of p_run_agent_loop (before any closures were
+            # at the top of run_agent_loop (before any closures were
             # defined) so analytics closures could tag events with them.
             # Reuse those values here and keep session.provider in sync.
             resolved_model = p_router_model_id
@@ -519,14 +519,14 @@ class AgentManager(SessionLifecycleMixin, SessionPersistenceMixin, MessagingMixi
             # programmatic summarization (no aux LLM call) so this adds
             # zero latency on the user's turn.
             try:
-                if self.p_maybe_compact(session):
+                if self.maybe_compact(session):
                     new_input = estimate_post_compact_input(session)
                     await ws_manager.send_to_session(session_id, "agent:context_status", {
                         "session_id": session_id,
                         "reason": "compacted",
                         "compacted_through_msg_id": session.compacted_through_msg_id,
                     })
-                    await self.p_emit_context_update(
+                    await self.emit_context_update(
                         session_id,
                         session,
                         input_tokens=new_input,
@@ -741,12 +741,12 @@ class AgentManager(SessionLifecycleMixin, SessionPersistenceMixin, MessagingMixi
 
                     if isinstance(message, StreamEvent):
                         await stream_event.handle_stream_event(
-                            message, session, session_id, turn, thinking, self.p_live_partial
+                            message, session, session_id, turn, thinking, self.live_partial
                         )
 
                     elif isinstance(message, AssistantMessage):
                         await assistant_message.handle_assistant_message(
-                            message, session, session_id, turn, thinking, self.p_live_partial, self.sessions
+                            message, session, session_id, turn, thinking, self.live_partial, self.sessions
                         )
                     elif isinstance(message, ResultMessage):
                         await result_message.handle_result_message(
@@ -797,7 +797,7 @@ class AgentManager(SessionLifecycleMixin, SessionPersistenceMixin, MessagingMixi
                             })
                             turn.stream_text_msg_id = None
                         turn.stream_text_accum = ""
-                        self.p_live_partial.pop(session_id, None)
+                        self.live_partial.pop(session_id, None)
                         for p_tool_msg_id in turn.stream_tool_msg_ids_ordered:
                             await ws_manager.send_to_session(session_id, "agent:stream_end", {
                                 "session_id": session_id,
@@ -820,7 +820,7 @@ class AgentManager(SessionLifecycleMixin, SessionPersistenceMixin, MessagingMixi
             # analogous flow) flagged pending_continuation during this
             # turn, kick off a follow-up turn immediately with the
             # captured prompt. We dispatch as a fire-and-forget task so
-            # the current p_run_agent_loop frame can unwind cleanly
+            # the current run_agent_loop frame can unwind cleanly
             # before the next turn's options + history rebuild kicks in.
             # The follow-up is `hidden=True` so it doesn't add a user
             # bubble to the visible chat; the model sees it as a
@@ -854,7 +854,7 @@ class AgentManager(SessionLifecycleMixin, SessionPersistenceMixin, MessagingMixi
                 session.needs_fresh_session = True
                 # Persist whatever streamed before the cancel (edit / branch
                 # switch paths; the user-stop path already did this in stop_agent).
-                await self.p_commit_partial_now(session)
+                await self.commit_partial_now(session)
             turn.stream_text_msg_id = None
             turn.stream_text_accum = ""
         except Exception as e:
@@ -1106,7 +1106,7 @@ class AgentManager(SessionLifecycleMixin, SessionPersistenceMixin, MessagingMixi
             # snapshot the live turn is writing.
             p_is_live_task = self.tasks.get(session_id) is asyncio.current_task()
             if p_is_live_task:
-                self.p_live_partial.pop(session_id, None)
+                self.live_partial.pop(session_id, None)
             if session_id in self.sessions and p_is_live_task:
                 # For canvas-launched App Builder sessions, the workspace
                 # folder IS the session_id (see launch_agent), so meta.json

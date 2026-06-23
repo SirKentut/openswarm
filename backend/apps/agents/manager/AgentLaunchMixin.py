@@ -1,6 +1,6 @@
 """Agent run entry points for AgentManager: launch a new top-level run and the staticmethod
 invoke_agent helper (fork-and-send a sub-agent). The no-SDK mock fallback lives in MockAgentMixin.
-Split into a mixin to keep the manager file under the size ceiling; self.p_run_agent_loop /
+Split into a mixin to keep the manager file under the size ceiling; self.run_agent_loop /
 self.sessions resolve across the MRO exactly as before."""
 
 import logging
@@ -230,7 +230,7 @@ class AgentLaunchMixin:
             "message": user_msg.model_dump(mode="json"),
         })
 
-        await self.p_run_agent_loop(fork.id, message, fork_session=True)
+        await self.run_agent_loop(fork.id, message, fork_session=True)
 
         last_assistant = None
         for msg in reversed(fork.messages):

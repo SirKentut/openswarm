@@ -83,7 +83,7 @@ def _install(monkeypatch, primary, aux):
     monkeypatch.setattr(cred_mod, "get_anthropic_client_for_model", _client_for, raising=True)
 
     monkeypatch.setattr(BA, "load_builtin_permissions", lambda: {}, raising=True)
-    monkeypatch.setattr(am_mod.agent_manager, "p_sync_session_close", lambda *a, **k: None, raising=True)
+    monkeypatch.setattr(am_mod.agent_manager, "sync_session_close", lambda *a, **k: None, raising=True)
 
     # fake WS: record browser commands, script results by action
     sent = []

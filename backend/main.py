@@ -868,7 +868,7 @@ async def session_compact(session_id: str):
     session = agent_manager.sessions.get(session_id)
     if not session:
         return JSONResponse({"error": "session not found"}, status_code=404)
-    did_compact = agent_manager.p_maybe_compact(session, force=True)
+    did_compact = agent_manager.maybe_compact(session, force=True)
     if did_compact:
         session.needs_fresh_session = True
     await _ws.send_to_session(session_id, "agent:context_status", {

@@ -1,7 +1,7 @@
 """Real-server end-to-end WebSocket test: the closest in-repo proxy to a live desktop run. A WS
 client connects to the actual FastAPI app, sends agent:send_message, and the agent loop runs and
 streams its events BACK over the real WS transport. This exercises the whole live path the
-desktop app uses, FastAPI app + WS route + ws_manager + send_message + p_run_agent_loop + the
+desktop app uses, FastAPI app + WS route + ws_manager + send_message + run_agent_loop + the
 extracted handlers + the broadcast, which the in-process harness (no server, no WS) can't cover.
 The SDK and WS auth are mocked; everything else is the real running stack."""
 

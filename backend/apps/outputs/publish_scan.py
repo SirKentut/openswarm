@@ -113,7 +113,7 @@ async def _llm_findings(src: dict[str, str], settings) -> tuple[list[str], str]:
         return [], "clean"
     from backend.apps.agents.providers.registry import resolve_aux_model
     from backend.apps.settings.credentials import get_anthropic_client_for_model
-    from backend.apps.agents.core.aux_llm import _safe_resp_text
+    from backend.apps.agents.core.aux_llm import safe_resp_text
     try:
         model, _base = await resolve_aux_model(settings, preferred_tier="haiku")
     except Exception:
@@ -129,7 +129,7 @@ async def _llm_findings(src: dict[str, str], settings) -> tuple[list[str], str]:
     except Exception:
         logger.exception("publish LLM scan call failed; AST-only result stands")
         return [], "clean"
-    text = _safe_resp_text(resp).strip()
+    text = safe_resp_text(resp).strip()
     if text.startswith("```"):
         text = text.split("\n", 1)[1] if "\n" in text else text[3:]
         if text.endswith("```"):

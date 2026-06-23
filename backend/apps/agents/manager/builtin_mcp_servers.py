@@ -78,7 +78,7 @@ def register_builtin_mcp_servers(
     # Always-on meta-MCP server. Exposes MCPList / MCPSearch /
     # MCPActivate so the model can discover and activate user MCPs at
     # runtime. The activation gate (active_mcps filter in
-    # p_build_mcp_servers above) ensures the model cannot reach any
+    # build_mcp_servers above) ensures the model cannot reach any
     # other MCP server's tools without going through this layer first.
     mcp_meta_server_path = os.path.join(
         agents_dir, "mcp_meta_server.py"

@@ -1,7 +1,7 @@
 """Per-run support methods for AgentManager: build the gated MCP server set, warm the prompt
 cache, stream-emit helpers, commit/drain a stopped turn, context-update broadcast, and the aux
 metadata + prompt/attachment delegators. Split into a mixin to keep the manager file under the
-size ceiling; self.sessions / self.tasks / self.p_live_partial resolve across the MRO as before."""
+size ceiling; self.sessions / self.tasks / self.live_partial resolve across the MRO as before."""
 
 import asyncio
 import logging
@@ -39,7 +39,7 @@ logger = logging.getLogger(__name__)
 
 class RunSupportMixin:
     @typechecked
-    async def p_build_mcp_servers(
+    async def build_mcp_servers(
         self,
         allowed_tools: List[str],
         active_mcps: Optional[List[str]] = None,
@@ -118,11 +118,11 @@ class RunSupportMixin:
         return build_dir_tree(root, max_depth, prefix)
 
     @typechecked
-    def p_maybe_compact(self, session: AgentSession, force: bool = False) -> bool:
+    def maybe_compact(self, session: AgentSession, force: bool = False) -> bool:
         return context_budget.maybe_compact(session, force)
 
     @typechecked
-    async def p_emit_context_update(
+    async def emit_context_update(
         self,
         session_id: str,
         session: AgentSession,
@@ -139,11 +139,11 @@ class RunSupportMixin:
         )
 
     @typechecked
-    def p_build_prompt_content(self, prompt: str, images: Optional[List] = None, context_paths: Optional[List] = None, forced_tools: Optional[List[str]] = None, attached_skills: Optional[List] = None, api_type: str = "anthropic", model: str = ""):
+    def build_prompt_content(self, prompt: str, images: Optional[List] = None, context_paths: Optional[List] = None, forced_tools: Optional[List[str]] = None, attached_skills: Optional[List] = None, api_type: str = "anthropic", model: str = ""):
         return build_prompt_content(prompt, images, context_paths, forced_tools, attached_skills, api_type, model)
 
     @typechecked
-    def p_resolve_attachments(self, context_paths: Optional[List], api_type: str, model: str) -> Tuple[str, List[dict], List[str]]:
+    def resolve_attachments(self, context_paths: Optional[List], api_type: str, model: str) -> Tuple[str, List[dict], List[str]]:
         return resolve_attachments(context_paths, api_type, model)
 
     @typechecked
@@ -151,7 +151,7 @@ class RunSupportMixin:
         return resolve_context_paths(context_paths)
 
     @typechecked
-    async def p_stream_text(self, session_id: str, msg_id: str, text: str, delay: float = 0.03):
+    async def stream_text(self, session_id: str, msg_id: str, text: str, delay: float = 0.03):
         """Emit stream_start, word-by-word deltas, and stream_end for a text message."""
         await ws_manager.send_to_session(session_id, "agent:stream_start", {
             "session_id": session_id,
@@ -173,7 +173,7 @@ class RunSupportMixin:
         })
 
     @typechecked
-    async def p_stream_tool_input(self, session_id: str, msg_id: str, tool_name: str, input_json: str, delay: float = 0.02):
+    async def stream_tool_input(self, session_id: str, msg_id: str, tool_name: str, input_json: str, delay: float = 0.02):
         """Emit stream_start, chunked deltas, and stream_end for a tool_call input."""
         await ws_manager.send_to_session(session_id, "agent:stream_start", {
             "session_id": session_id,
@@ -195,12 +195,12 @@ class RunSupportMixin:
         })
 
     @typechecked
-    async def p_commit_partial_now(self, session) -> bool:
+    async def commit_partial_now(self, session) -> bool:
         """Persist the in-flight streamed assistant text as a real message and
         push it to the client, idempotently. Lets a stop show the partial
         instantly instead of waiting out the SDK teardown the cancel handler
         sits behind. Returns True if it committed something."""
-        live = self.p_live_partial.pop(session.id, None)
+        live = self.live_partial.pop(session.id, None)
         if not live:
             return False
         text = live.text or ""
@@ -230,7 +230,7 @@ class RunSupportMixin:
         return True
 
     @typechecked
-    async def p_drain_task(self, task) -> None:
+    async def drain_task(self, task) -> None:
         """Await a cancelled task's (possibly slow) teardown off the hot path."""
         try:
             await task

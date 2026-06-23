@@ -83,7 +83,7 @@ async def test_gate_blocks_when_active_mcps_empty():
          patch("backend.apps.agents.manager.RunSupportMixin.refresh_google_token", new=AsyncMock(return_value=True)):
         mgr = AgentManager()
         # allowed_tools includes mcp:Gmail, but active_mcps is empty
-        result = await mgr.p_build_mcp_servers(
+        result = await mgr.build_mcp_servers(
             allowed_tools=["mcp:Gmail", "mcp:Slack", "mcp:Notion"],
             active_mcps=[],
         )
@@ -102,7 +102,7 @@ async def test_gate_allows_only_activated_servers():
     with patch("backend.apps.agents.manager.RunSupportMixin.load_all_tools", return_value=fake_tools), \
          patch("backend.apps.agents.manager.RunSupportMixin.refresh_google_token", new=AsyncMock(return_value=True)):
         mgr = AgentManager()
-        result = await mgr.p_build_mcp_servers(
+        result = await mgr.build_mcp_servers(
             allowed_tools=["mcp:Gmail", "mcp:Slack", "mcp:Notion"],
             active_mcps=["gmail"],  # sanitized name of "Gmail"
         )
@@ -120,7 +120,7 @@ async def test_gate_unset_active_mcps_legacy_allows_all():
     with patch("backend.apps.agents.manager.RunSupportMixin.load_all_tools", return_value=fake_tools), \
          patch("backend.apps.agents.manager.RunSupportMixin.refresh_google_token", new=AsyncMock(return_value=True)):
         mgr = AgentManager()
-        result = await mgr.p_build_mcp_servers(
+        result = await mgr.build_mcp_servers(
             allowed_tools=["mcp:Gmail", "mcp:Slack"],
             active_mcps=None,  # legacy / unset
         )
@@ -135,7 +135,7 @@ async def test_gate_disabled_tool_blocked_even_when_activated():
     fake_tools = [_fake_tool("Gmail", enabled=False)]
     with patch("backend.apps.agents.manager.RunSupportMixin.load_all_tools", return_value=fake_tools):
         mgr = AgentManager()
-        result = await mgr.p_build_mcp_servers(
+        result = await mgr.build_mcp_servers(
             allowed_tools=["mcp:Gmail"],
             active_mcps=["gmail"],
         )
@@ -149,7 +149,7 @@ async def test_gate_unauthed_tool_blocked():
     fake_tools = [_fake_tool("Gmail", auth_status="disconnected")]
     with patch("backend.apps.agents.manager.RunSupportMixin.load_all_tools", return_value=fake_tools):
         mgr = AgentManager()
-        result = await mgr.p_build_mcp_servers(
+        result = await mgr.build_mcp_servers(
             allowed_tools=["mcp:Gmail"],
             active_mcps=["gmail"],
         )
@@ -164,7 +164,7 @@ async def test_gate_allowed_tools_filter_intersects_active_mcps():
     with patch("backend.apps.agents.manager.RunSupportMixin.load_all_tools", return_value=fake_tools), \
          patch("backend.apps.agents.manager.RunSupportMixin.refresh_google_token", new=AsyncMock(return_value=True)):
         mgr = AgentManager()
-        result = await mgr.p_build_mcp_servers(
+        result = await mgr.build_mcp_servers(
             allowed_tools=["mcp:Gmail"],  # mode-restricted
             active_mcps=["gmail", "slack"],  # both activated
         )
@@ -197,7 +197,7 @@ async def test_gate_stress_random_activations():
              patch("backend.apps.agents.manager.RunSupportMixin.refresh_airtable_token", new=AsyncMock(return_value=True)), \
              patch("backend.apps.agents.manager.RunSupportMixin.refresh_hubspot_token", new=AsyncMock(return_value=True)):
             mgr = AgentManager()
-            result = await mgr.p_build_mcp_servers(
+            result = await mgr.build_mcp_servers(
                 allowed_tools=allowed,
                 active_mcps=active,
             )
@@ -649,9 +649,9 @@ async def test_mcp_gate_only_forwards_activated_servers():
          patch("backend.apps.agents.manager.RunSupportMixin.derive_mcp_config", side_effect=lambda t: {"command": "x"}):
         allowed = ["__ALL__"]
         # Boundary 1: empty activation list -> zero servers, always.
-        assert await mgr.p_build_mcp_servers(allowed, active_mcps=[]) == {}
+        assert await mgr.build_mcp_servers(allowed, active_mcps=[]) == {}
         # Boundary 2: None (legacy) -> permission gate only, all forwarded.
-        assert set((await mgr.p_build_mcp_servers(allowed, active_mcps=None)).keys()) == set(names)
+        assert set((await mgr.build_mcp_servers(allowed, active_mcps=None)).keys()) == set(names)
         # Property: forwarded set is ALWAYS a subset of the activated set, and
         # equals exactly the activated-and-installed intersection.
         rng = random.Random(1234)
@@ -660,7 +660,7 @@ async def test_mcp_gate_only_forwards_activated_servers():
             # throw in a bogus name the gate must never invent a server for
             if rng.random() < 0.3:
                 active = active + ["ghost-not-installed"]
-            forwarded = set((await mgr.p_build_mcp_servers(allowed, active_mcps=active)).keys())
+            forwarded = set((await mgr.build_mcp_servers(allowed, active_mcps=active)).keys())
             assert forwarded <= set(active), f"leaked {forwarded - set(active)} for active={active}"
             assert forwarded == (set(active) & set(names)), f"mismatch for active={active}"
 
@@ -967,10 +967,10 @@ async def test_concurrent_gate_calls_isolated():
          patch("backend.apps.agents.manager.RunSupportMixin.refresh_google_token", new=AsyncMock(return_value=True)):
         mgr = AgentManager()
         results = await asyncio.gather(
-            mgr.p_build_mcp_servers(allowed_tools=["mcp:Gmail", "mcp:Slack", "mcp:Notion"], active_mcps=["gmail"]),
-            mgr.p_build_mcp_servers(allowed_tools=["mcp:Gmail", "mcp:Slack", "mcp:Notion"], active_mcps=["slack"]),
-            mgr.p_build_mcp_servers(allowed_tools=["mcp:Gmail", "mcp:Slack", "mcp:Notion"], active_mcps=["notion"]),
-            mgr.p_build_mcp_servers(allowed_tools=["mcp:Gmail", "mcp:Slack", "mcp:Notion"], active_mcps=[]),
+            mgr.build_mcp_servers(allowed_tools=["mcp:Gmail", "mcp:Slack", "mcp:Notion"], active_mcps=["gmail"]),
+            mgr.build_mcp_servers(allowed_tools=["mcp:Gmail", "mcp:Slack", "mcp:Notion"], active_mcps=["slack"]),
+            mgr.build_mcp_servers(allowed_tools=["mcp:Gmail", "mcp:Slack", "mcp:Notion"], active_mcps=["notion"]),
+            mgr.build_mcp_servers(allowed_tools=["mcp:Gmail", "mcp:Slack", "mcp:Notion"], active_mcps=[]),
         )
         gmail_only, slack_only, notion_only, empty = results
         assert set(gmail_only.keys()) == {"gmail"}
@@ -1051,7 +1051,7 @@ async def test_context_update_emitter_refreshes_session_tokens(monkeypatch):
     s.framework_overhead_tokens = 42
     s.active_mcps = ["github"]
 
-    await AgentManager().p_emit_context_update("x", s, input_tokens=250)
+    await AgentManager().emit_context_update("x", s, input_tokens=250)
 
     assert s.tokens == {"input": 250, "output": 7}
     assert sent == [(
@@ -1186,7 +1186,7 @@ async def test_gate_handles_missing_refresh_token_gracefully():
     fake.auth_type = None  # no oauth
     with patch("backend.apps.agents.manager.RunSupportMixin.load_all_tools", return_value=[fake]):
         mgr = AgentManager()
-        result = await mgr.p_build_mcp_servers(
+        result = await mgr.build_mcp_servers(
             allowed_tools=["mcp:MyApiTool"],
             active_mcps=["myapitool"],
         )
@@ -1384,7 +1384,7 @@ def test_resolve_attachments_handles_missing_path_gracefully():
     we emit a 'not found' refusal instead of crashing."""
     from backend.apps.agents.agent_manager import AgentManager
     mgr = AgentManager()
-    text, native, refusals = mgr.p_resolve_attachments(
+    text, native, refusals = mgr.resolve_attachments(
         [{"path": "/var/folders/nonexistent/definitely-gone.pdf", "type": "file"}],
         api_type="anthropic", model="opus-4-7",
     )
@@ -1402,7 +1402,7 @@ def test_resolve_attachments_handles_directory_path_not_file():
     tmpdir = tempfile.mkdtemp()
     open(os.path.join(tmpdir, "a.txt"), "w").write("hello")
     try:
-        text, native, refusals = mgr.p_resolve_attachments(
+        text, native, refusals = mgr.resolve_attachments(
             [{"path": tmpdir, "type": "directory"}],
             api_type="anthropic", model="opus-4-7",
         )
@@ -1431,7 +1431,7 @@ def test_resolve_attachments_mixed_kinds_total_size_guard():
             paths.append(fh.name)
         with tempfile.NamedTemporaryFile(suffix=".md", mode="w", delete=False) as fh:
             fh.write("# notes"); paths.append(fh.name)
-        text, native, refusals = mgr.p_resolve_attachments(
+        text, native, refusals = mgr.resolve_attachments(
             [{"path": p, "type": "file"} for p in paths],
             api_type="anthropic", model="opus-4-7",
         )
@@ -1491,7 +1491,7 @@ def test_sniff_recognises_macos_paths_with_spaces():
     try:
         with open(path, "wb") as f:
             f.write(b"%PDF-1.4\n")
-        _t, native, refusals = mgr.p_resolve_attachments(
+        _t, native, refusals = mgr.resolve_attachments(
             [{"path": path, "type": "file"}], api_type="anthropic", model="opus-4-7",
         )
         assert native and native[0]["type"] == "document"
@@ -1552,7 +1552,7 @@ def test_sniff_handles_windows_style_backslash_path_string():
     from backend.apps.agents.agent_manager import AgentManager
     mgr = AgentManager()
     # A path that doesn't exist (POSIX cannot interpret backslashes as separator)
-    _t, native, refusals = mgr.p_resolve_attachments(
+    _t, native, refusals = mgr.resolve_attachments(
         [{"path": r"C:\fake\path\nope.pdf", "type": "file"}],
         api_type="anthropic", model="opus-4-7",
     )
@@ -1591,7 +1591,7 @@ def test_resolve_attachments_classifies_renamed_binary_as_binary_not_pdf():
         fh.write(b"PK\x03\x04fake zip masquerading as pdf")
         path = fh.name
     try:
-        _t, native, refusals = mgr.p_resolve_attachments(
+        _t, native, refusals = mgr.resolve_attachments(
             [{"path": path, "type": "file"}], api_type="anthropic", model="opus-4-7",
         )
         assert not native
@@ -1664,7 +1664,7 @@ def test_anthropic_document_block_schema_matches_docs():
         fh.write(b"%PDF-1.4\n%canonical schema test\n")
         path = fh.name
     try:
-        _t, native, _r = mgr.p_resolve_attachments(
+        _t, native, _r = mgr.resolve_attachments(
             [{"path": path, "type": "file"}], api_type="anthropic", model="opus-4-7",
         )
         block = native[0]
@@ -1909,7 +1909,7 @@ def test_resolve_attachments_openai_codex_refused_for_pdfs():
         fh.write(b"%PDF-1.4\n%test\n")
         path = fh.name
     try:
-        _t, native, refusals = mgr.p_resolve_attachments(
+        _t, native, refusals = mgr.resolve_attachments(
             [{"path": path, "type": "file"}], api_type="openai", model="gpt-5.3-codex",
         )
         assert not native
@@ -1928,7 +1928,7 @@ def test_resolve_attachments_openai_codex_still_refuses_pdf():
         fh.write(b"%PDF-1.4\n%test\n")
         path = fh.name
     try:
-        _t, native, refusals = mgr.p_resolve_attachments(
+        _t, native, refusals = mgr.resolve_attachments(
             [{"path": path, "type": "file"}], api_type="openai", model="gpt-5.3-codex",
         )
         assert not native
@@ -2029,7 +2029,7 @@ def test_resolve_attachments_anthropic_emits_native_document():
         fh.write(b"%PDF-1.4\n%test\n")
         path = fh.name
     try:
-        text, native, refusals = mgr.p_resolve_attachments(
+        text, native, refusals = mgr.resolve_attachments(
             [{"path": path, "type": "file"}], api_type="anthropic", model="opus-4-7",
         )
         assert native and native[0]["type"] == "document"
@@ -2051,7 +2051,7 @@ def test_resolve_attachments_openai_accepts_pdf_via_bypass_translator():
         fh.write(b"%PDF-1.4\n%test\n")
         path = fh.name
     try:
-        _text, native, refusals = mgr.p_resolve_attachments(
+        _text, native, refusals = mgr.resolve_attachments(
             [{"path": path, "type": "file"}], api_type="openai", model="gpt-5.5",
         )
         assert native and native[0]["type"] == "document"
@@ -2143,7 +2143,7 @@ def test_resolve_attachments_gemini_emits_native_document_after_translator_fix()
         fh.write(b"%PDF-1.4\n%test\n")
         path = fh.name
     try:
-        _text, native, refusals = mgr.p_resolve_attachments(
+        _text, native, refusals = mgr.resolve_attachments(
             [{"path": path, "type": "file"}], api_type="gemini", model="gemini-3.1-pro-api",
         )
         assert native and native[0]["type"] == "document"
@@ -2162,7 +2162,7 @@ def test_resolve_attachments_text_file_inlined_not_native():
         fh.write("# hello\nworld")
         path = fh.name
     try:
-        text, native, refusals = mgr.p_resolve_attachments(
+        text, native, refusals = mgr.resolve_attachments(
             [{"path": path, "type": "file"}], api_type="opus-4-7", model="opus-4-7",
         )
         assert not native
@@ -2182,7 +2182,7 @@ def test_resolve_attachments_pdf_refused_when_too_large():
         fh.write(b"X" * (25 * 1024 * 1024))
         path = fh.name
     try:
-        _t, native, refusals = mgr.p_resolve_attachments(
+        _t, native, refusals = mgr.resolve_attachments(
             [{"path": path, "type": "file"}], api_type="anthropic", model="opus-4-7",
         )
         assert not native
@@ -2208,7 +2208,7 @@ def test_resolve_attachments_refuses_when_total_exceeds_request_cap():
                 fh.write(b"%PDF-1.4\n")
                 fh.write(b"X" * (8 * 1024 * 1024))
                 paths.append(fh.name)
-        _t, native, refusals = mgr.p_resolve_attachments(
+        _t, native, refusals = mgr.resolve_attachments(
             [{"path": p, "type": "file"} for p in paths],
             api_type="anthropic", model="opus-4-7",
         )
@@ -2234,7 +2234,7 @@ def test_resolve_attachments_anthropic_marks_last_document_ephemeral_for_cache()
             with tempfile.NamedTemporaryFile(suffix=f"_{i}.pdf", delete=False) as fh:
                 fh.write(b"%PDF-1.4\n%test\n")
                 paths.append(fh.name)
-        _t, native, _r = mgr.p_resolve_attachments(
+        _t, native, _r = mgr.resolve_attachments(
             [{"path": p, "type": "file"} for p in paths],
             api_type="anthropic", model="opus-4-7",
         )
@@ -2258,11 +2258,11 @@ def test_resolve_attachments_anthropic_does_mark_ephemeral_but_only_anthropic():
         fh.write(b"%PDF-1.4\n%test\n")
         path = fh.name
     try:
-        _t, ant_native, _r = mgr.p_resolve_attachments(
+        _t, ant_native, _r = mgr.resolve_attachments(
             [{"path": path, "type": "file"}], api_type="anthropic", model="opus-4-7",
         )
         assert ant_native and ant_native[0].get("cache_control") == {"type": "ephemeral"}
-        _t, or_native, _r = mgr.p_resolve_attachments(
+        _t, or_native, _r = mgr.resolve_attachments(
             [{"path": path, "type": "file"}], api_type="openrouter", model="openrouter/openai/gpt-5",
         )
         assert or_native and "cache_control" not in or_native[0]
@@ -3033,7 +3033,7 @@ async def test_gate_100_sequential_calls_no_leak():
             n = i % 10
             active = [f"server{j}" for j in range(n)]
             allowed = [f"mcp:Server{j}" for j in range(10)]
-            result = await mgr.p_build_mcp_servers(allowed_tools=allowed, active_mcps=active)
+            result = await mgr.build_mcp_servers(allowed_tools=allowed, active_mcps=active)
             assert set(result.keys()) == set(active), \
                 f"iteration {i}: expected {set(active)}, got {set(result.keys())}"
 
@@ -3147,7 +3147,7 @@ async def test_e2e_session_lifecycle_with_mcp_activation():
         s = AgentSession(id="e2e", name="End-to-end", model="sonnet", mode="agent")
 
         # Step 1: fresh, gate blocks everything
-        result = await mgr.p_build_mcp_servers(
+        result = await mgr.build_mcp_servers(
             allowed_tools=["mcp:Gmail", "mcp:Slack"],
             active_mcps=s.active_mcps,
         )
@@ -3161,7 +3161,7 @@ async def test_e2e_session_lifecycle_with_mcp_activation():
         s.pending_continuation = True
 
         # Step 3: continuation turn, gate passes gmail
-        result = await mgr.p_build_mcp_servers(
+        result = await mgr.build_mcp_servers(
             allowed_tools=["mcp:Gmail", "mcp:Slack"],
             active_mcps=s.active_mcps,
         )
@@ -3192,7 +3192,7 @@ async def test_e2e_50_random_activation_sequences():
             n = random.randint(0, len(sanitized))
             active = random.sample(sanitized, n)
             allowed = [f"mcp:{r}" for r in raw_names]
-            result = await mgr.p_build_mcp_servers(allowed, active)
+            result = await mgr.build_mcp_servers(allowed, active)
             keys = set(result.keys())
             assert keys == set(active), f"mismatch: active={active} keys={keys}"
 

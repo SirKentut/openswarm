@@ -242,8 +242,8 @@ async def classify_and_brief(prompt: str, settings, primary_api: str | None) -> 
             ),
             timeout=8.0,
         )
-        from backend.apps.agents.core.aux_llm import _safe_resp_text
-        verdict, brief = _parse_verdict_and_brief(_safe_resp_text(resp))
+        from backend.apps.agents.core.aux_llm import safe_resp_text
+        verdict, brief = _parse_verdict_and_brief(safe_resp_text(resp))
         logger.info(
             f"[browser-fast-path] classifier: {verdict.upper()} brief={len(brief)}ch "
             f"model={aux_model} in {int((time.monotonic() - t0) * 1000)}ms"
