@@ -8,10 +8,14 @@ import asyncio
 
 import claude_agent_sdk
 from claude_agent_sdk import AssistantMessage, ResultMessage
-from claude_agent_sdk.types import TextBlock, ToolUseBlock, ThinkingBlock
+from claude_agent_sdk.types import TextBlock, ToolUseBlock, ThinkingBlock, StreamEvent
 
 from backend.apps.agents.agent_manager import AgentManager
 import backend.apps.agents.core.ws_manager as ws_mod
+
+
+def _stream(event):
+    return StreamEvent(uuid="u", session_id="sdk-1", event=event)
 
 
 def _mock_query_yielding(*messages):
@@ -51,6 +55,36 @@ def _assistant(blocks, **kw):
                 session_id="sdk-1", usage={"input_tokens": 10, "output_tokens": 5})
     base.update(kw)
     return AssistantMessage(**base)
+
+
+def test_full_streaming_turn_drives_the_complete_ws_contract(monkeypatch):
+    # The closest in-repo proxy for a live streaming run: drive the REAL loop with the exact
+    # SDK sequence the live provider emits, partial StreamEvents (block start -> text deltas ->
+    # stop -> message_stop), THEN the AssistantMessage envelope, THEN the ResultMessage. Asserts
+    # the FULL observable contract the live UI consumes end to end (stream_start, the streamed
+    # deltas, the committed assistant message, the token/context meter, the per-turn token math).
+    # This exercises stream_event + assistant_message + result_message together, through the loop.
+    msgs = [
+        _stream({"type": "content_block_start", "index": 0, "content_block": {"type": "text"}}),
+        _stream({"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "Hel"}}),
+        _stream({"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "lo!"}}),
+        _stream({"type": "content_block_stop", "index": 0}),
+        _stream({"type": "message_stop"}),
+        _assistant([TextBlock(text="Hello!")], usage={"input_tokens": 100, "output_tokens": 50}),
+        _result(usage={"input_tokens": 1100, "output_tokens": 550}),
+    ]
+    session, events = _drive(monkeypatch, msgs)
+    types = [e for e, _ in events]
+    # the live streaming sequence the UI renders token-by-token
+    assert "agent:stream_start" in types
+    assert types.count("agent:stream_delta") >= 2          # both text deltas streamed live
+    # the turn's durable outputs
+    assert "agent:message" in types                         # final assistant message committed
+    assert "agent:context_update" in types                  # the token/context meter
+    assert any(m.role == "assistant" and "Hello!" in str(m.content) for m in session.messages)
+    assert session.status == "completed"
+    assert session.tokens.get("output") == 550              # ResultMessage's authoritative token count landed
+    assert session.tokens.get("input") == 1100
 
 
 def test_loop_wires_all_four_hooks_to_a_live_hook_context(monkeypatch):
