@@ -232,9 +232,9 @@ def p_antigravity_connected() -> bool:
     probe (this resolver is sync) with a tight timeout; any hiccup reads as
     'no' so a slow/absent 9Router never blocks model resolution for long."""
     try:
-        import httpx as _httpx
+        import httpx as p_httpx
         from backend.apps.nine_router.process import cli_auth_headers
-        r = _httpx.get("http://localhost:20128/api/providers", timeout=2.0, headers=cli_auth_headers())
+        r = p_httpx.get("http://localhost:20128/api/providers", timeout=2.0, headers=cli_auth_headers())
         if r.status_code != 200:
             return False
         data = r.json()
@@ -321,13 +321,13 @@ async def resolve_aux_model(
     bare = haiku_bare if preferred_tier == "haiku" else sonnet_bare
     or_aux = or_haiku if preferred_tier == "haiku" else or_sonnet
 
-    from backend.apps.nine_router import is_running as _9r_running, get_providers as _9r_providers
+    from backend.apps.nine_router import is_running as p_9r_running, get_providers as p_9r_providers
 
     base_url = "http://localhost:20128"
     connected: set[str] = set()
-    if _9r_running():
+    if p_9r_running():
         try:
-            connections = await _9r_providers()
+            connections = await p_9r_providers()
             connected = {c.get("provider") for c in connections if c.get("isActive")}
         except Exception:
             connected = set()
@@ -355,7 +355,7 @@ async def resolve_aux_model(
     if getattr(settings, "anthropic_api_key", None):
         return (bare, None)
 
-    if not _9r_running():
+    if not p_9r_running():
         raise ValueError(
             "No AI provider configured for auxiliary LLM call. "
             "Set an Anthropic API key or connect a subscription."

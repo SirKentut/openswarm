@@ -76,13 +76,13 @@ async def send_message(session_id: str, body: dict):
     # Run MCP-suggestion classifier in parallel with the agent launch; fails open.
     try:
         from backend.apps.agents.core.mcp_preflight import run_preflight
-        from backend.apps.agents.core.ws_manager import ws_manager as _ws
+        from backend.apps.agents.core.ws_manager import ws_manager as p_ws
 
         async def p_emit_preflight():
             try:
                 result = await run_preflight(prompt, task_id=session_id)
                 if result.get("suggestions") or result.get("is_vague"):
-                    await _ws.send_to_session(session_id, "agent:mcp_suggestions", {
+                    await p_ws.send_to_session(session_id, "agent:mcp_suggestions", {
                         "session_id": session_id,
                         "suggestions": result.get("suggestions", []),
                         "is_vague": bool(result.get("is_vague")),
@@ -90,8 +90,8 @@ async def send_message(session_id: str, body: dict):
             except Exception:
                 pass
 
-        import asyncio as _asyncio
-        _asyncio.create_task(p_emit_preflight())
+        import asyncio as p_asyncio
+        p_asyncio.create_task(p_emit_preflight())
     except Exception:
         pass
 
@@ -422,9 +422,9 @@ async def subscriptions_poll(body: dict):
             extra_data=body.get("extra_data"),
         )
         if result.get("success"):
-            from backend.apps.service.client import sync as _sync
+            from backend.apps.service.client import sync as p_sync
             from backend.apps.settings.settings import load_settings
-            _sync(load_settings().model_dump())
+            p_sync(load_settings().model_dump())
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -479,7 +479,7 @@ async def subscriptions_models():
 @agents.router.post("/probe-model")
 async def probe_model(body: dict):
     """1-token health probe; returns latency or skipped when the route is ambiguous (silent beats wrong)."""
-    import time as _time
+    import time as p_time
     short_name = (body or {}).get("model") or ""
     if not short_name:
         return {"ok": False, "error": "model required"}
@@ -491,7 +491,7 @@ async def probe_model(body: dict):
             _NINEROUTER_MODEL_PREFIXES,
         )
         from backend.apps.settings.settings import load_settings
-        from backend.apps.nine_router import is_running as _9r_running
+        from backend.apps.nine_router import is_running as p_9r_running
         settings = load_settings()
         api_type = get_api_type(short_name)
         resolved = resolve_model_id_for_sdk(short_name, settings)
@@ -509,7 +509,7 @@ async def probe_model(body: dict):
         )
 
         if resolved_is_9router:
-            if not _9r_running():
+            if not p_9r_running():
                 return {"ok": True, "skipped": True}
             client = anthropic.AsyncAnthropic(api_key="9router", base_url="http://localhost:20128")
         elif route == "api" and api_type == "anthropic" and getattr(settings, "anthropic_api_key", None):
@@ -523,18 +523,18 @@ async def probe_model(body: dict):
         elif api_type == "anthropic" and getattr(settings, "anthropic_api_key", None):
             client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
         else:
-            if not _9r_running():
+            if not p_9r_running():
                 return {"ok": True, "skipped": True}
             client = anthropic.AsyncAnthropic(api_key="9router", base_url="http://localhost:20128")
 
-        t0 = _time.monotonic()
+        t0 = p_time.monotonic()
         await client.messages.create(
             model=resolved,
             max_tokens=1,
             messages=[{"role": "user", "content": "ping"}],
             timeout=10.0,
         )
-        return {"ok": True, "latency_ms": int((_time.monotonic() - t0) * 1000)}
+        return {"ok": True, "latency_ms": int((p_time.monotonic() - t0) * 1000)}
     except Exception as e:
         msg = str(e).splitlines()[0] if str(e) else type(e).__name__
         low = msg.lower()
@@ -556,16 +556,16 @@ async def probe_model(body: dict):
 async def list_models():
     """Picker model list, grouped by provider, intersected with available creds."""
     from backend.apps.agents.providers.registry import BUILTIN_MODELS
-    from backend.apps.nine_router import is_running as _9r_running, get_providers as _9r_providers
+    from backend.apps.nine_router import is_running as p_9r_running, get_providers as p_9r_providers
     from backend.apps.settings.settings import load_settings
 
     settings = load_settings()
-    nine_router_up = _9r_running()
+    nine_router_up = p_9r_running()
 
     connected: set[str] = set()
     if nine_router_up:
         try:
-            conns = await _9r_providers()
+            conns = await p_9r_providers()
             raw_providers = {c.get("provider", "") for c in conns if c.get("isActive") or c.get("testStatus") == "active"}
             # 9Router uses "claude"; our models use api="anthropic". Map across.
             p_9R_TO_API = {
@@ -678,9 +678,9 @@ async def list_models():
     has_google_key = bool(getattr(settings, "google_api_key", None))
     has_openrouter_key = bool(getattr(settings, "openrouter_api_key", None))
     from backend.apps.agents.providers.registry import (
-        COST_PER_1M_TOKENS as _CPM,
-        compute_tiers as _ct_native,
-        compute_billing_kind as _cbk_native,
+        COST_PER_1M_TOKENS as P_CPM,
+        compute_tiers as p_ct_native,
+        compute_billing_kind as p_cbk_native,
     )
     for provider_name, models in BUILTIN_MODELS.items():
         if provider_name == "Anthropic":
@@ -698,14 +698,14 @@ async def list_models():
                 if not nine_router_up or api not in connected:
                     continue
             in_cost = out_cost = 0.0
-            for (p_p, p_v), rates in _CPM.items():
+            for (p_p, p_v), rates in P_CPM.items():
                 if p_v == m["value"]:
                     in_cost, out_cost = rates
                     break
-            billing_kind = _cbk_native(
+            billing_kind = p_cbk_native(
                 api=api, route=route, is_or_free=False, settings=settings,
             )
-            tiers = _ct_native(
+            tiers = p_ct_native(
                 m.get("model_id", m["value"]),
                 m["label"],
                 out_cost,
@@ -736,19 +736,19 @@ async def list_models():
         if or_models:
             by_vendor: dict[str, list[dict]] = {}
             from backend.apps.agents.providers.registry import (
-                compute_tiers as _ct,
-                compute_billing_kind as _cbk,
+                compute_tiers as p_ct,
+                compute_billing_kind as p_cbk,
             )
             for m in or_models:
                 v = m.get("vendor") or "Other"
                 in_cost = float(m.get("input_cost_per_1m", 0.0))
                 out_cost = float(m.get("output_cost_per_1m", 0.0))
                 is_free = bool(m.get("is_free", False))
-                billing_kind = _cbk(
+                billing_kind = p_cbk(
                     api="openrouter", route="openrouter", is_or_free=is_free,
                     settings=settings,
                 )
-                tiers = _ct(
+                tiers = p_ct(
                     m.get("model_id", m["value"]),
                     m["label"],
                     out_cost,
@@ -845,9 +845,9 @@ async def subscriptions_disconnect(body: dict):
         to_remove = [provider, *P_PROVIDER_CASCADE_REMOVES.get(provider, [])]
         removed = await p_delete_provider_connections(to_remove)
         if removed:
-            from backend.apps.service.client import sync as _sync
+            from backend.apps.service.client import sync as p_sync
             from backend.apps.settings.settings import load_settings
-            _sync(load_settings().model_dump())
+            p_sync(load_settings().model_dump())
             return {"ok": True}
         return {"ok": False, "error": "Connection not found"}
     except Exception as e:

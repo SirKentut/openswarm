@@ -62,7 +62,7 @@ def p_sync_identity_to_service(settings_obj) -> None:
     """Push user_id + email + signin_method into the service-sync identify
     pipeline so every event from this user has the right Person properties."""
     try:
-        from backend.apps.service.client import identify as _identify
+        from backend.apps.service.client import identify as p_identify
     except Exception:
         return
     props = {
@@ -73,7 +73,7 @@ def p_sync_identity_to_service(settings_obj) -> None:
     if email:
         props["email"] = email
     try:
-        _identify(props)
+        p_identify(props)
     except Exception as e:
         logger.debug("identify sync failed: %s", e)
 

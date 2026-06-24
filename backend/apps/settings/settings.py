@@ -28,8 +28,8 @@ async def settings_lifespan():
     os.makedirs(DATA_DIR, exist_ok=True)
     try:
         from backend.apps.nine_router import (
-            ensure_running as _9r_ensure,
-            is_running as _9r_running,
+            ensure_running as p_9r_ensure,
+            is_running as p_9r_running,
             sync_gemini_api_key,
             sync_openai_api_key,
             sync_openrouter_api_key,
@@ -37,7 +37,7 @@ async def settings_lifespan():
             sync_custom_providers,
         )
         s = load_settings()
-        import asyncio as _asyncio
+        import asyncio as p_asyncio
 
         async def p_boot_router_then_sync():
             """Boot 9Router then push key-based connections (sequential: sync helpers no-op pre-boot)."""
@@ -50,7 +50,7 @@ async def settings_lifespan():
             ])
             if needs_router:
                 try:
-                    await _9r_ensure()
+                    await p_9r_ensure()
                 except Exception as e:
                     logger.warning(f"9Router lifespan boot failed: {e}")
             # Reconcile, don't just add: pass the key OR None so a cleared/never-set key
@@ -58,7 +58,7 @@ async def settings_lifespan():
             # old add-only guards left a zombie managed key alive after disconnect, which
             # kept routing to it (the "still defaults to gemini") and blocked the free
             # trial from arming. Only acts when 9Router is already up (_sync no-ops if not).
-            if _9r_running():
+            if p_9r_running():
                 await sync_gemini_api_key(getattr(s, "google_api_key", None) or None)
                 await sync_openai_api_key(getattr(s, "openai_api_key", None) or None)
                 await sync_openrouter_api_key(getattr(s, "openrouter_api_key", None) or None)
@@ -75,8 +75,8 @@ async def settings_lifespan():
             await sync_openswarm_pro_as_claude(bearer, base)
             await sync_custom_providers(getattr(s, "custom_providers", None) or [])
 
-        _asyncio.create_task(p_boot_router_then_sync())
-        _asyncio.create_task(p_upload_dir_gc_loop())
+        p_asyncio.create_task(p_boot_router_then_sync())
+        p_asyncio.create_task(p_upload_dir_gc_loop())
     except Exception as e:
         logger.warning(f"9Router sync startup failed: {e}")
     yield
@@ -90,7 +90,7 @@ async def p_upload_dir_gc_loop():
     by the OS but not aggressively; Windows temp is not. Belt and braces.
     Errors are swallowed: a chmod hiccup or in-use lock should never
     crash the backend."""
-    import asyncio as _a
+    import asyncio as p_a
     while True:
         try:
             now = time.time()
@@ -105,7 +105,7 @@ async def p_upload_dir_gc_loop():
                         continue
         except Exception:
             pass
-        await _a.sleep(24 * 3600)
+        await p_a.sleep(24 * 3600)
 
 
 settings = SubApp("settings", settings_lifespan)
@@ -145,7 +145,7 @@ SERVER_OWNED_FIELDS = (
 )
 
 
-import weakref as _weakref
+import weakref as p_weakref
 
 # One serialization point for EVERY settings write (renderer PUT/PATCH + agent
 # tool), so two writes can't interleave and clobber each other mid read-modify-
@@ -156,7 +156,7 @@ import weakref as _weakref
 # the first loop that uses it and then errors on reuse from another loop (every
 # async test spins a fresh one). WeakKeyDictionary auto-drops a loop's lock once
 # the loop is gone.
-p_settings_write_locks: "_weakref.WeakKeyDictionary" = _weakref.WeakKeyDictionary()
+p_settings_write_locks: "_weakref.WeakKeyDictionary" = p_weakref.WeakKeyDictionary()
 
 
 def settings_write_lock() -> asyncio.Lock:
@@ -211,7 +211,7 @@ async def apply_settings_update(body: AppSettings, protect_fields: set[str] | No
     that must never be blanked by this write (the agent tool passes the field
     powering the live run): a SECOND, independent wall behind the endpoint's
     suicide-guard, so a guard bug still can't disconnect a run."""
-    from backend.apps.service.client import sync as _sync
+    from backend.apps.service.client import sync as p_sync
 
     old = load_settings()
     for k in SERVER_OWNED_FIELDS:
@@ -236,9 +236,9 @@ async def apply_settings_update(body: AppSettings, protect_fields: set[str] | No
             body.free_trial_token = None
             body.free_trial_remaining = None
             try:
-                import asyncio as _aio
-                from backend.apps.nine_router import sync_pro_routing as _spr
-                _aio.create_task(_spr(body))  # drop the now-stale free-trial 9router node
+                import asyncio as p_aio
+                from backend.apps.nine_router import sync_pro_routing as p_spr
+                p_aio.create_task(p_spr(body))  # drop the now-stale free-trial 9router node
             except Exception:
                 pass
 
@@ -246,11 +246,11 @@ async def apply_settings_update(body: AppSettings, protect_fields: set[str] | No
                    "claude_subscription_token", "openai_subscription_token", "gemini_subscription_token",
                    "openswarm_bearer_token", "free_trial_token", "installation_id"}
     safe = {k: v for k, v in body.model_dump().items() if k not in secret_keys}
-    _sync(safe)
+    p_sync(safe)
 
     if (body.user_email and body.user_email != getattr(old, "user_email", None)) or \
        (body.user_name and body.user_name != getattr(old, "user_name", None)):
-        from backend.apps.service.client import identify as _identify
+        from backend.apps.service.client import identify as p_identify
         id_props = {}
         if body.user_email:
             id_props["email"] = body.user_email
@@ -261,7 +261,7 @@ async def apply_settings_update(body: AppSettings, protect_fields: set[str] | No
         if body.user_referral_source:
             id_props["referral_source"] = body.user_referral_source
         if id_props:
-            _identify(id_props)
+            p_identify(id_props)
 
     await save_settings_async(body)
 
@@ -310,15 +310,15 @@ async def apply_settings_update(body: AppSettings, protect_fields: set[str] | No
         ):
             try:
                 from backend.apps.nine_router import (
-                    ensure_running as _9r_ensure,
-                    is_running as _9r_running,
+                    ensure_running as p_9r_ensure,
+                    is_running as p_9r_running,
                     sync_gemini_api_key,
                     sync_openai_api_key,
                     sync_openrouter_api_key,
                     sync_custom_providers,
                 )
-                if need_boot and not _9r_running():
-                    await _9r_ensure()
+                if need_boot and not p_9r_running():
+                    await p_9r_ensure()
                 if do_google:
                     await sync_gemini_api_key(google_key or None)
                 if do_openai:
@@ -473,15 +473,15 @@ def estimate_pdf_tokens(contents: bytes) -> int:
     Taking max() means a small page count on a huge PDF (image-heavy)
     still reads as expensive, and a huge page count on a small PDF still
     reads as expensive. The chip never lies that an attachment is cheap."""
-    import re as _re
+    import re as p_re
     by_pages = 0
     try:
         # Prefer the root catalog's /Pages entry. PDFs can have nested
         # /Count fields (outlines, sub-pages), so anchor on /Type /Pages.
-        m = _re.search(rb"/Type\s*/Pages\b[^>]{0,200}?/Count\s+(\d+)", contents, _re.DOTALL)
+        m = p_re.search(rb"/Type\s*/Pages\b[^>]{0,200}?/Count\s+(\d+)", contents, p_re.DOTALL)
         if not m:
             # Fallback: catalog declares /Pages then references /Count via /Kids.
-            m = _re.search(rb"/Pages[^>]{0,200}?/Count\s+(\d+)", contents, _re.DOTALL)
+            m = p_re.search(rb"/Pages[^>]{0,200}?/Count\s+(\d+)", contents, p_re.DOTALL)
         if m:
             pages = int(m.group(1))
             if 0 < pages < 10_000:

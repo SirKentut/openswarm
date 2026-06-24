@@ -69,15 +69,15 @@ async def p_pulse_loop():
         await asyncio.sleep(60)
         p_pulse_count += 1
         try:
-            import datetime as _dt
-            p_pulse_hours.add(_dt.datetime.now().hour)
+            import datetime as p_dt
+            p_pulse_hours.add(p_dt.datetime.now().hour)
         except Exception:
             pass
 
         cost_delta = 0.0
         try:
-            from backend.apps.nine_router import get_usage_stats, is_running as _9r_running
-            if _9r_running():
+            from backend.apps.nine_router import get_usage_stats, is_running as p_9r_running
+            if p_9r_running():
                 stats = await get_usage_stats()
                 if stats:
                     cur_cost = stats.get("totalCost", 0) or 0
@@ -336,8 +336,8 @@ async def usage_summary():
     completed = status_counts.get("completed", 0)
     completion_rate = completed / total_sessions if total_sessions > 0 else 0
 
-    from backend.apps.nine_router import get_usage_stats, is_running as _9r_running
-    nine_router_stats = await get_usage_stats() if _9r_running() else None
+    from backend.apps.nine_router import get_usage_stats, is_running as p_9r_running
+    nine_router_stats = await get_usage_stats() if p_9r_running() else None
 
     if nine_router_stats and nine_router_stats.get("totalCost", 0) > 0:
         cost_source = "9router"
@@ -397,8 +397,8 @@ async def usage_summary():
 
 @service.router.get("/cost-breakdown")
 async def cost_breakdown(period: str = "7d"):
-    from backend.apps.nine_router import get_usage_stats, is_running as _9r_running
-    if not _9r_running():
+    from backend.apps.nine_router import get_usage_stats, is_running as p_9r_running
+    if not p_9r_running():
         return {"available": False, "by_model": {}, "by_provider": {}}
     stats = await get_usage_stats(period)
     if not stats:

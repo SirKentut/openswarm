@@ -525,8 +525,8 @@ async def m365_device_login(tool_id: str):
             login_state["status"] = "connected"
             # Try to extract email from output
             try:
-                import json as _j
-                result = _j.loads(login_state["output"].strip().split("\n")[-1])
+                import json as p_j
+                result = p_j.loads(login_state["output"].strip().split("\n")[-1])
                 if result.get("success"):
                     ud = result.get("userData", {})
                     login_state["email"] = ud.get("userPrincipalName") or ud.get("displayName")

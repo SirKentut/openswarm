@@ -103,13 +103,13 @@ async def p_has_connected_subscription() -> bool:
     them; this catches a sub connected while the trial was armed."""
     try:
         from backend.apps.nine_router import (
-            is_running as _9r_running,
-            get_providers as _9r_providers,
+            is_running as p_9r_running,
+            get_providers as p_9r_providers,
             NINE_ROUTER_CLAUDE_PRO_NAME,
         )
-        if not _9r_running():
+        if not p_9r_running():
             return False
-        conns = await _9r_providers()
+        conns = await p_9r_providers()
         # Exclude our OWN managed node: the free trial registers itself as a `claude`
         # connection here, and counting it would make the trial think a real model is
         # connected and clear itself on the next boot (works once, dead on relaunch).
@@ -172,8 +172,8 @@ async def arm_free_trial(settings_obj) -> dict:
         # lock with the boot auto-start), and skipped when a settings-level model
         # already proves there's nothing to shadow.
         try:
-            from backend.apps.nine_router import ensure_running as _ensure_9r
-            await _ensure_9r()
+            from backend.apps.nine_router import ensure_running as p_ensure_9r
+            await p_ensure_9r()
         except Exception:
             pass
         # 9Router's /api/providers can lag /v1/models (what is_running probes) by a

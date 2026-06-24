@@ -19,9 +19,9 @@ async def modes_lifespan():
     chat_path = os.path.join(DATA_DIR, "chat.json")
     if os.path.exists(chat_path):
         try:
-            import json as _json
+            import json as p_json
             with open(chat_path) as p_f:
-                p_data = _json.load(p_f)
+                p_data = p_json.load(p_f)
             if p_data.get("is_builtin") is True and p_data.get("id") == "chat":
                 os.remove(chat_path)
                 logger.info("Removed deprecated built-in chat.json (merged into ask)")

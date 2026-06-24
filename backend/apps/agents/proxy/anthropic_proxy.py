@@ -420,17 +420,17 @@ async def proxy(rest: str, request: Request):
         parsed_for_bypass = None
     if isinstance(parsed_for_bypass, dict):
         from backend.apps.agents.proxy.anthropic_to_openai import (
-            should_bypass_9router as _should_bypass_oai,
-            should_bypass_9router_for_openrouter as _should_bypass_or,
-            forward_to_openai as _forward_oai,
-            forward_to_openrouter as _forward_or,
+            should_bypass_9router as p_should_bypass_oai,
+            should_bypass_9router_for_openrouter as p_should_bypass_or,
+            forward_to_openai as p_forward_oai,
+            forward_to_openrouter as p_forward_or,
         )
-        from backend.apps.settings.settings import load_settings as _load
-        p_s = _load()
+        from backend.apps.settings.settings import load_settings as p_load
+        p_s = p_load()
         if p_is_openai_max_completion_tokens_model(model):
             p_oak = (getattr(p_s, "openai_api_key", "") or "").strip()
-            if _should_bypass_oai(parsed_for_bypass, p_oak):
-                status, body_stream, hdrs = await _forward_oai(
+            if p_should_bypass_oai(parsed_for_bypass, p_oak):
+                status, body_stream, hdrs = await p_forward_oai(
                     parsed_for_bypass, p_oak,
                 )
                 return StreamingResponse(
@@ -439,8 +439,8 @@ async def proxy(rest: str, request: Request):
                 )
         if p_is_openrouter_model(model):
             p_ork = (getattr(p_s, "openrouter_api_key", "") or "").strip()
-            if _should_bypass_or(parsed_for_bypass, p_ork):
-                status, body_stream, hdrs = await _forward_or(
+            if p_should_bypass_or(parsed_for_bypass, p_ork):
+                status, body_stream, hdrs = await p_forward_or(
                     parsed_for_bypass, p_ork,
                 )
                 return StreamingResponse(

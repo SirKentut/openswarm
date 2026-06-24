@@ -78,12 +78,12 @@ def invalidate_openrouter_cache() -> None:
 
 async def fetch_openrouter_models(api_key: str | None) -> list[dict]:
     """Return OR's tool-capable chat catalog. Cached. Never raises."""
-    import time as _time
+    import time as p_time
     if not api_key:
         invalidate_openrouter_cache()
         return []
 
-    now = _time.monotonic()
+    now = p_time.monotonic()
     fetched_at = p_or_models_cache["fetched_at"]
     if p_or_models_cache["models"] is not None:
         ttl = P_OR_MODELS_TTL_OK if p_or_models_cache["ok"] else P_OR_MODELS_TTL_FAIL

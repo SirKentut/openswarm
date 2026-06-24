@@ -97,7 +97,7 @@ def resolve_attachments(context_paths: Optional[List], api_type: str, model: str
     if not context_paths:
         return "", [], []
     from backend.apps.settings.settings import sniff_file_kind
-    import base64 as _b64
+    import base64 as p_b64
     sections: List[str] = []
     native: List[dict] = []
     refusals: List[str] = []
@@ -236,7 +236,7 @@ def resolve_attachments(context_paths: Optional[List], api_type: str, model: str
                     )
                     continue
                 with open(path, "rb") as fh:
-                    data_b64 = _b64.b64encode(fh.read()).decode("ascii")
+                    data_b64 = p_b64.b64encode(fh.read()).decode("ascii")
                 block = {
                     "type": "document",
                     "source": {
@@ -269,7 +269,7 @@ def resolve_attachments(context_paths: Optional[List], api_type: str, model: str
                     )
                     continue
                 with open(path, "rb") as fh:
-                    data_b64 = _b64.b64encode(fh.read()).decode("ascii")
+                    data_b64 = p_b64.b64encode(fh.read()).decode("ascii")
                 native.append({
                     "type": "image",
                     "source": {

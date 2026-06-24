@@ -43,7 +43,7 @@ def p_patched_get_credentials():
 gauth.get_credentials = p_patched_get_credentials
 
 
-from google_workspace_mcp import __main__ as _gw_main  # noqa: E402,F401
+from google_workspace_mcp import __main__ as p_gw_main  # noqa: E402,F401
 from google_workspace_mcp.app import mcp  # noqa: E402
 
 

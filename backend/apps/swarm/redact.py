@@ -28,7 +28,7 @@ P_DENY_EXACT = {
 from backend.common.secret_scan import (  # noqa: E402
     REDACTED,
     find_secrets_in_files,
-    looks_secret as _looks_secret,
+    looks_secret as p_looks_secret,
     redact_secret_shapes as scrub_text,
 )
 

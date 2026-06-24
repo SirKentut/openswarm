@@ -156,8 +156,8 @@ def p_envelope() -> dict:
             except Exception:
                 pass
         if not ianatz:
-            import datetime as _dt
-            local_tz = _dt.datetime.now().astimezone().tzinfo
+            import datetime as p_dt
+            local_tz = p_dt.datetime.now().astimezone().tzinfo
             if local_tz:
                 ianatz = str(local_tz)
         if ianatz:

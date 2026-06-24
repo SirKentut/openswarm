@@ -245,9 +245,9 @@ def derive_mcp_config(tool: ToolDefinition) -> Optional[dict]:
                         npm_dir = os.path.join(p_backend, "npm-servers", safe_dir)
                         pkg_json_path = os.path.join(npm_dir, "node_modules", pkg_name, "package.json")
                         if os.path.isfile(pkg_json_path):
-                            import json as _json
+                            import json as p_json
                             with open(pkg_json_path) as f:
-                                pkg_meta = _json.load(f)
+                                pkg_meta = p_json.load(f)
                             bin_field = pkg_meta.get("bin", {})
                             entry = list(bin_field.values())[0] if isinstance(bin_field, dict) else bin_field
                             # Same priority as 9Router / MCP-bundle paths: bundled node > system node > Electron-as-Node.

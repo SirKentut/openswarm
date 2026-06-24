@@ -204,7 +204,7 @@ def heuristic_tiers(label: str, output_cost_per_1m: float, reasoning: bool) -> t
         - inverse of size, with name keywords as ±1 nudges.
       Cost: pure cost bucket.
     """
-    import re as _re
+    import re as p_re
     out = output_cost_per_1m or 0.0
 
     # Cost bucket; same 5-tier cost ladder as before.
@@ -225,7 +225,7 @@ def heuristic_tiers(label: str, output_cost_per_1m: float, reasoning: bool) -> t
     # clearly above 1B (so we don't pick up version numbers).
     lower = (label or "").lower()
     param_b = 0.0
-    for m in _re.finditer(r"\b(\d{1,4}(?:\.\d+)?)\s*b\b", lower):
+    for m in p_re.finditer(r"\b(\d{1,4}(?:\.\d+)?)\s*b\b", lower):
         try:
             v = float(m.group(1))
             if v >= 1 and v > param_b:
@@ -259,9 +259,9 @@ def heuristic_tiers(label: str, output_cost_per_1m: float, reasoning: bool) -> t
 
     # Speed inverse of intel.
     speed = 6 - intel
-    if _re.search(r"\b(mini|lite|flash|haiku|nano|small|fast|turbo|micro|tiny)\b", lower):
+    if p_re.search(r"\b(mini|lite|flash|haiku|nano|small|fast|turbo|micro|tiny)\b", lower):
         speed += 1
-    if _re.search(r"\b(opus|ultra|max|xlarge|titan|huge)\b", lower):
+    if p_re.search(r"\b(opus|ultra|max|xlarge|titan|huge)\b", lower):
         speed -= 1
     if reasoning and intel >= 4:
         # Frontier reasoning models burn lots of tokens on hidden

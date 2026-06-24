@@ -402,15 +402,15 @@ async def p_ensure_running_impl():
         # In dev mode, kill stale standalone servers (from previous builds)
         # so we can start `next dev` which always uses latest source code
         if not p_is_packaged:
-            import subprocess as _sp
+            import subprocess as p_sp
             try:
-                result = _sp.run(
+                result = p_sp.run(
                     ["pgrep", "-f", "next-server"],
                     capture_output=True, text=True, timeout=3,
                 )
                 if result.stdout.strip():
                     logger.info("Dev mode: killing stale standalone 9Router to use next dev instead")
-                    _sp.run(["pkill", "-f", "next-server"], timeout=5)
+                    p_sp.run(["pkill", "-f", "next-server"], timeout=5)
                     await asyncio.sleep(2)
                 else:
                     logger.info("9Router already running on port %d", NINE_ROUTER_PORT)
