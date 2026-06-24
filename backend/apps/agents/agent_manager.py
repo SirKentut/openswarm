@@ -26,7 +26,7 @@ from backend.apps.agents.manager.SessionControlMixin import SessionControlMixin
 from backend.apps.agents.manager.AgentLaunchMixin import AgentLaunchMixin
 from backend.apps.agents.manager.MockAgentMixin import MockAgentMixin
 from backend.apps.agents.manager.RunSupportMixin import RunSupportMixin
-from backend.apps.agents.manager.run.error_cards import handle_run_error
+from backend.apps.agents.manager.run.handle_run_error import handle_run_error
 from backend.apps.agents.manager.run.TurnRunnerMixin import TurnRunnerMixin
 from backend.apps.agents.manager.run.RunOptionsMixin import RunOptionsMixin
 

@@ -5,7 +5,7 @@ fully denied, and the delegation tool-name lists come back for the allowlist gat
 import os
 
 from backend.apps.agents.core.models import AgentSession
-from backend.apps.agents.manager.builtin_mcp_servers import register_builtin_mcp_servers
+from backend.apps.agents.manager.register_builtin_mcp_servers import register_builtin_mcp_servers
 
 
 def p_session():

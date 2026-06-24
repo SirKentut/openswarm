@@ -19,7 +19,7 @@ from backend.apps.agents.manager.streaming import tool_result_hook
 from backend.apps.agents.manager.streaming import stop_hook as stop_hook_mod
 from backend.apps.agents.manager.streaming.hook_context import HookContext
 from backend.apps.agents.manager.permissions.effective_tools import build_effective_tool_lists
-from backend.apps.agents.manager.builtin_mcp_servers import register_builtin_mcp_servers
+from backend.apps.agents.manager.register_builtin_mcp_servers import register_builtin_mcp_servers
 from backend.apps.agents.manager.provider_env import configure_provider_env
 from backend.apps.agents.manager.session.workspace_git import ensure_cwd_git_repo
 from backend.apps.agents.manager.session.history_compaction import build_history_prefix, get_branch_messages

@@ -89,7 +89,7 @@ async def handle_run_error(e: Exception, session: AgentSession, session_id: str,
             from backend.apps.service.client import submit_diagnostic
             submit_diagnostic({
                 "kind": "context_overflow",
-                "where": "manager.run.error_cards.handle_run_error",
+                "where": "manager.run.handle_run_error",
                 "session_id": session_id,
                 "model": session.model,
                 "provider": session.provider,
