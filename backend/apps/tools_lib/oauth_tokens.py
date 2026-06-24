@@ -13,7 +13,7 @@ from backend.apps.tools_lib.oauth_config import OPENSWARM_OAUTH_BASE_URL
 logger = logging.getLogger(__name__)
 
 
-def _save(tool: ToolDefinition) -> None:
+def save(tool: ToolDefinition) -> None:
     with open(os.path.join(DATA_DIR, f"{tool.id}.json"), "w") as f:
         json.dump(tool.model_dump(), f, indent=2)
 
@@ -22,7 +22,7 @@ def _save(tool: ToolDefinition) -> None:
 # through the Fly cloud-proxy so client_secret values never ship inside the
 # desktop binary. v1.0.28 was the last release that used a local Google
 # callback with the client_secret in backend/.env.
-_TOOL_NAME_TO_PROVIDER = {
+P_TOOL_NAME_TO_PROVIDER = {
     "airtable": "airtable",
     "hubspot": "hubspot",
     "discord": "discord",
@@ -35,11 +35,11 @@ _TOOL_NAME_TO_PROVIDER = {
 }
 
 
-def _proxied_provider_for(tool: ToolDefinition) -> Optional[str]:
-    return _TOOL_NAME_TO_PROVIDER.get(tool.name.lower())
+def proxied_provider_for(tool: ToolDefinition) -> Optional[str]:
+    return P_TOOL_NAME_TO_PROVIDER.get(tool.name.lower())
 
 
-def _persist_cloud_tokens(tool: ToolDefinition, tokens: dict) -> None:
+def persist_cloud_tokens(tool: ToolDefinition, tokens: dict) -> None:
     """Normalise the cloud's claim response into tool.oauth_tokens.
 
     Per-provider shaping mirrors what the v1.0.25 local-callback flow used
@@ -84,7 +84,7 @@ def _persist_cloud_tokens(tool: ToolDefinition, tokens: dict) -> None:
     tool.auth_status = "connected"
 
 
-async def _refresh_via_proxy(provider: str, tool: ToolDefinition, default_expiry: int) -> Optional[str]:
+async def p_refresh_via_proxy(provider: str, tool: ToolDefinition, default_expiry: int) -> Optional[str]:
     """Refresh an OAuth access_token by POSTing the refresh_token to the
     helper service. Per-provider wrappers below pass a default expires_in
     fallback for providers that don't return one.
@@ -108,7 +108,7 @@ async def _refresh_via_proxy(provider: str, tool: ToolDefinition, default_expiry
             # Provider rejected; user revoked at the provider's side. Mark
             # as needing re-auth so the UI prompts a Reconnect.
             tool.auth_status = "expired"
-            _save(tool)
+            save(tool)
             logger.warning(f"{provider} refresh rejected (user revoked); marking tool as expired")
             return None
         if resp.status_code != 200:
@@ -128,7 +128,7 @@ async def _refresh_via_proxy(provider: str, tool: ToolDefinition, default_expiry
         # Backfill identity label on first successful refresh after upgrade.
         if not tool.connected_account_email and data.get("email"):
             tool.connected_account_email = data["email"]
-        _save(tool)
+        save(tool)
         return new_token
     except Exception as e:
         logger.warning(f"{provider} cloud refresh exception for tool {tool.id}: {e}")
@@ -142,20 +142,20 @@ async def refresh_google_token(tool: ToolDefinition) -> Optional[str]:
     refresh_token. Same pattern as Airtable/HubSpot. Pre-v1.0.29 builds
     held the secret in their bundled .env; v1.0.29 removed it.
     """
-    return await _refresh_via_proxy("google", tool, default_expiry=3600)
+    return await p_refresh_via_proxy("google", tool, default_expiry=3600)
 
 
 async def refresh_airtable_token(tool: ToolDefinition) -> Optional[str]:
     """Refresh an expired Airtable OAuth access_token."""
-    return await _refresh_via_proxy("airtable", tool, default_expiry=7200)
+    return await p_refresh_via_proxy("airtable", tool, default_expiry=7200)
 
 
 async def refresh_hubspot_token(tool: ToolDefinition) -> Optional[str]:
     """Refresh an expired HubSpot OAuth access_token."""
-    return await _refresh_via_proxy("hubspot", tool, default_expiry=1800)
+    return await p_refresh_via_proxy("hubspot", tool, default_expiry=1800)
 
 
-def _m365_server_script() -> str:
+def m365_server_script() -> str:
     """Return the on-disk path to the bundled MS365 MCP server entry.
 
     v1.0.26 replaced the heavy backend/npm-servers/softeria-ms-365-mcp-server/
@@ -180,7 +180,7 @@ def _m365_server_script() -> str:
     )
 
 
-def _m365_cache_env() -> dict[str, str]:
+def m365_cache_env() -> dict[str, str]:
     cache_dir = os.path.join(os.path.expanduser("~"), ".openswarm")
     os.makedirs(cache_dir, exist_ok=True)
     return {

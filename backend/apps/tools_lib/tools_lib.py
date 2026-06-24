@@ -19,23 +19,23 @@ from backend.config.paths import DATA_ROOT, TOOLS_DIR as DATA_DIR, BUILTIN_PERMI
 # oauth_config runs the dotenv load (leaf) so OPENSWARM_OAUTH_BASE_URL is set
 # before anything reads it; re-exported here for the route handlers below.
 from backend.apps.tools_lib.oauth_config import OPENSWARM_OAUTH_BASE_URL
-# _sanitize_server_name + derive_mcp_config re-exported for agent_manager/main.
-from backend.apps.tools_lib.mcp_config import _sanitize_server_name, derive_mcp_config
+# sanitize_server_name + derive_mcp_config re-exported for agent_manager/main.
+from backend.apps.tools_lib.mcp_config import sanitize_server_name, derive_mcp_config
 from backend.apps.tools_lib.mcp_discovery import (
-    _discover_mcp_tools_http,
-    _discover_mcp_tools_sse,
-    _discover_mcp_tools_stdio,
+    discover_mcp_tools_http,
+    discover_mcp_tools_sse,
+    discover_mcp_tools_stdio,
 )
-from backend.apps.tools_lib.tool_taxonomy import _classify_services
+from backend.apps.tools_lib.tool_taxonomy import classify_services
 # refresh_* re-exported for agent_manager.
 from backend.apps.tools_lib.oauth_tokens import (
-    _proxied_provider_for,
-    _persist_cloud_tokens,
+    proxied_provider_for,
+    persist_cloud_tokens,
     refresh_google_token,
     refresh_airtable_token,
     refresh_hubspot_token,
-    _m365_server_script,
-    _m365_cache_env,
+    m365_server_script,
+    m365_cache_env,
 )
 
 logger = logging.getLogger(__name__)
@@ -44,8 +44,8 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def tools_lib_lifespan():
     os.makedirs(DATA_DIR, exist_ok=True)
-    _ensure_default_permissions()
-    _reclassify_existing_tools()
+    p_ensure_default_permissions()
+    p_reclassify_existing_tools()
     yield
 
 
@@ -58,13 +58,13 @@ tools_lib = SubApp("tools", tools_lib_lifespan)
 # always_allow, so the poisoned-MCP-output -> destructive-command case is
 # still caught. Must match agent_manager._DEFAULTS (empty -> always_allow) so
 # the Settings UI and the agent agree on what "no policy set" means.
-_DEFAULT_BUILTIN_POLICIES: dict[str, str] = {}
+P_DEFAULT_BUILTIN_POLICIES: dict[str, str] = {}
 
 # One-time marker: older installs seeded Bash="ask"; we lift them once.
-_BASH_AUTOALLOW_MARKER = os.path.join(DATA_DIR, ".bash_autoallow_migrated")
+P_BASH_AUTOALLOW_MARKER = os.path.join(DATA_DIR, ".bash_autoallow_migrated")
 
 
-def _ensure_default_permissions() -> None:
+def p_ensure_default_permissions() -> None:
     """Seed BUILTIN_PERMISSIONS_PATH so the user's Settings toggles persist
     cleanly. Without this the file is missing on first run, load returns {},
     every PUT-from-the-UI overwrites with the partial payload the click
@@ -74,18 +74,18 @@ def _ensure_default_permissions() -> None:
     """
     existing = load_builtin_permissions()
     desired = {
-        t.name: _DEFAULT_BUILTIN_POLICIES.get(t.name, "always_allow")
+        t.name: P_DEFAULT_BUILTIN_POLICIES.get(t.name, "always_allow")
         for t in BUILTIN_TOOLS
     }
     merged = {**desired, **existing}
     # One-time lift: installs seeded under the old default carry Bash="ask";
     # raise them to always_allow once so shell commands stop prompting. The
     # marker means a deliberate "ask" set afterward sticks (never re-flipped).
-    if not os.path.exists(_BASH_AUTOALLOW_MARKER):
+    if not os.path.exists(P_BASH_AUTOALLOW_MARKER):
         if merged.get("Bash") == "ask":
             merged["Bash"] = "always_allow"
         try:
-            with open(_BASH_AUTOALLOW_MARKER, "w") as f:
+            with open(P_BASH_AUTOALLOW_MARKER, "w") as f:
                 f.write("1")
         except OSError:
             pass
@@ -93,7 +93,7 @@ def _ensure_default_permissions() -> None:
         save_builtin_permissions(merged)
 
 
-def _reclassify_existing_tools() -> None:
+def p_reclassify_existing_tools() -> None:
     """One-time correction for tools discovered before service rules were integration-scoped: most
     integrations got mislabeled under a bogus 'Google' group (generic keyword rules applied globally).
     Recompute services/groups from each tool's stored tool names. Idempotent; rewrites only on change.
@@ -104,7 +104,7 @@ def _reclassify_existing_tools() -> None:
         if not fname.endswith(".json"):
             continue
         try:
-            tool = _load(fname[:-5])
+            tool = p_load(fname[:-5])
         except Exception:
             continue
         perms = tool.tool_permissions or {}
@@ -113,7 +113,7 @@ def _reclassify_existing_tools() -> None:
         names = [k for k in perms if not k.startswith("_")]
         if not names:
             continue
-        services, service_groups, all_read, all_write = _classify_services(names, tool.name)
+        services, service_groups, all_read, all_write = classify_services(names, tool.name)
         if perms.get("_services") == services and perms.get("_service_groups") == service_groups:
             continue
         perms["_services"] = services
@@ -121,7 +121,7 @@ def _reclassify_existing_tools() -> None:
         perms["_categories"] = {"read": all_read, "write": all_write}
         tool.tool_permissions = perms
         try:
-            _save(tool)
+            save(tool)
         except Exception:
             pass
 
@@ -131,15 +131,15 @@ def _reclassify_existing_tools() -> None:
 GOOGLE_USERINFO_URL = "https://www.googleapis.com/oauth2/v2/userinfo"
 
 
-# Tool JSONs total ~1.5MB and _load_all runs on every dispatch, prompt build, and
+# Tool JSONs total ~1.5MB and load_all_tools runs on every dispatch, prompt build, and
 # MCPSearch keystroke; the cache skips re-parsing, revalidated by a per-file stat
 # signature so any write (ours or external) invalidates instantly. Callers treat
-# the returned ToolDefinitions as immutable; mutate via _load(tool_id) + _save.
-_tools_cache: list[ToolDefinition] | None = None
-_tools_cache_sig: tuple | None = None
+# the returned ToolDefinitions as immutable; mutate via p_load(tool_id) + save.
+p_tools_cache: list[ToolDefinition] | None = None
+p_tools_cache_sig: tuple | None = None
 
 
-def _tools_sig() -> tuple | None:
+def p_tools_sig() -> tuple | None:
     if not os.path.exists(DATA_DIR):
         return ()
     try:
@@ -153,11 +153,11 @@ def _tools_sig() -> tuple | None:
         return None
 
 
-def _load_all() -> list[ToolDefinition]:
-    global _tools_cache, _tools_cache_sig
-    sig = _tools_sig()
-    if sig is not None and _tools_cache is not None and sig == _tools_cache_sig:
-        return list(_tools_cache)
+def load_all_tools() -> list[ToolDefinition]:
+    global p_tools_cache, p_tools_cache_sig
+    sig = p_tools_sig()
+    if sig is not None and p_tools_cache is not None and sig == p_tools_cache_sig:
+        return list(p_tools_cache)
     result = []
     if not os.path.exists(DATA_DIR):
         return result
@@ -166,17 +166,17 @@ def _load_all() -> list[ToolDefinition]:
             with open(os.path.join(DATA_DIR, fname)) as f:
                 result.append(ToolDefinition(**json.load(f)))
     if sig is not None:
-        _tools_cache = list(result)
-        _tools_cache_sig = sig
+        p_tools_cache = list(result)
+        p_tools_cache_sig = sig
     return result
 
 
-def _save(tool: ToolDefinition):
+def save(tool: ToolDefinition):
     with open(os.path.join(DATA_DIR, f"{tool.id}.json"), "w") as f:
         json.dump(tool.model_dump(), f, indent=2)
 
 
-def _load(tool_id: str) -> ToolDefinition:
+def p_load(tool_id: str) -> ToolDefinition:
     path = os.path.join(DATA_DIR, f"{tool_id}.json")
     if not os.path.exists(path):
         raise HTTPException(status_code=404, detail="Tool not found")
@@ -196,7 +196,7 @@ def _load(tool_id: str) -> ToolDefinition:
             "command": "python",
             "args": ["-m", "backend.apps.discord_mcp_shim"],
         }
-        _save(tool)
+        save(tool)
     return tool
 
 
@@ -233,7 +233,7 @@ def resolve_policy_slot(tool_name: str, tools: list[ToolDefinition]) -> PolicySl
     if m:
         server_slug, action = m.group(1), m.group(2)
         for t in tools:
-            if t.mcp_config and t.enabled and _sanitize_server_name(t.name) == server_slug:
+            if t.mcp_config and t.enabled and sanitize_server_name(t.name) == server_slug:
                 return PolicySlot("mcp", t.id, action)
         return PolicySlot("mcp", None, action)
     return PolicySlot("builtin", tool_name, None)
@@ -312,7 +312,7 @@ async def update_builtin_permissions(body: dict):
 @tools_lib.router.get("/list")
 async def list_tools():
     tools = []
-    for t in _load_all():
+    for t in load_all_tools():
         d = t.model_dump()
         # Heal pre-fix tools whose persisted email is the "{name} account" placeholder so the pill stops reading like a name and falls back to plain "Connected".
         placeholder = f"{t.name} account"
@@ -322,7 +322,7 @@ async def list_tools():
     return {"tools": tools}
 
 
-def _connected_html() -> HTMLResponse:
+def p_connected_html() -> HTMLResponse:
     """v1.0.25-style auto-close page. Same markup so the UX is unchanged."""
     return HTMLResponse("""
     <html><body>
@@ -338,7 +338,7 @@ def _connected_html() -> HTMLResponse:
 
 @tools_lib.router.get("/{tool_id}")
 async def get_tool(tool_id: str):
-    return _load(tool_id).model_dump()
+    return p_load(tool_id).model_dump()
 
 
 @tools_lib.router.post("/create")
@@ -352,16 +352,16 @@ async def create_tool(body: ToolCreate):
         auth_type=body.auth_type,
         auth_status=body.auth_status,
     )
-    _save(tool)
+    save(tool)
     return {"ok": True, "tool": tool.model_dump()}
 
 
 @tools_lib.router.put("/{tool_id}")
 async def update_tool(tool_id: str, body: ToolUpdate):
-    tool = _load(tool_id)
+    tool = p_load(tool_id)
     for k, v in body.model_dump(exclude_none=True).items():
         setattr(tool, k, v)
-    _save(tool)
+    save(tool)
     return {"ok": True, "tool": tool.model_dump()}
 
 
@@ -375,7 +375,7 @@ async def delete_tool(tool_id: str):
 
 @tools_lib.router.post("/{tool_id}/discover")
 async def discover_tools(tool_id: str):
-    tool = _load(tool_id)
+    tool = p_load(tool_id)
 
     if tool.auth_type == "oauth2" and tool.auth_status == "connected":
         if tool.oauth_tokens.get("refresh_token"):
@@ -404,7 +404,7 @@ async def discover_tools(tool_id: str):
             command = config.get("command", "")
             if not command:
                 raise HTTPException(status_code=400, detail="stdio transport requires a 'command' in MCP config")
-            raw_tools = await _discover_mcp_tools_stdio(
+            raw_tools = await discover_mcp_tools_stdio(
                 command=command,
                 args=config.get("args"),
                 env=config.get("env"),
@@ -414,13 +414,13 @@ async def discover_tools(tool_id: str):
             if not url:
                 raise HTTPException(status_code=400, detail="HTTP/SSE transport requires a 'url' in MCP config")
             if transport == "sse":
-                raw_tools = await _discover_mcp_tools_sse(url, config.get("headers"))
+                raw_tools = await discover_mcp_tools_sse(url, config.get("headers"))
             else:
                 try:
-                    raw_tools = await _discover_mcp_tools_http(url, config.get("headers"))
+                    raw_tools = await discover_mcp_tools_http(url, config.get("headers"))
                 except HTTPException:
                     logger.info(f"Streamable HTTP failed for {tool.name}, retrying with SSE transport")
-                    raw_tools = await _discover_mcp_tools_sse(url, config.get("headers"))
+                    raw_tools = await discover_mcp_tools_sse(url, config.get("headers"))
         else:
             raise HTTPException(status_code=400, detail=f"Unsupported MCP transport type: '{transport}'. Use 'stdio', 'http', or 'sse'.")
     except HTTPException:
@@ -433,7 +433,7 @@ async def discover_tools(tool_id: str):
         raise HTTPException(status_code=502, detail=f"Discovery failed: {msg}")
 
     tool_names = [t["name"] for t in raw_tools]
-    services, service_groups, all_read, all_write = _classify_services(tool_names, tool.name)
+    services, service_groups, all_read, all_write = classify_services(tool_names, tool.name)
     # Read-only actions auto-allow by default (no prompt for safe, scoped reads);
     # writes still default to "ask". Any choice the user already made is kept.
     permissions: dict[str, Any] = {
@@ -447,7 +447,7 @@ async def discover_tools(tool_id: str):
     permissions["_tool_schemas"] = {t["name"]: t.get("inputSchema") for t in raw_tools if t.get("inputSchema")}
 
     tool.tool_permissions = permissions
-    _save(tool)
+    save(tool)
 
     return {"ok": True, "tool": tool.model_dump()}
 
@@ -456,7 +456,7 @@ async def discover_tools(tool_id: str):
 # Microsoft 365 device-code login (runs in the backend, not the MCP server)
 # ---------------------------------------------------------------------------
 
-_m365_login_processes: dict[str, dict] = {}  # tool_id -> {proc, device_code, status, email}
+p_m365_login_processes: dict[str, dict] = {}  # tool_id -> {proc, device_code, status, email}
 
 
 @tools_lib.router.post("/{tool_id}/m365/device-login")
@@ -468,8 +468,8 @@ async def m365_device_login(tool_id: str):
     """
     import subprocess
 
-    tool = _load(tool_id)
-    script = _m365_server_script()
+    tool = p_load(tool_id)
+    script = m365_server_script()
     if not os.path.isfile(script):
         raise HTTPException(status_code=500, detail="M365 MCP server not installed")
 
@@ -483,12 +483,12 @@ async def m365_device_login(tool_id: str):
     if not cmd:
         raise HTTPException(status_code=500, detail="No node/electron found")
 
-    env = {**os.environ, **_m365_cache_env()}
+    env = {**os.environ, **m365_cache_env()}
     if cmd == electron:
         env["ELECTRON_RUN_AS_NODE"] = "1"
 
     # Kill any existing login process for this tool
-    existing = _m365_login_processes.pop(tool_id, None)
+    existing = p_m365_login_processes.pop(tool_id, None)
     if existing and existing.get("proc"):
         try:
             existing["proc"].kill()
@@ -534,11 +534,11 @@ async def m365_device_login(tool_id: str):
                 pass
             # Update tool status
             try:
-                t = _load(tool_id)
+                t = p_load(tool_id)
                 t.auth_status = "connected"
                 if login_state.get("email"):
                     t.connected_account_email = login_state["email"]
-                _save(t)
+                save(t)
             except Exception:
                 pass
         else:
@@ -547,7 +547,7 @@ async def m365_device_login(tool_id: str):
     thread = threading.Thread(target=_read_output, daemon=True)
     thread.start()
 
-    _m365_login_processes[tool_id] = login_state
+    p_m365_login_processes[tool_id] = login_state
 
     # Wait briefly for device code to appear
     for _ in range(30):
@@ -568,13 +568,13 @@ async def m365_device_login(tool_id: str):
 @tools_lib.router.get("/{tool_id}/m365/device-login/status")
 async def m365_device_login_status(tool_id: str):
     """Poll the status of a pending M365 device-code login."""
-    state = _m365_login_processes.get(tool_id)
+    state = p_m365_login_processes.get(tool_id)
     if not state:
         # Check if already connected via cached token
-        cache_env = _m365_cache_env()
+        cache_env = m365_cache_env()
         cache_path = cache_env["MS365_MCP_TOKEN_CACHE_PATH"]
         if os.path.isfile(cache_path):
-            tool = _load(tool_id)
+            tool = p_load(tool_id)
             if tool.auth_status == "connected":
                 return {"status": "connected", "email": tool.connected_account_email}
         return {"status": "no_login_in_progress"}
@@ -583,10 +583,10 @@ async def m365_device_login_status(tool_id: str):
     result: dict = {"status": status}
     if status == "connected":
         result["email"] = state.get("email")
-        _m365_login_processes.pop(tool_id, None)
+        p_m365_login_processes.pop(tool_id, None)
     elif status == "error":
         result["message"] = "Login failed"
-        _m365_login_processes.pop(tool_id, None)
+        p_m365_login_processes.pop(tool_id, None)
 
     return result
 
@@ -594,21 +594,21 @@ async def m365_device_login_status(tool_id: str):
 @tools_lib.router.post("/{tool_id}/m365/disconnect")
 async def m365_disconnect(tool_id: str):
     """Disconnect M365 by clearing the cached token."""
-    tool = _load(tool_id)
-    cache_env = _m365_cache_env()
+    tool = p_load(tool_id)
+    cache_env = m365_cache_env()
     for path in cache_env.values():
         if os.path.isfile(path):
             os.remove(path)
     tool.auth_status = "configured"
     tool.connected_account_email = None
-    _save(tool)
+    save(tool)
     return {"ok": True, "tool": tool.model_dump()}
 
 
 @tools_lib.router.post("/{tool_id}/oauth/disconnect")
 async def oauth_disconnect(tool_id: str):
     """Clear OAuth tokens and reset auth status so the user can reconnect with a different account."""
-    tool = _load(tool_id)
+    tool = p_load(tool_id)
     access_token = tool.oauth_tokens.get("access_token")
 
     if access_token and tool.name.lower() != "notion":
@@ -626,7 +626,7 @@ async def oauth_disconnect(tool_id: str):
     tool.oauth_tokens = {}
     tool.auth_status = "configured"
     tool.connected_account_email = None
-    _save(tool)
+    save(tool)
     return {"ok": True, "tool": tool.model_dump()}
 
 
@@ -634,8 +634,8 @@ async def oauth_disconnect(tool_id: str):
 async def oauth_start(tool_id: str):
     """Return the OAuth start URL for this tool. All built-in providers
     proxy through Fly so client_secret values stay server-side."""
-    tool = _load(tool_id)
-    proxied = _proxied_provider_for(tool)
+    tool = p_load(tool_id)
+    proxied = proxied_provider_for(tool)
     if not proxied:
         raise HTTPException(
             status_code=400,
@@ -704,7 +704,7 @@ async def oauth_cloud_claim(
 
     data = resp.json()
     tokens = data.get("tokens", {}) or {}
-    tool = _load(tool_id)
+    tool = p_load(tool_id)
     # Google's token endpoint doesn't include the user's email; fetch it
     # from userinfo so the UI can show "you connected you@gmail.com"
     # rather than the generic "Google account" placeholder.
@@ -719,9 +719,9 @@ async def oauth_cloud_claim(
                 tokens["email"] = info_resp.json().get("email") or ""
         except Exception as e:
             logger.warning("Google userinfo lookup post-claim failed: %s", e)
-    _persist_cloud_tokens(tool, tokens)
-    _save(tool)
-    return _connected_html()
+    persist_cloud_tokens(tool, tokens)
+    save(tool)
+    return p_connected_html()
 
 
 @tools_lib.router.post("/google-oauth-token")

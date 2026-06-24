@@ -11,7 +11,7 @@ tool-name shape, including the round-trip that the old code failed.
 """
 
 from backend.apps.tools_lib.tools_lib import resolve_policy_slot, PolicySlot
-from backend.apps.tools_lib.mcp_config import _sanitize_server_name
+from backend.apps.tools_lib.mcp_config import sanitize_server_name
 from backend.apps.tools_lib.models import ToolDefinition
 
 
@@ -34,7 +34,7 @@ def test_slot_for_our_browser_and_invoke_agents_uses_inner_name():
 
 def test_slot_for_community_mcp_points_at_the_owning_tool():
     tool = _mcp_tool("My Notion Server")
-    slug = _sanitize_server_name(tool.name)
+    slug = sanitize_server_name(tool.name)
     assert resolve_policy_slot(f"mcp__{slug}__notion-fetch", [tool]) == \
         PolicySlot("mcp", tool.id, "notion-fetch")
 
@@ -73,7 +73,7 @@ def test_always_approve_round_trips_for_every_tool_shape():
     """The invariant the old code violated: after WRITE(always_allow), the very
     next READ returns always_allow, for builtin, our agents, and community MCP."""
     notion = _mcp_tool("Notion")
-    slug = _sanitize_server_name("Notion")
+    slug = sanitize_server_name("Notion")
     tools = [notion]
     builtin_perms: dict[str, str] = {}
 
@@ -94,7 +94,7 @@ def test_always_approve_round_trips_for_every_tool_shape():
 def test_two_actions_on_the_same_mcp_server_are_independent():
     """Approving one action must not silently approve a sibling action."""
     tool = _mcp_tool("Notion")
-    slug = _sanitize_server_name("Notion")
+    slug = sanitize_server_name("Notion")
     tools = [tool]
     bp: dict[str, str] = {}
     _write(f"mcp__{slug}__notion-fetch", "always_allow", bp, tools)
@@ -121,21 +121,21 @@ def test_builtin_policy_survives_a_real_file_reload(tmp_path, monkeypatch):
 
 def test_mcp_policy_survives_a_real_tool_file_reload(tmp_path, monkeypatch):
     monkeypatch.setattr(tl, "DATA_DIR", str(tmp_path))
-    monkeypatch.setattr(tl, "_tools_cache", None)
-    monkeypatch.setattr(tl, "_tools_cache_sig", None)
-    tl._save(_mcp_tool("Notion"))
-    slug = _sanitize_server_name("Notion")
+    monkeypatch.setattr(tl, "p_tools_cache", None)
+    monkeypatch.setattr(tl, "p_tools_cache_sig", None)
+    tl.save(_mcp_tool("Notion"))
+    slug = sanitize_server_name("Notion")
     name = f"mcp__{slug}__notion-fetch"
 
     # WRITE via the resolver against the freshly loaded tool, then persist.
-    tools = tl._load_all()
+    tools = tl.load_all_tools()
     slot = tl.resolve_policy_slot(name, tools)
     target = next(t for t in tools if t.id == slot.key)
     target.tool_permissions[slot.action] = "always_allow"
-    tl._save(target)
+    tl.save(target)
 
     # RELOAD from disk and read via the resolver: the policy is there.
-    tools2 = tl._load_all()
+    tools2 = tl.load_all_tools()
     rslot = tl.resolve_policy_slot(name, tools2)
     got = next(t for t in tools2 if t.id == rslot.key)
     assert got.tool_permissions.get(rslot.action) == "always_allow"

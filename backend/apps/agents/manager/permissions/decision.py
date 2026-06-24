@@ -17,8 +17,8 @@ from backend.apps.agents.core.ws_manager import ws_manager
 from backend.apps.agents.manager.permissions import path_gate
 from backend.apps.agents.manager.permissions.ApprovalDecision import ApprovalDecision
 from backend.apps.tools_lib.tools_lib import (
-    _load_all as load_all_tools,
-    _save as save_tool,
+    load_all_tools as load_all_tools,
+    save as save_tool,
     load_builtin_permissions,
     load_trusted_sensitive_paths,
     resolve_policy_slot,

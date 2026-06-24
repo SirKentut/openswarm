@@ -25,8 +25,8 @@ def tools_tmp(tmp_path, monkeypatch):
     d = tmp_path / "tools"
     d.mkdir()
     monkeypatch.setattr(tools_lib, "DATA_DIR", str(d))
-    monkeypatch.setattr(tools_lib, "_tools_cache", None)
-    monkeypatch.setattr(tools_lib, "_tools_cache_sig", None)
+    monkeypatch.setattr(tools_lib, "p_tools_cache", None)
+    monkeypatch.setattr(tools_lib, "p_tools_cache_sig", None)
     return d
 
 
@@ -71,40 +71,40 @@ def test_settings_file_deleted_falls_back_to_defaults(settings_tmp):
 
 
 def test_tools_write_then_list_is_fresh(tools_tmp):
-    assert tools_lib._load_all() == []
+    assert tools_lib.load_all_tools() == []
     t = ToolDefinition(name="Alpha", description="a")
-    tools_lib._save(t)
+    tools_lib.save(t)
     _bump_mtime(tools_tmp / f"{t.id}.json")
-    names = [x.name for x in tools_lib._load_all()]
+    names = [x.name for x in tools_lib.load_all_tools()]
     assert names == ["Alpha"]
 
     t2 = ToolDefinition(name="Beta", description="b")
-    tools_lib._save(t2)
-    assert sorted(x.name for x in tools_lib._load_all()) == ["Alpha", "Beta"]
+    tools_lib.save(t2)
+    assert sorted(x.name for x in tools_lib.load_all_tools()) == ["Alpha", "Beta"]
 
 
 def test_tools_delete_detected(tools_tmp):
     t = ToolDefinition(name="Gone", description="g")
-    tools_lib._save(t)
-    assert [x.name for x in tools_lib._load_all()] == ["Gone"]
+    tools_lib.save(t)
+    assert [x.name for x in tools_lib.load_all_tools()] == ["Gone"]
     os.remove(tools_tmp / f"{t.id}.json")
-    assert tools_lib._load_all() == []
+    assert tools_lib.load_all_tools() == []
 
 
 def test_tools_in_place_rewrite_detected(tools_tmp):
     t = ToolDefinition(name="Old", description="x")
-    tools_lib._save(t)
-    assert [x.name for x in tools_lib._load_all()] == ["Old"]
+    tools_lib.save(t)
+    assert [x.name for x in tools_lib.load_all_tools()] == ["Old"]
     t.name = "New"
-    tools_lib._save(t)
+    tools_lib.save(t)
     _bump_mtime(tools_tmp / f"{t.id}.json")
-    assert [x.name for x in tools_lib._load_all()] == ["New"]
+    assert [x.name for x in tools_lib.load_all_tools()] == ["New"]
 
 
 def test_tools_cached_hit_skips_reparse(tools_tmp, monkeypatch):
-    tools_lib._save(ToolDefinition(name="Once", description="o"))
-    tools_lib._load_all()
+    tools_lib.save(ToolDefinition(name="Once", description="o"))
+    tools_lib.load_all_tools()
     def boom(*a, **k):
         raise AssertionError("disk re-parse on unchanged dir")
     monkeypatch.setattr(json, "load", boom)
-    assert [x.name for x in tools_lib._load_all()] == ["Once"]
+    assert [x.name for x in tools_lib.load_all_tools()] == ["Once"]

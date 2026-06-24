@@ -1,8 +1,8 @@
-_READ_PREFIXES = ("get", "list", "read", "search", "fetch", "find", "query", "count", "check", "describe", "show", "download", "browse", "analy", "explain")
-_WRITE_PREFIXES = ("create", "write", "delete", "update", "send", "remove", "modify", "add", "set", "put", "post", "patch", "insert", "move", "copy", "rename", "archive", "trash", "publish", "approve", "reject")
+P_READ_PREFIXES = ("get", "list", "read", "search", "fetch", "find", "query", "count", "check", "describe", "show", "download", "browse", "analy", "explain")
+P_WRITE_PREFIXES = ("create", "write", "delete", "update", "send", "remove", "modify", "add", "set", "put", "post", "patch", "insert", "move", "copy", "rename", "archive", "trash", "publish", "approve", "reject")
 
 
-_SERVICE_RULES: list[tuple[list[str], str, str]] = [
+P_SERVICE_RULES: list[tuple[list[str], str, str]] = [
     # (keywords, service_name, group)
     # Google Workspace
     (["gmail"], "Gmail", "Google"),
@@ -31,20 +31,20 @@ _SERVICE_RULES: list[tuple[list[str], str, str]] = [
 ]
 
 
-def _categorize_tool(name: str) -> str:
+def p_categorize_tool(name: str) -> str:
     lower = name.lower().replace("_", " ").replace("-", " ").strip()
     for word in lower.split():
-        for prefix in _READ_PREFIXES:
+        for prefix in P_READ_PREFIXES:
             if word.startswith(prefix):
                 return "read"
-        for prefix in _WRITE_PREFIXES:
+        for prefix in P_WRITE_PREFIXES:
             if word.startswith(prefix):
                 return "write"
     return "write"
 
 
-def _integration_domain(integration: str) -> str:
-    """Which curated _SERVICE_RULES set applies to this integration, if any. The Google rules use
+def p_integration_domain(integration: str) -> str:
+    """Which curated P_SERVICE_RULES set applies to this integration, if any. The Google rules use
     generic words (message/table/page/doc/script) that otherwise mis-tag Slack/Notion/Airtable/M365."""
     n = (integration or "").lower()
     if "google" in n:
@@ -56,13 +56,13 @@ def _integration_domain(integration: str) -> str:
     return ""
 
 
-def _extract_service(name: str, integration: str) -> tuple[str, str]:
+def p_extract_service(name: str, integration: str) -> tuple[str, str]:
     """Map a tool name to (service, group). Curated rulesets apply only to the integration they were
     written for; every other integration groups under its own name so it isn't mislabeled as Google."""
-    domain = _integration_domain(integration)
+    domain = p_integration_domain(integration)
     if domain:
         lower = name.lower()
-        for keywords, display, group in _SERVICE_RULES:
+        for keywords, display, group in P_SERVICE_RULES:
             if group != domain:
                 continue
             for kw in keywords:
@@ -73,15 +73,15 @@ def _extract_service(name: str, integration: str) -> tuple[str, str]:
     return (integration or "Other"), ""
 
 
-def _classify_services(
+def classify_services(
     tool_names: list[str], integration: str
 ) -> tuple[dict[str, dict[str, list[str]]], dict[str, list[str]], list[str], list[str]]:
     """Bucket tool names into services + service groups + read/write categories for one integration."""
     services: dict[str, dict[str, list[str]]] = {}
     service_groups: dict[str, list[str]] = {}
     for name in tool_names:
-        cat = _categorize_tool(name)
-        svc, group = _extract_service(name, integration)
+        cat = p_categorize_tool(name)
+        svc, group = p_extract_service(name, integration)
         services.setdefault(svc, {"read": [], "write": []})
         services[svc][cat].append(name)
         if group:

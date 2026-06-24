@@ -11,12 +11,12 @@ from backend.apps.tools_lib.oauth_config import OPENSWARM_OAUTH_BASE_URL
 logger = logging.getLogger(__name__)
 
 
-def _sanitize_server_name(name: str) -> str:
+def sanitize_server_name(name: str) -> str:
     """Convert a tool name into a valid MCP server identifier (alphanumeric + hyphens)."""
     return re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
 
 
-def _extra_bin_dirs() -> list[str]:
+def p_extra_bin_dirs() -> list[str]:
     """Well-known user-local bin directories that may not be on PATH in packaged apps."""
     home = os.path.expanduser("~")
     # Bundled uv-bin (ships uvx for non-dev users)
@@ -46,14 +46,14 @@ def _extra_bin_dirs() -> list[str]:
     return dirs
 
 
-def _resolve_command(command: str) -> str | None:
+def resolve_command(command: str) -> str | None:
     """Find a command on PATH, falling back to common user-local bin directories
     and bundled binaries (uv-bin for uvx/uv)."""
     found = shutil.which(command)
     if found:
         return found
     # Windows binaries need an extension. shutil.which() handles PATHEXT for
-    # PATH lookups, but we manually scan _extra_bin_dirs below; replicate
+    # PATH lookups, but we manually scan p_extra_bin_dirs below; replicate
     # the suffix probing here so `uvx` finds `uvx.exe`, etc.
     if sys.platform == "win32":
         suffixes = [""] + os.environ.get("PATHEXT", ".COM;.EXE;.BAT;.CMD").lower().split(os.pathsep)
@@ -65,7 +65,7 @@ def _resolve_command(command: str) -> str | None:
             if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
                 return candidate
         return None
-    for d in _extra_bin_dirs():
+    for d in p_extra_bin_dirs():
         hit = _probe(d)
         if hit:
             return hit
@@ -74,9 +74,9 @@ def _resolve_command(command: str) -> str | None:
     return _probe(os.path.join(_backend, "uv-bin"))
 
 
-def _augmented_path() -> str:
+def augmented_path() -> str:
     """Return PATH with extra bin dirs prepended (for child process environments)."""
-    extra = [d for d in _extra_bin_dirs() if os.path.isdir(d)]
+    extra = [d for d in p_extra_bin_dirs() if os.path.isdir(d)]
     current = os.environ.get("PATH", "")
     seen: set[str] = set()
     parts: list[str] = []
@@ -262,13 +262,13 @@ def derive_mcp_config(tool: ToolDefinition) -> Optional[dict]:
                                 logger.info(f"Using pre-installed npm MCP server for {pkg_name}")
 
             if not os.path.isabs(config.get("command", "")):
-                resolved = _resolve_command(config["command"])
+                resolved = resolve_command(config["command"])
                 if resolved:
                     config["command"] = resolved
                 else:
                     logger.warning(f"Command '{config['command']}' not found on PATH or bundled directories")
         env = config.setdefault("env", {})
-        env.setdefault("PATH", _augmented_path())
+        env.setdefault("PATH", augmented_path())
         env.setdefault("PYTHONPATH", "")
         # Point uv/uvx at our bundled Python; avoids macOS CLT popup on fresh Macs
         # and avoids downloading Python at runtime

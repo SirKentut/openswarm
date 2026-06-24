@@ -14,8 +14,8 @@ from backend.apps.agents.manager.prompt.tool_catalog import (
     get_denied_tool_names,
 )
 from backend.apps.tools_lib.tools_lib import (
-    _load_all as load_all_tools,
-    _sanitize_server_name as sanitize_server_name,
+    load_all_tools as load_all_tools,
+    sanitize_server_name as sanitize_server_name,
 )
 
 

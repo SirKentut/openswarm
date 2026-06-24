@@ -641,7 +641,7 @@ async def test_mcp_gate_only_forwards_activated_servers():
                                 auth_status="configured", auth_type="apikey") for n in names]
 
     # allowed_tools == get_all_tool_names() bypasses the (separate) permission
-    # gate so we isolate the ACTIVATION gate. _sanitize_server_name -> identity.
+    # gate so we isolate the ACTIVATION gate. sanitize_server_name -> identity.
     with patch("backend.apps.agents.manager.RunSupportMixin.load_all_tools", side_effect=installed), \
          patch("backend.apps.agents.manager.RunSupportMixin.get_all_tool_names", return_value=["__ALL__"]), \
          patch("backend.apps.agents.manager.RunSupportMixin.sanitize_server_name", side_effect=lambda n: n), \
@@ -810,9 +810,9 @@ def test_mcp_brand_covers_curated_servers():
         "google-workspace", "microsoft-365", "slack", "discord",
         "notion", "airtable", "hubspot", "reddit", "youtube",
     }
-    from backend.apps.tools_lib.tools_lib import _sanitize_server_name
+    from backend.apps.tools_lib.tools_lib import sanitize_server_name
     for slug in curated:
-        assert _sanitize_server_name(slug) == slug, (
+        assert sanitize_server_name(slug) == slug, (
             f"curated slug {slug!r} is not in sanitized form"
         )
 
@@ -828,30 +828,30 @@ def test_curated_server_aliases_in_main():
 
 
 def test_sanitize_server_name_idempotent():
-    """_sanitize_server_name must be idempotent (sanitize twice = sanitize once)."""
-    from backend.apps.tools_lib.tools_lib import _sanitize_server_name
+    """sanitize_server_name must be idempotent (sanitize twice = sanitize once)."""
+    from backend.apps.tools_lib.tools_lib import sanitize_server_name
     test_inputs = [
         "Google Workspace", "Microsoft 365", "Slack", "Discord",
         "Notion", "Airtable", "HubSpot", "Reddit", "YouTube",
         "GitHub", "GitLab", "Jira",
     ]
     for raw in test_inputs:
-        once = _sanitize_server_name(raw)
-        twice = _sanitize_server_name(once)
+        once = sanitize_server_name(raw)
+        twice = sanitize_server_name(once)
         assert once == twice, f"{raw}: sanitize not idempotent ({once} != {twice})"
 
 
 def test_sanitize_server_name_lowercase():
-    from backend.apps.tools_lib.tools_lib import _sanitize_server_name
-    assert _sanitize_server_name("Gmail") == "gmail"
-    assert _sanitize_server_name("UPPERCASE") == "uppercase"
+    from backend.apps.tools_lib.tools_lib import sanitize_server_name
+    assert sanitize_server_name("Gmail") == "gmail"
+    assert sanitize_server_name("UPPERCASE") == "uppercase"
 
 
 def test_sanitize_server_name_strips_special_chars():
-    from backend.apps.tools_lib.tools_lib import _sanitize_server_name
-    assert _sanitize_server_name("Foo Bar!") == "foo-bar"
-    assert _sanitize_server_name("@x/y") == "x-y"
-    assert _sanitize_server_name("a__b") == "a-b"
+    from backend.apps.tools_lib.tools_lib import sanitize_server_name
+    assert sanitize_server_name("Foo Bar!") == "foo-bar"
+    assert sanitize_server_name("@x/y") == "x-y"
+    assert sanitize_server_name("a__b") == "a-b"
 
 
 # ===========================================================================
@@ -864,10 +864,10 @@ def test_mcp_activate_handler_unknown_server():
     # We test the response shape independently of the FastAPI plumbing.
     # The handler is a closure inside main.py:mcp_meta_handler, so we
     # instead exercise the contract: invalid name surfaces alternatives.
-    from backend.apps.tools_lib.tools_lib import _sanitize_server_name
+    from backend.apps.tools_lib.tools_lib import sanitize_server_name
     valid = {"gmail", "slack", "google-workspace"}
     requested = "Gmail"  # raw, needs sanitize
-    sanitized = _sanitize_server_name(requested)
+    sanitized = sanitize_server_name(requested)
     if sanitized in valid:
         status = "would_activate"
     else:

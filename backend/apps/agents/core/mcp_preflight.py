@@ -11,8 +11,8 @@ from typing import Any
 from backend.apps.agents.providers.registry import resolve_aux_model
 from backend.apps.settings.credentials import get_anthropic_client_for_model
 from backend.apps.settings.settings import load_settings
-from backend.apps.tools_lib.tools_lib import _load_all as load_all_tools
-from backend.apps.tools_lib.mcp_config import _sanitize_server_name
+from backend.apps.tools_lib.tools_lib import load_all_tools as load_all_tools
+from backend.apps.tools_lib.mcp_config import sanitize_server_name
 
 logger = logging.getLogger(__name__)
 
@@ -156,9 +156,9 @@ def offer_for_gated_server(server_name: str, settings) -> CuratedEntry | None:
         return None
     # The hot-path hands us a sanitized slug ("google-workspace"); curated ids are display names
     # ("Google Workspace"). Match on the slug of both sides so neither form is a load-bearing string.
-    slug = _sanitize_server_name(server_name)
+    slug = sanitize_server_name(server_name)
     entry = next(
-        (e for e in p_build_available_shortlist(settings) if _sanitize_server_name(e["id"]) == slug),
+        (e for e in p_build_available_shortlist(settings) if sanitize_server_name(e["id"]) == slug),
         None,
     )
     if entry is None:

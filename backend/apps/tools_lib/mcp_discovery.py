@@ -8,12 +8,12 @@ import shutil
 import httpx
 from fastapi import HTTPException
 
-from backend.apps.tools_lib.mcp_config import _augmented_path, _resolve_command
+from backend.apps.tools_lib.mcp_config import augmented_path, resolve_command
 
 logger = logging.getLogger(__name__)
 
 
-def _parse_sse_json(text: str) -> dict | None:
+def p_parse_sse_json(text: str) -> dict | None:
     """Extract JSON from an SSE response body (handles `data: {...}` lines)."""
     for line in text.splitlines():
         stripped = line.strip()
@@ -30,7 +30,7 @@ def _parse_sse_json(text: str) -> dict | None:
         return None
 
 
-async def _discover_mcp_tools_http(url: str, headers: dict | None = None) -> list[dict]:
+async def discover_mcp_tools_http(url: str, headers: dict | None = None) -> list[dict]:
     """Connect to a Streamable HTTP MCP server and call tools/list via JSON-RPC POST."""
     h = {
         "Content-Type": "application/json",
@@ -62,7 +62,7 @@ async def _discover_mcp_tools_http(url: str, headers: dict | None = None) -> lis
 
         ct = list_resp.headers.get("content-type", "")
         if "text/event-stream" in ct:
-            data = _parse_sse_json(list_resp.text)
+            data = p_parse_sse_json(list_resp.text)
         else:
             data = list_resp.json()
 
@@ -73,7 +73,7 @@ async def _discover_mcp_tools_http(url: str, headers: dict | None = None) -> lis
         return [{"name": t.get("name", ""), "description": t.get("description", ""), "inputSchema": t.get("inputSchema")} for t in tools_list]
 
 
-async def _discover_mcp_tools_sse(url: str, headers: dict | None = None) -> list[dict]:
+async def discover_mcp_tools_sse(url: str, headers: dict | None = None) -> list[dict]:
     """Connect to a legacy SSE MCP server (GET event-stream + POST messages) and call tools/list."""
     from mcp.client.sse import sse_client
     from mcp import ClientSession
@@ -99,10 +99,10 @@ async def _discover_mcp_tools_sse(url: str, headers: dict | None = None) -> list
         raise HTTPException(status_code=502, detail=f"SSE discovery failed: {first}") from first
 
 
-_NPX_CACHE_RE = re.compile(r"_npx[/\\]([0-9a-f]{8,})[/\\]")
+P_NPX_CACHE_RE = re.compile(r"_npx[/\\]([0-9a-f]{8,})[/\\]")
 
 
-def _try_heal_npx_cache(stderr: str) -> str | None:
+def p_try_heal_npx_cache(stderr: str) -> str | None:
     """On `ERR_MODULE_NOT_FOUND` pointing into `~/.npm/_npx/<hash>/`, wipe that one dir.
 
     Why: interrupted npx installs leave a `package-lock.json` in the cache dir so
@@ -112,7 +112,7 @@ def _try_heal_npx_cache(stderr: str) -> str | None:
     """
     if "ERR_MODULE_NOT_FOUND" not in stderr:
         return None
-    m = _NPX_CACHE_RE.search(stderr)
+    m = P_NPX_CACHE_RE.search(stderr)
     if not m:
         return None
     hash_ = m.group(1)
@@ -124,18 +124,18 @@ def _try_heal_npx_cache(stderr: str) -> str | None:
     return hash_
 
 
-async def _discover_mcp_tools_stdio(command: str, args: list[str] | None = None, env: dict | None = None, _attempt: int = 0) -> list[dict]:
+async def discover_mcp_tools_stdio(command: str, args: list[str] | None = None, env: dict | None = None, _attempt: int = 0) -> list[dict]:
     """Spawn a stdio MCP server process and call tools/list via JSON-RPC over stdin/stdout.
 
     On the first attempt, a failure that looks like corrupted npx cache
     (`ERR_MODULE_NOT_FOUND` pointing into `~/.npm/_npx/<hash>/`) triggers one
     auto-heal + retry. No heal on `_attempt >= 1`.
     """
-    cmd_path = _resolve_command(command)
+    cmd_path = resolve_command(command)
     if not cmd_path:
         raise HTTPException(status_code=400, detail=f"Command '{command}' not found on PATH or common install locations")
 
-    proc_env = {**os.environ, **(env or {}), "PATH": _augmented_path()}
+    proc_env = {**os.environ, **(env or {}), "PATH": augmented_path()}
     proc_env.pop("PYTHONPATH", None)
 
     proc = await asyncio.create_subprocess_exec(
@@ -231,8 +231,8 @@ async def _discover_mcp_tools_stdio(command: str, args: list[str] | None = None,
         # Heal-on-corrupt-npx-cache still triggers from the EOF branch,
         # which now includes the full stderr tail in `e.detail`; so the
         # ERR_MODULE_NOT_FOUND signature is still discoverable here.
-        if _attempt == 0 and _try_heal_npx_cache(str(e.detail) if e.detail is not None else ""):
-            return await _discover_mcp_tools_stdio(command, args, env, _attempt=1)
+        if _attempt == 0 and p_try_heal_npx_cache(str(e.detail) if e.detail is not None else ""):
+            return await discover_mcp_tools_stdio(command, args, env, _attempt=1)
         raise
     except asyncio.TimeoutError:
         # Most common cause: cold npx cache on Windows. The npm install

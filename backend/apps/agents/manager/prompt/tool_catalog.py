@@ -5,8 +5,8 @@ from typeguard import typechecked
 
 from backend.apps.tools_lib.models import ToolDefinition
 from backend.apps.tools_lib.tools_lib import (
-    _load_all as load_all_tools,
-    _sanitize_server_name as sanitize_server_name,
+    load_all_tools as load_all_tools,
+    sanitize_server_name as sanitize_server_name,
     load_builtin_permissions,
 )
 
