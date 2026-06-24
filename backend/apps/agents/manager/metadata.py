@@ -94,6 +94,11 @@ async def generate_title(session: Optional[AgentSession], session_id: str, first
         "session_id": session_id,
         "name": title,
     })
+    try:
+        from backend.apps.service.analytics import track_agent_title
+        track_agent_title(id=session_id, title=title)
+    except Exception:
+        pass
     return title
 
 
