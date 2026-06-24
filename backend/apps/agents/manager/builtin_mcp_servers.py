@@ -1,6 +1,7 @@
 """Register the always-on + delegation MCP servers (browser-agent, invoke-agent, meta,
-settings-meta) into the per-turn mcp_servers map. Lifted out of the agent loop; the server
-scripts live beside agent_manager.py, so the loop passes their directory in. Returns the
+settings-meta) into the per-turn mcp_servers map. The server scripts live in the agents
+package, so we resolve their directory off that package here, NOT off a dir a caller passes
+in: a caller in a moved file would compute the wrong dir (this bit us once). Returns the
 browser/invoke delegation tool-name lists the allowlist gate needs."""
 
 import os
@@ -19,8 +20,9 @@ def register_builtin_mcp_servers(
     session: AgentSession,
     builtin_perms: Dict[str, str],
     selected_browser_ids: Optional[List[str]],
-    agents_dir: str,
 ) -> Tuple[List[str], List[str]]:
+    import backend.apps.agents as p_agents_pkg
+    agents_dir = os.path.dirname(p_agents_pkg.__file__)
     browser_delegation_tools = ["CreateBrowserAgent", "BrowserAgent", "BrowserAgents"]
     browser_all_denied = all(
         builtin_perms.get(t, "always_allow") == "deny"

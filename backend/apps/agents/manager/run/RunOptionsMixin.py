@@ -4,7 +4,6 @@ options_kwargs (provider env, preset, thinking, resume/history), runs the pre-se
 and returns the ClaudeAgentOptions plus the bits the streaming turn needs. Mixin method: self.* and
 the gate hooks resolve across the MRO unchanged."""
 
-import os
 import json
 import logging
 from typing import Dict, List, Optional, Union
@@ -110,7 +109,7 @@ class RunOptionsMixin:
         mcp_servers = await self.build_mcp_servers(session.allowed_tools, session.active_mcps)
 
         browser_delegation_tools, invoke_agent_tools = register_builtin_mcp_servers(
-            mcp_servers, session, builtin_perms, selected_browser_ids, os.path.dirname(__file__)
+            mcp_servers, session, builtin_perms, selected_browser_ids
         )
 
 
