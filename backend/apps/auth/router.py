@@ -76,6 +76,12 @@ def p_sync_identity_to_service(settings_obj) -> None:
         p_identify(props)
     except Exception as e:
         logger.debug("identify sync failed: %s", e)
+    if email:
+        try:
+            from backend.apps.service.analytics import track_link_email
+            track_link_email(email)
+        except Exception as e:
+            logger.debug("analytics link_email sync failed: %s", e)
 
 
 # ---------------------------------------------------------------------------
