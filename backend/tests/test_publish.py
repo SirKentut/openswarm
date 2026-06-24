@@ -113,10 +113,10 @@ def test_collect_bundle_webapp_dist_skips_symlink():
 
 def test_scan_for_publish_merges_ast():
     # Force the LLM pass to a deterministic no-op so the test is hermetic.
-    async def _no_llm(src, settings):
+    async def p_no_llm(src, settings):
         return [], "clean"
     orig = publish_scan.llm_findings
-    publish_scan.llm_findings = _no_llm
+    publish_scan.llm_findings = p_no_llm
     publish_scan.memo.clear()
     try:
         unsafe = Output(name="x", files={"backend.py": "import socket\nresult={}\n"})
@@ -137,12 +137,12 @@ def test_scan_memo_skips_second_llm_call():
     # Unchanged source must not re-invoke the (paid) LLM pass on a reopen.
     calls = {"n": 0}
 
-    async def _counting_llm(src, settings):
+    async def p_counting_llm(src, settings):
         calls["n"] += 1
         return ["from the llm"], "warn"
 
     orig = publish_scan.llm_findings
-    publish_scan.llm_findings = _counting_llm
+    publish_scan.llm_findings = p_counting_llm
     publish_scan.memo.clear()
     try:
         app = Output(name="x", files={"index.html": "<html>same</html>"})

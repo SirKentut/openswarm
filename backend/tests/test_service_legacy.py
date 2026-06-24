@@ -41,7 +41,7 @@ def install_sync_sink():
     bag so existing tests can keep their assertions terse."""
     import backend.apps.service.client as svc_client
 
-    def _sink(label: str, body: dict):
+    def p_sink(label: str, body: dict):
         cs = body.get("client_state") or {}
         payload = body.get("d") or body.get("payload") or {}
 
@@ -84,7 +84,7 @@ def install_sync_sink():
 
     old_sink = svc_client.test_sink
     old_iid = svc_client.install_id
-    svc_client.set_test_sink(_sink)
+    svc_client.set_test_sink(p_sink)
     svc_client.install_id = "test-install-id"
     yield
     svc_client.set_test_sink(old_sink)

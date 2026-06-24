@@ -17,10 +17,10 @@ def _fake_dashboard(monkeypatch):
     # gets past the load and emits the static delegation guidance.
     import backend.apps.dashboards.dashboards as dash
 
-    class _D:
+    class P_D:
         def model_dump(self, mode="json"):
             return {"layout": {"browser_cards": {}}}
-    monkeypatch.setattr(dash, "load", lambda did: _D(), raising=True)
+    monkeypatch.setattr(dash, "load", lambda did: P_D(), raising=True)
 
 
 def test_orchestrator_routes_same_flow_batches_to_one_agent(monkeypatch):

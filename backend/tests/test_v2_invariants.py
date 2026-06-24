@@ -1491,7 +1491,7 @@ def test_sniff_recognises_macos_paths_with_spaces():
     try:
         with open(path, "wb") as f:
             f.write(b"%PDF-1.4\n")
-        _t, native, refusals = mgr.resolve_attachments(
+        p_t, native, refusals = mgr.resolve_attachments(
             [{"path": path, "type": "file"}], api_type="anthropic", model="opus-4-7",
         )
         assert native and native[0]["type"] == "document"
@@ -1552,13 +1552,13 @@ def test_sniff_handles_windows_style_backslash_path_string():
     from backend.apps.agents.agent_manager import AgentManager
     mgr = AgentManager()
     # A path that doesn't exist (POSIX cannot interpret backslashes as separator)
-    _t, native, refusals = mgr.resolve_attachments(
+    p_t, native, refusals = mgr.resolve_attachments(
         [{"path": r"C:\fake\path\nope.pdf", "type": "file"}],
         api_type="anthropic", model="opus-4-7",
     )
     assert not native
     # Should produce a "not found" refusal, not crash.
-    assert any("not found" in s.lower() or "not found" in s for s in (_t, *refusals)) or "not found" in _t
+    assert any("not found" in s.lower() or "not found" in s for s in (p_t, *refusals)) or "not found" in p_t
 
 
 def test_upload_dir_writable_on_macos_temp():
@@ -1591,7 +1591,7 @@ def test_resolve_attachments_classifies_renamed_binary_as_binary_not_pdf():
         fh.write(b"PK\x03\x04fake zip masquerading as pdf")
         path = fh.name
     try:
-        _t, native, refusals = mgr.resolve_attachments(
+        p_t, native, refusals = mgr.resolve_attachments(
             [{"path": path, "type": "file"}], api_type="anthropic", model="opus-4-7",
         )
         assert not native
@@ -1664,7 +1664,7 @@ def test_anthropic_document_block_schema_matches_docs():
         fh.write(b"%PDF-1.4\n%canonical schema test\n")
         path = fh.name
     try:
-        _t, native, _r = mgr.resolve_attachments(
+        p_t, native, p_r = mgr.resolve_attachments(
             [{"path": path, "type": "file"}], api_type="anthropic", model="opus-4-7",
         )
         block = native[0]
@@ -1679,8 +1679,8 @@ def test_anthropic_document_block_schema_matches_docs():
         if "cache_control" in block:
             assert block["cache_control"] == {"type": "ephemeral"}
         # Base64 data must decode cleanly back to PDF magic header.
-        import base64 as _b64
-        decoded = _b64.b64decode(src["data"])
+        import base64 as p_b64
+        decoded = p_b64.b64decode(src["data"])
         assert decoded.startswith(b"%PDF-")
     finally:
         os.unlink(path)
@@ -1909,7 +1909,7 @@ def test_resolve_attachments_openai_codex_refused_for_pdfs():
         fh.write(b"%PDF-1.4\n%test\n")
         path = fh.name
     try:
-        _t, native, refusals = mgr.resolve_attachments(
+        p_t, native, refusals = mgr.resolve_attachments(
             [{"path": path, "type": "file"}], api_type="openai", model="gpt-5.3-codex",
         )
         assert not native
@@ -1928,7 +1928,7 @@ def test_resolve_attachments_openai_codex_still_refuses_pdf():
         fh.write(b"%PDF-1.4\n%test\n")
         path = fh.name
     try:
-        _t, native, refusals = mgr.resolve_attachments(
+        p_t, native, refusals = mgr.resolve_attachments(
             [{"path": path, "type": "file"}], api_type="openai", model="gpt-5.3-codex",
         )
         assert not native
@@ -2051,7 +2051,7 @@ def test_resolve_attachments_openai_accepts_pdf_via_bypass_translator():
         fh.write(b"%PDF-1.4\n%test\n")
         path = fh.name
     try:
-        _text, native, refusals = mgr.resolve_attachments(
+        p_text, native, refusals = mgr.resolve_attachments(
             [{"path": path, "type": "file"}], api_type="openai", model="gpt-5.5",
         )
         assert native and native[0]["type"] == "document"
@@ -2143,7 +2143,7 @@ def test_resolve_attachments_gemini_emits_native_document_after_translator_fix()
         fh.write(b"%PDF-1.4\n%test\n")
         path = fh.name
     try:
-        _text, native, refusals = mgr.resolve_attachments(
+        p_text, native, refusals = mgr.resolve_attachments(
             [{"path": path, "type": "file"}], api_type="gemini", model="gemini-3.1-pro-api",
         )
         assert native and native[0]["type"] == "document"
@@ -2182,7 +2182,7 @@ def test_resolve_attachments_pdf_refused_when_too_large():
         fh.write(b"X" * (25 * 1024 * 1024))
         path = fh.name
     try:
-        _t, native, refusals = mgr.resolve_attachments(
+        p_t, native, refusals = mgr.resolve_attachments(
             [{"path": path, "type": "file"}], api_type="anthropic", model="opus-4-7",
         )
         assert not native
@@ -2208,7 +2208,7 @@ def test_resolve_attachments_refuses_when_total_exceeds_request_cap():
                 fh.write(b"%PDF-1.4\n")
                 fh.write(b"X" * (8 * 1024 * 1024))
                 paths.append(fh.name)
-        _t, native, refusals = mgr.resolve_attachments(
+        p_t, native, refusals = mgr.resolve_attachments(
             [{"path": p, "type": "file"} for p in paths],
             api_type="anthropic", model="opus-4-7",
         )
@@ -2234,7 +2234,7 @@ def test_resolve_attachments_anthropic_marks_last_document_ephemeral_for_cache()
             with tempfile.NamedTemporaryFile(suffix=f"_{i}.pdf", delete=False) as fh:
                 fh.write(b"%PDF-1.4\n%test\n")
                 paths.append(fh.name)
-        _t, native, _r = mgr.resolve_attachments(
+        p_t, native, p_r = mgr.resolve_attachments(
             [{"path": p, "type": "file"} for p in paths],
             api_type="anthropic", model="opus-4-7",
         )
@@ -2258,11 +2258,11 @@ def test_resolve_attachments_anthropic_does_mark_ephemeral_but_only_anthropic():
         fh.write(b"%PDF-1.4\n%test\n")
         path = fh.name
     try:
-        _t, ant_native, _r = mgr.resolve_attachments(
+        p_t, ant_native, p_r = mgr.resolve_attachments(
             [{"path": path, "type": "file"}], api_type="anthropic", model="opus-4-7",
         )
         assert ant_native and ant_native[0].get("cache_control") == {"type": "ephemeral"}
-        _t, or_native, _r = mgr.resolve_attachments(
+        p_t, or_native, p_r = mgr.resolve_attachments(
             [{"path": path, "type": "file"}], api_type="openrouter", model="openrouter/openai/gpt-5",
         )
         assert or_native and "cache_control" not in or_native[0]
@@ -2661,61 +2661,61 @@ def _make_mock_9router(initial_nodes=None, initial_conns=None, fail_endpoints=No
     }
     fail = fail_endpoints or set()
 
-    def _resp(status_code=200, payload=None):
+    def p_resp(status_code=200, payload=None):
         r = MagicMock()
         r.status_code = status_code
         r.text = "" if not payload else str(payload)
         r.json = MagicMock(return_value=payload or {})
         return r
 
-    async def _get(url, **kw):
+    async def p_get(url, **kw):
         state["calls"].append(("GET", url, None))
         if "/api/provider-nodes" in url and "GET:provider-nodes" in fail:
-            return _resp(500)
+            return p_resp(500)
         if url.endswith("/api/provider-nodes"):
-            return _resp(200, {"nodes": state["nodes"]})
+            return p_resp(200, {"nodes": state["nodes"]})
         if url.endswith("/api/providers"):
-            return _resp(200, {"connections": state["connections"]})
-        return _resp(404)
+            return p_resp(200, {"connections": state["connections"]})
+        return p_resp(404)
 
     async def p_post(url, json=None, **kw):
         state["calls"].append(("POST", url, json))
         if "/api/provider-nodes" in url and not url.endswith("/provider-nodes/"):
             if "POST:provider-nodes" in fail:
-                return _resp(500, {"error": "fail"})
+                return p_resp(500, {"error": "fail"})
             node_id = f"openai-compatible-chat-{state['next_id']}"
             state["next_id"] += 1
             new_node = {**(json or {}), "id": node_id}
             state["nodes"].append(new_node)
-            return _resp(201, {"node": new_node})
+            return p_resp(201, {"node": new_node})
         if "/api/providers" in url:
             if "POST:providers" in fail:
-                return _resp(500, {"error": "fail"})
+                return p_resp(500, {"error": "fail"})
             conn_id = f"conn-{state['next_id']}"
             state["next_id"] += 1
             new_conn = {**(json or {}), "id": conn_id, "isActive": True}
             state["connections"].append(new_conn)
-            return _resp(201, {"connection": new_conn})
-        return _resp(404)
+            return p_resp(201, {"connection": new_conn})
+        return p_resp(404)
 
-    async def _put(url, json=None, **kw):
+    async def p_put(url, json=None, **kw):
         state["calls"].append(("PUT", url, json))
         # /api/provider-nodes/<id>
         for n in state["nodes"]:
             if url.endswith(f"/provider-nodes/{n['id']}"):
                 n.update(json or {})
-                return _resp(200, {"node": n})
-        return _resp(404)
+                return p_resp(200, {"node": n})
+        return p_resp(404)
 
-    async def _patch(url, json=None, **kw):
+    async def p_patch(url, json=None, **kw):
         state["calls"].append(("PATCH", url, json))
         for c in state["connections"]:
             if url.endswith(f"/providers/{c['id']}"):
                 c.update(json or {})
-                return _resp(200, {"connection": c})
-        return _resp(404)
+                return p_resp(200, {"connection": c})
+        return p_resp(404)
 
-    async def _delete(url, **kw):
+    async def p_delete(url, **kw):
         state["calls"].append(("DELETE", url, None))
         for n in list(state["nodes"]):
             if url.endswith(f"/provider-nodes/{n['id']}"):
@@ -2724,12 +2724,12 @@ def _make_mock_9router(initial_nodes=None, initial_conns=None, fail_endpoints=No
                 state["connections"] = [
                     c for c in state["connections"] if c.get("provider") != n["id"]
                 ]
-                return _resp(200, {"success": True})
+                return p_resp(200, {"success": True})
         for c in list(state["connections"]):
             if url.endswith(f"/providers/{c['id']}"):
                 state["connections"].remove(c)
-                return _resp(200, {"success": True})
-        return _resp(404)
+                return p_resp(200, {"success": True})
+        return p_resp(404)
 
     class MockClient:
         def __init__(self, *a, **kw):
@@ -2738,11 +2738,11 @@ def _make_mock_9router(initial_nodes=None, initial_conns=None, fail_endpoints=No
             return self
         async def __aexit__(self, *a):
             return False
-        get = AsyncMock(side_effect=_get)
+        get = AsyncMock(side_effect=p_get)
         post = AsyncMock(side_effect=p_post)
-        put = AsyncMock(side_effect=_put)
-        patch = AsyncMock(side_effect=_patch)
-        delete = AsyncMock(side_effect=_delete)
+        put = AsyncMock(side_effect=p_put)
+        patch = AsyncMock(side_effect=p_patch)
+        delete = AsyncMock(side_effect=p_delete)
 
     return MockClient, state
 
@@ -2979,9 +2979,9 @@ def test_sync_custom_providers_three_distinct_providers_create_three_nodes():
 def _async_return(value):
     """Helper: return a coroutine that resolves to value (for mocking
     `get_providers` which is called WITHOUT being awaited as a function)."""
-    async def _f():
+    async def p_f():
         return value
-    return _f()
+    return p_f()
 
 
 # ===========================================================================

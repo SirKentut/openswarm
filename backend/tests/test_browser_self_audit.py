@@ -69,13 +69,13 @@ def test_audit_fires_every_n_finished_tasks(monkeypatch, tmp_path):
     m.p_task_count = 0
     monkeypatch.setattr(m, "P_AUDIT_EVERY_N", 5)
 
-    class _SyncThread:
+    class p_SyncThread:
         def __init__(self, target=None, **kw):
             self._t = target
 
         def start(self):
             self._t()
-    monkeypatch.setattr(m.threading, "Thread", _SyncThread)
+    monkeypatch.setattr(m.threading, "Thread", p_SyncThread)
 
     log = [{"tool": "BrowserClickIndex", "elapsed_ms": 5, "result_summary": "ok"}]
     report = tmp_path / "self_audit_report.md"

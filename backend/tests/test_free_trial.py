@@ -159,11 +159,11 @@ async def test_clear_reverts_forced_haiku_so_it_doesnt_outlive_the_trial(monkeyp
     assert s2.default_model == "haiku"
 
 
-async def _noop(*_a, **_k):
+async def _noop(*p_a, **p_k):
     return None
 
 
 def _record(bucket):
-    async def _inner(obj, *_a, **_k):
+    async def p_inner(obj, *p_a, **p_k):
         bucket.append(obj)
-    return _inner
+    return p_inner

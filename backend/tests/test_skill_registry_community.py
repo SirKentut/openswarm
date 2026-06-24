@@ -145,13 +145,13 @@ def test_confirm_install_writes_folder_lists_and_injects(skills_dir, monkeypatch
     files, and resolve_attached_skills injects it with the folder path so an
     agent can read its scripts. (resolve is mocked to skip the network; the live
     GitHub resolve is proven separately.)"""
-    import secrets as _secrets
+    import secrets as p_secrets
     from fastapi.testclient import TestClient
     from backend.main import app
     from backend.apps.agents.manager.prompt.prompt_context import resolve_attached_skills
     import backend.auth as auth_mod
     if not auth_mod._TOKEN:
-        auth_mod._TOKEN = _secrets.token_urlsafe(32)
+        auth_mod._TOKEN = p_secrets.token_urlsafe(32)
     client = TestClient(app, headers={"Authorization": f"Bearer {auth_mod._TOKEN}"})
 
     async def fake_resolve(source, skill_id):

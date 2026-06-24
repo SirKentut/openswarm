@@ -67,14 +67,14 @@ async def test_lost_first_delivery_heals_via_rebroadcast(monkeypatch):
     m = _mgr()
     sends = []
 
-    class _CountingSock:
+    class p_CountingSock:
         async def send_text(self, payload):
             sends.append(payload)
             if len(sends) >= 2:  # first delivery "lost", second lands
                 rid = next(iter(m.browser_futures))
                 m.resolve_browser_command(rid, {"text": "ok"})
 
-    m.global_connections = [_CountingSock()]
+    m.global_connections = [p_CountingSock()]
     res = await m.send_browser_command("rid4", "get_text", "b1", {})
     assert res == {"text": "ok"}
     assert len(sends) >= 2, "command must be re-broadcast until a client answers"
@@ -86,13 +86,13 @@ async def test_a_resolved_command_returns_immediately(monkeypatch):
     monkeypatch.setattr(wsm, "BROWSER_CMD_TIMEOUT_DEFAULT", 5.0)
     m = _mgr()
 
-    async def _resolve_soon():
+    async def p_resolve_soon():
         await asyncio.sleep(0.05)
         # find the pending future and resolve it like the renderer would
         rid = next(iter(m.browser_futures))
         m.resolve_browser_command(rid, {"text": "ok", "url": "u"})
 
-    asyncio.create_task(_resolve_soon())
+    asyncio.create_task(p_resolve_soon())
     t0 = time.monotonic()
     res = await m.send_browser_command("rid3", "get_text", "b1", {})
     elapsed = time.monotonic() - t0

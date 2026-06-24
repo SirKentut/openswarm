@@ -164,16 +164,16 @@ def test_cache_marker_prefix_stays_stable_across_a_simulated_turn():
     from backend.apps.agents.browser.browser_history import (
         PAGE_STATE_MARKER, place_cache_marker, prune_stale_page_state,
     )
-    import copy as _copy
-    import json as _json
+    import copy as p_copy
+    import json as p_json
 
-    def _stripped(ms):
-        ms = _copy.deepcopy(ms)
+    def p_stripped(ms):
+        ms = p_copy.deepcopy(ms)
         for m in ms:
             for b in (m["content"] if isinstance(m["content"], list) else []):
                 if isinstance(b, dict):
                     b.pop("cache_control", None)
-        return _json.dumps(ms, sort_keys=True)
+        return p_json.dumps(ms, sort_keys=True)
 
     msgs = []
     for i in range(10):
@@ -184,7 +184,7 @@ def test_cache_marker_prefix_stays_stable_across_a_simulated_turn():
     prune_stale_page_state(msgs)
     place_cache_marker(msgs)
     cut = len(msgs) - 8
-    before = _stripped(msgs[:cut])
+    before = p_stripped(msgs[:cut])
     # next turn: a new attachment arrives, pruning collapses the one falling out
     msgs.append(_tool_use_msg("t10", "BrowserClickIndex"))
     msgs.append(_tool_result_msg(
@@ -192,4 +192,4 @@ def test_cache_marker_prefix_stays_stable_across_a_simulated_turn():
     ))
     prune_stale_page_state(msgs)
     place_cache_marker(msgs)
-    assert _stripped(msgs[:cut]) == before
+    assert p_stripped(msgs[:cut]) == before

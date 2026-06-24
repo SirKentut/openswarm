@@ -59,7 +59,7 @@ def test_bare_markdown_import(skill_store):
     try:
         assert manifest.root.type == EntityType.skill
         assert manifest.root.name == "Cool Trick"
-        _t, root_id, created, _u = closure.commit(sandbox, manifest, [])
+        p_t, root_id, created, p_u = closure.commit(sandbox, manifest, [])
     finally:
         import shutil
         shutil.rmtree(sandbox, ignore_errors=True)
@@ -69,7 +69,7 @@ def test_bare_markdown_import(skill_store):
 def test_content_secret_redacted_in_bundle(skill_store):
     secret = "sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAA"
     _make_skill(skill_store, "leaky", "Leaky", f"use this key: {secret}")
-    raw, _name = closure.build_bundle(EntityType.skill, "leaky")
+    raw, p_name = closure.build_bundle(EntityType.skill, "leaky")
     # Inspect the actual packed payload (zip entries are compressed, so grepping
     # the raw bytes proves nothing).
     with zipfile.ZipFile(io.BytesIO(raw)) as zf:
@@ -298,9 +298,9 @@ def test_dashboard_export_import_carries_agent_cards_and_transcript(tmp_path, mo
     }}))
 
     raw, _ = closure.build_bundle(EntityType.dashboard, did)
-    sandbox, manifest, _w = closure.stage_upload(raw, "board.swarm")
+    sandbox, manifest, p_w = closure.stage_upload(raw, "board.swarm")
     try:
-        _rt, root_id, _created, _u = closure.commit(sandbox, manifest, [])
+        p_rt, root_id, p_created, p_u = closure.commit(sandbox, manifest, [])
     finally:
         shutil.rmtree(sandbox, ignore_errors=True)
 

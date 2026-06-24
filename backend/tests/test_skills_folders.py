@@ -208,18 +208,18 @@ async def test_create_writes_folder_and_supersedes_legacy_flat(skills_dir):
 
 
 def test_stage_zip_carries_supporting_files_into_sandbox():
-    import io as _io, zipfile, os as _os, shutil
+    import io as p_io, zipfile, os as p_os, shutil
     from backend.apps.swarm.closure import stage_skill_from_zip
-    buf = _io.BytesIO()
+    buf = p_io.BytesIO()
     with zipfile.ZipFile(buf, "w") as zf:
         zf.writestr("my-skill/SKILL.md", "do it")
         zf.writestr("my-skill/scripts/run.sh", "echo hi")
     sandbox, manifest, warnings = stage_skill_from_zip(buf.getvalue(), "my-skill.zip", [])
     try:
         bid = manifest.entities[0].bundle_id
-        files_dir = _os.path.join(sandbox, "entities", bid, "files")
-        assert _os.path.isfile(_os.path.join(files_dir, "scripts", "run.sh"))
+        files_dir = p_os.path.join(sandbox, "entities", bid, "files")
+        assert p_os.path.isfile(p_os.path.join(files_dir, "scripts", "run.sh"))
         # SKILL.md is the payload body, not a supporting file.
-        assert not _os.path.exists(_os.path.join(files_dir, "SKILL.md"))
+        assert not p_os.path.exists(p_os.path.join(files_dir, "SKILL.md"))
     finally:
         shutil.rmtree(sandbox, ignore_errors=True)

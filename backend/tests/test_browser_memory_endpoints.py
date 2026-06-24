@@ -21,17 +21,17 @@ def _seed_skill(host, task):
 
 
 async def _seed_strategy(host, *bullets):
-    class _Blk:
+    class p_Blk:
         def __init__(self, t): self.text = t
 
-    class _Resp:
-        def __init__(self, t): self.content = [_Blk(t)]
+    class p_Resp:
+        def __init__(self, t): self.content = [p_Blk(t)]
 
-    class _Aux:
+    class p_Aux:
         def __init__(self): self.messages = self
         async def create(self, **kw):
-            return _Resp(json.dumps({"playbook": list(bullets)}))
-    await pb.distill_and_store(host, "t", "m", "s", _Aux(), "aux")
+            return p_Resp(json.dumps({"playbook": list(bullets)}))
+    await pb.distill_and_store(host, "t", "m", "s", p_Aux(), "aux")
 
 
 def test_list_browser_memory_groups_skills_and_strategy_by_site():

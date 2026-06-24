@@ -72,9 +72,9 @@ def test_offer_carries_no_activate_capability(monkeypatch):
 # --- require_vague: the MCPSearch path keeps suggestions on a concrete prompt ----------------
 
 def _stub_classifier(is_vague, ids):
-    async def _fake(settings, prompt, available, task_id=None):
+    async def p_fake(settings, prompt, available, task_id=None):
         return {"is_vague": is_vague, "suggestions": [{"id": i, "reason": "fits"} for i in ids]}
-    return _fake
+    return p_fake
 
 
 def test_preflight_default_suppresses_suggestions_on_concrete_prompt(monkeypatch):

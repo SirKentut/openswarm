@@ -19,10 +19,10 @@ def _stream(event):
 
 
 def _mock_query_yielding(*messages):
-    async def _q(*args, **kwargs):
+    async def p_q(*args, **kwargs):
         for m in messages:
             yield m
-    return _q
+    return p_q
 
 
 def _drive(monkeypatch, messages, prompt="hi"):
@@ -354,10 +354,10 @@ def test_transient_capacity_error_is_retried_then_succeeds(monkeypatch):
     # behavior the streaming restructuring must preserve.
     real_sleep = asyncio.sleep  # capture before patching to avoid self-recursion
 
-    async def _fast_sleep(*a, **k):
+    async def p_fast_sleep(*a, **k):
         await real_sleep(0)  # still yields to the loop, but no real backoff delay
 
-    monkeypatch.setattr(asyncio, "sleep", _fast_sleep)
+    monkeypatch.setattr(asyncio, "sleep", p_fast_sleep)
 
     state = {"n": 0}
 

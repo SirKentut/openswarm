@@ -176,8 +176,8 @@ def test_signout_succeeds_even_when_cloud_unreachable(client, reset_settings):
 
     with patch("httpx.AsyncClient") as MockClient:
         instance = MockClient.return_value.__aenter__.return_value
-        import httpx as _httpx
-        instance.post = AsyncMock(side_effect=_httpx.HTTPError("network down"))
+        import httpx as p_httpx
+        instance.post = AsyncMock(side_effect=p_httpx.HTTPError("network down"))
 
         r = client.post("/api/auth/signout")
     assert r.status_code == 200
