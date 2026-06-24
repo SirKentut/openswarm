@@ -82,6 +82,10 @@ class AgentManager(SessionLifecycleMixin, SessionPersistenceMixin, MessagingMixi
         # stop can persist the partial reply instantly instead of waiting out the
         # multi-second SDK teardown the cancel handler sits behind.
         self.live_partial: Dict[str, LivePartial] = {}
+        # Per-session cancel signal: the loop stashes its asyncio.Event here so a
+        # stop/close can set it. Lives on the manager, not the AgentSession model,
+        # so it stays out of serialization (an Event can't be model_dump'd).
+        self.cancel_events: Dict[str, asyncio.Event] = {}
 
 
 

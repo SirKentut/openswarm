@@ -69,8 +69,8 @@ WEBAPP_TEMPLATE_DIR = os.path.join(os.path.dirname(__file__), "webapp_template")
 # Bundled default; used as the read-once fallback if the user-editable
 # copy at ~/.claude/skills/app_builder_skill.md has been removed despite
 # the built-in flag (defensive; shouldn't happen in normal use).
-with open(APP_BUILDER_SKILL_SOURCE_PATH, encoding="utf-8") as _f:
-    APP_BUILDER_SKILL_DEFAULT = _f.read()
+with open(APP_BUILDER_SKILL_SOURCE_PATH, encoding="utf-8") as p_f:
+    APP_BUILDER_SKILL_DEFAULT = p_f.read()
 
 
 def load_app_builder_skill() -> str:

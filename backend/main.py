@@ -10,9 +10,9 @@ from uuid import uuid4
 # handlers; uvicorn's own access logs are untouched.
 p_backend_logger = logging.getLogger("backend")
 if not p_backend_logger.handlers:
-    _h = logging.StreamHandler()
-    _h.setFormatter(logging.Formatter("%(asctime)s %(levelname).1s %(name)s: %(message)s", "%H:%M:%S"))
-    p_backend_logger.addHandler(_h)
+    p_h = logging.StreamHandler()
+    p_h.setFormatter(logging.Formatter("%(asctime)s %(levelname).1s %(name)s: %(message)s", "%H:%M:%S"))
+    p_backend_logger.addHandler(p_h)
     p_backend_logger.setLevel(logging.INFO)
     p_backend_logger.propagate = False
 

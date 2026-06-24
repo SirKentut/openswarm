@@ -69,8 +69,9 @@ class SessionLifecycleMixin:
             ws_manager.resolve_approval(req.id, {"behavior": "deny", "message": "Session closed"})
         session.pending_approvals = []
 
-        if hasattr(session, '_cancel_event'):
-            session._cancel_event.set()
+        ev = self.cancel_events.get(session_id)
+        if ev:
+            ev.set()
 
         self.sync_session_close(session)
 
@@ -103,6 +104,7 @@ class SessionLifecycleMixin:
         self.sessions.pop(session_id, None)
         self.tasks.pop(session_id, None)
         self.live_partial.pop(session_id, None)
+        self.cancel_events.pop(session_id, None)
         view_builder_render_retry_counts.pop(session_id, None)
         view_builder_dirty_sessions.discard(session_id)
 

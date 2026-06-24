@@ -8,21 +8,21 @@ import uuid
 from backend.config.paths import DATA_ROOT
 
 P_INSTALL_ID_FILE = os.path.join(DATA_ROOT, "install_id")
-_cached: str | None = None
+p_cached: str | None = None
 
 
 def get_install_id() -> str:
     """Return the persistent install_id, generating and persisting on first call."""
-    global _cached
-    if _cached:
-        return _cached
+    global p_cached
+    if p_cached:
+        return p_cached
 
     try:
         with open(P_INSTALL_ID_FILE, "r", encoding="utf-8") as f:
             existing = f.read().strip()
             if p_looks_like_uuid(existing):
-                _cached = existing
-                return _cached
+                p_cached = existing
+                return p_cached
     except FileNotFoundError:
         pass
     except Exception:
@@ -35,8 +35,8 @@ def get_install_id() -> str:
         os.write(fd, fresh.encode("utf-8"))
     finally:
         os.close(fd)
-    _cached = fresh
-    return _cached
+    p_cached = fresh
+    return p_cached
 
 
 def p_looks_like_uuid(s: str) -> bool:

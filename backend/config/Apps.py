@@ -38,14 +38,14 @@ class MainApp:
                 p_boot_t0 = time.perf_counter()
                 for sub_app in sub_apps:
                     debug(sub_app.name)
-                    _t0 = time.perf_counter()
+                    p_t0 = time.perf_counter()
                     await stack.enter_async_context(sub_app.lifespan())
-                    _dt = (time.perf_counter() - _t0) * 1000
-                    if _dt > 50:  # only flag a slow lifespan; keeps boot logs quiet
-                        print(f"[perf] lifespan {sub_app.name} t={_dt:.0f}ms", flush=True)
+                    p_dt = (time.perf_counter() - p_t0) * 1000
+                    if p_dt > 50:  # only flag a slow lifespan; keeps boot logs quiet
+                        print(f"[perf] lifespan {sub_app.name} t={p_dt:.0f}ms", flush=True)
                 print(f"[perf] lifespans-total t={(time.perf_counter() - p_boot_t0) * 1000:.0f}ms", flush=True)
-                _port = os.environ.get("OPENSWARM_PORT", "8324")
-                print(f"\nCheck out the API docs at: http://127.0.0.1:{_port}/docs\n")
+                p_port = os.environ.get("OPENSWARM_PORT", "8324")
+                print(f"\nCheck out the API docs at: http://127.0.0.1:{p_port}/docs\n")
                 yield
                 
         self.app = FastAPI(lifespan=lifespan)

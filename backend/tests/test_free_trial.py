@@ -132,7 +132,7 @@ async def test_arm_with_no_sub_is_bounded_and_falls_through_to_arm(monkeypatch):
     monkeypatch.setattr(ft, "p_has_connected_subscription", never_sub)
     # Short-circuit before the cloud mint so the test stays offline + deterministic;
     # reaching this branch proves arm did NOT falsely conclude has_model.
-    monkeypatch.setattr(ft, "p_fingerprint", lambda _s: None)
+    monkeypatch.setattr(ft, "p_fingerprint", lambda p_s: None)
 
     s = AppSettings()
     t = time.monotonic()

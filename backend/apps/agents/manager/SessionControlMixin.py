@@ -31,8 +31,9 @@ class SessionControlMixin:
         if session:
             # Set cancel event BEFORE cancelling the task so in-flight
             # browser agent loops see it immediately
-            if hasattr(session, '_cancel_event'):
-                session._cancel_event.set()
+            ev = self.cancel_events.get(session_id)
+            if ev:
+                ev.set()
 
             for req in list(session.pending_approvals):
                 ws_manager.resolve_approval(req.id, {"behavior": "deny", "message": "Agent stopped"})
