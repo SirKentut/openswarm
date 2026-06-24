@@ -121,6 +121,7 @@ def _app_bridge_expression(tool_name: str, tool_input: dict) -> str:
 # reads poll briefly for the bridge to come up instead of declaring it absent.
 _BRIDGE_READY_WAIT_MS = 8000
 _BRIDGE_POLL_INTERVAL_MS = 400
+_bridge_known_absent: set[str] = set()
 
 
 def _parse_bridge_result(result: dict) -> object:
@@ -320,11 +321,22 @@ async def execute_browser_tool(
         # AppInvoke does not wait: its action either exists right now or it does
         # not, and a missing action should surface immediately.
         if tool_name in ("AppDescribe", "AppGetState"):
-            waited = 0
-            while waited < _BRIDGE_READY_WAIT_MS and not _bridge_ready(_parse_bridge_result(result)):
-                await asyncio.sleep(_BRIDGE_POLL_INTERVAL_MS / 1000)
-                waited += _BRIDGE_POLL_INTERVAL_MS
-                result = await _eval_once()
+            ready = _bridge_ready(_parse_bridge_result(result))
+            # Only the cold-boot read polls. Once a card is memoed bridge-absent,
+            # every later read takes the single eval above and skips the 8s sink;
+            # that single eval still detects a bridge that came up between reads.
+            if not ready and browser_id not in _bridge_known_absent:
+                waited = 0
+                while waited < _BRIDGE_READY_WAIT_MS and not ready:
+                    await asyncio.sleep(_BRIDGE_POLL_INTERVAL_MS / 1000)
+                    waited += _BRIDGE_POLL_INTERVAL_MS
+                    result = await _eval_once()
+                    ready = _bridge_ready(_parse_bridge_result(result))
+            # Record the verdict so the next read knows whether to pay the wait.
+            if ready:
+                _bridge_known_absent.discard(browser_id)
+            else:
+                _bridge_known_absent.add(browser_id)
         if tool_name == "AppDescribe":
             _persist_app_controls(browser_id, _parse_bridge_result(result))
         return result

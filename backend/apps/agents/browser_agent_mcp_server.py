@@ -118,12 +118,14 @@ TOOLS = [
         "name": "AppAgent",
         "description": (
             "Operate one of the user's OpenSwarm-built apps (a small web app they "
-            "created, e.g. a graphing or form app) that is open on the dashboard. A "
-            "dedicated app agent reads the app's own actions and state through its "
-            "native bridge and performs the task (no screenshots or DOM scraping), "
-            "then returns a summary plus a final screenshot. Use this for the apps "
-            "listed in the selected-app context, not for websites (use BrowserAgent "
-            "for those)."
+            "created, e.g. a graphing tool, a form, or a canvas game like Doom) that "
+            "is open on the dashboard. A dedicated app agent performs the task: it "
+            "drives the app through its native bridge when one is available (reading "
+            "the app's own state and calling its controls), and otherwise falls back "
+            "to native keyboard/mouse plus screenshots for canvas and game apps that "
+            "expose no bridge. It returns a summary plus a final screenshot. Works for "
+            "ANY app in the selected-app context, including games and canvas apps; use "
+            "BrowserAgent only for websites, not these apps."
         ),
         "inputSchema": {
             "type": "object",
