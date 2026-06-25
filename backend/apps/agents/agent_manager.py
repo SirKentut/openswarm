@@ -120,6 +120,10 @@ class AgentManager(SessionLifecycleMixin, SessionPersistenceMixin, MessagingMixi
         # poisoned-email -> destructive-command case is still caught; what
         # this trades away is the prompt on ordinary shell commands. Users
         # who want a prompt on every command can flip Bash to "ask" in the UI.
+        # Bind turn + stderr buffer first: build_agent_options can raise early (e.g.
+        # no provider configured), and the except hands both to handle_run_error.
+        turn = TurnState()
+        p_stderr_buffer: List[str] = []
         try:
             (options, options_kwargs, prompt_content, p_stderr_buffer,
              global_settings) = await self.build_agent_options(
@@ -129,7 +133,6 @@ class AgentManager(SessionLifecycleMixin, SessionPersistenceMixin, MessagingMixi
             resolved_model = p_router_model_id
             api_type = p_api_type_for_session
 
-            turn = TurnState()
             thinking = ThinkingState()
             await self.run_turn_with_retry(
                 session, session_id, prompt_content, options, options_kwargs,
