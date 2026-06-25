@@ -19,23 +19,23 @@ from backend.apps.agents.manager.session.session_store import (
 )
 from backend.apps.agents.manager.streaming.state import ThinkingState, TurnState
 from backend.apps.agents.manager.streaming.LivePartial import LivePartial
-from backend.apps.agents.manager.session.SessionLifecycleMixin import SessionLifecycleMixin
-from backend.apps.agents.manager.session.SessionPersistenceMixin import SessionPersistenceMixin
-from backend.apps.agents.manager.MessagingMixin import MessagingMixin
-from backend.apps.agents.manager.SessionControlMixin import SessionControlMixin
-from backend.apps.agents.manager.AgentLaunchMixin import AgentLaunchMixin
-from backend.apps.agents.manager.MockAgentMixin import MockAgentMixin
-from backend.apps.agents.manager.RunSupportMixin import RunSupportMixin
+from backend.apps.agents.manager.session.SessionLifecycle import SessionLifecycle
+from backend.apps.agents.manager.session.SessionPersistence import SessionPersistence
+from backend.apps.agents.manager.Messaging import Messaging
+from backend.apps.agents.manager.SessionControl import SessionControl
+from backend.apps.agents.manager.AgentLaunch import AgentLaunch
+from backend.apps.agents.manager.MockAgent import MockAgent
+from backend.apps.agents.manager.RunSupport import RunSupport
 from backend.apps.agents.manager.run.handle_run_error import handle_run_error
-from backend.apps.agents.manager.run.TurnRunnerMixin import TurnRunnerMixin
-from backend.apps.agents.manager.run.RunOptionsMixin import RunOptionsMixin
+from backend.apps.agents.manager.run.TurnRunner import TurnRunner
+from backend.apps.agents.manager.run.RunOptions import RunOptions
 
 logger = logging.getLogger(__name__)
 
 os.environ.setdefault("CLAUDE_CODE_STREAM_CLOSE_TIMEOUT", "3600000")
 
 
-class AgentManager(SessionLifecycleMixin, SessionPersistenceMixin, MessagingMixin, SessionControlMixin, AgentLaunchMixin, MockAgentMixin, TurnRunnerMixin, RunOptionsMixin, RunSupportMixin):
+class AgentManager(SessionLifecycle, SessionPersistence, Messaging, SessionControl, AgentLaunch, MockAgent, TurnRunner, RunOptions, RunSupport):
     @typechecked
     def __init__(self):
         self.sessions: Dict[str, AgentSession] = {}

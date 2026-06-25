@@ -1,7 +1,7 @@
-"""The no-SDK mock agent loop, split out of AgentLaunchMixin so each file is one concern. This
+"""The no-SDK mock agent loop, split out of AgentLaunch so each file is one concern. This
 fires only when claude_agent_sdk isn't installed (dev fallback): it fakes one Bash approval +
 tool-result + assistant reply so the UI is exercisable without a real model. self.p_stream_* /
-self.sessions resolve across the MRO exactly as when this lived on AgentLaunchMixin."""
+self.sessions resolve across the MRO exactly as when this lived on AgentLaunch."""
 
 import asyncio
 import json
@@ -17,10 +17,10 @@ from backend.apps.agents.core.ws_manager import ws_manager
 logger = logging.getLogger(__name__)
 
 
-from backend.apps.agents.manager.AgentManagerState import AgentManagerState
+from backend.apps.agents.manager.AgentManagerProtocol import AgentManagerProtocol
 
 
-class MockAgentMixin(AgentManagerState):
+class MockAgent(AgentManagerProtocol):
     @typechecked
     async def run_mock_agent(self, session_id: str, prompt: str):
         """Mock agent loop for development without claude_agent_sdk installed."""

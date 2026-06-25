@@ -1,6 +1,6 @@
 """Bulk session persistence across the WHOLE store, the startup/shutdown orchestration that
 operates on every session at once (reconcile stale-running, flush-all on shutdown, restore-all
-on boot). Split from SessionLifecycleMixin (which handles ONE session at a time) so each file is
+on boot). Split from SessionLifecycle (which handles ONE session at a time) so each file is
 one concern. self.sessions / self.sync_session_close resolve across the MRO as before."""
 
 import logging
@@ -19,10 +19,10 @@ from backend.apps.agents.manager.session.apply_context_window import apply_conte
 logger = logging.getLogger(__name__)
 
 
-from backend.apps.agents.manager.AgentManagerState import AgentManagerState
+from backend.apps.agents.manager.AgentManagerProtocol import AgentManagerProtocol
 
 
-class SessionPersistenceMixin(AgentManagerState):
+class SessionPersistence(AgentManagerProtocol):
     @typechecked
     async def reconcile_on_startup(self) -> None:
         """Mark any stale running sessions as stopped."""

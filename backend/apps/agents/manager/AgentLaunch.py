@@ -1,5 +1,5 @@
 """Agent run entry points for AgentManager: launch a new top-level run and the staticmethod
-invoke_agent helper (fork-and-send a sub-agent). The no-SDK mock fallback lives in MockAgentMixin.
+invoke_agent helper (fork-and-send a sub-agent). The no-SDK mock fallback lives in MockAgent.
 Split into a mixin to keep the manager file under the size ceiling; self.run_agent_loop /
 self.sessions resolve across the MRO exactly as before."""
 
@@ -29,10 +29,10 @@ from backend.apps.agents.manager.prompt.prompt_context import resolve_mode
 logger = logging.getLogger(__name__)
 
 
-from backend.apps.agents.manager.AgentManagerState import AgentManagerState
+from backend.apps.agents.manager.AgentManagerProtocol import AgentManagerProtocol
 
 
-class AgentLaunchMixin(AgentManagerState):
+class AgentLaunch(AgentManagerProtocol):
     @typechecked
     async def launch_agent(self, config: AgentConfig) -> AgentSession:
         session_id = uuid4().hex

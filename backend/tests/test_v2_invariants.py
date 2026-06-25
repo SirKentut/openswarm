@@ -79,8 +79,8 @@ async def test_gate_blocks_when_active_mcps_empty():
         p_fake_tool("Slack"),
         p_fake_tool("Notion"),
     ]
-    with patch("backend.apps.agents.manager.RunSupportMixin.load_all_tools", return_value=fake_tools), \
-         patch("backend.apps.agents.manager.RunSupportMixin.refresh_google_token", new=AsyncMock(return_value=True)):
+    with patch("backend.apps.agents.manager.RunSupport.load_all_tools", return_value=fake_tools), \
+         patch("backend.apps.agents.manager.RunSupport.refresh_google_token", new=AsyncMock(return_value=True)):
         mgr = AgentManager()
         # allowed_tools includes mcp:Gmail, but active_mcps is empty
         result = await mgr.build_mcp_servers(
@@ -99,8 +99,8 @@ async def test_gate_allows_only_activated_servers():
         p_fake_tool("Slack"),
         p_fake_tool("Notion"),
     ]
-    with patch("backend.apps.agents.manager.RunSupportMixin.load_all_tools", return_value=fake_tools), \
-         patch("backend.apps.agents.manager.RunSupportMixin.refresh_google_token", new=AsyncMock(return_value=True)):
+    with patch("backend.apps.agents.manager.RunSupport.load_all_tools", return_value=fake_tools), \
+         patch("backend.apps.agents.manager.RunSupport.refresh_google_token", new=AsyncMock(return_value=True)):
         mgr = AgentManager()
         result = await mgr.build_mcp_servers(
             allowed_tools=["mcp:Gmail", "mcp:Slack", "mcp:Notion"],
@@ -117,8 +117,8 @@ async def test_gate_unset_active_mcps_legacy_allows_all():
     """Pre-gate sessions use active_mcps=None → everything allowed (back-compat)."""
     from backend.apps.agents.agent_manager import AgentManager
     fake_tools = [p_fake_tool("Gmail"), p_fake_tool("Slack")]
-    with patch("backend.apps.agents.manager.RunSupportMixin.load_all_tools", return_value=fake_tools), \
-         patch("backend.apps.agents.manager.RunSupportMixin.refresh_google_token", new=AsyncMock(return_value=True)):
+    with patch("backend.apps.agents.manager.RunSupport.load_all_tools", return_value=fake_tools), \
+         patch("backend.apps.agents.manager.RunSupport.refresh_google_token", new=AsyncMock(return_value=True)):
         mgr = AgentManager()
         result = await mgr.build_mcp_servers(
             allowed_tools=["mcp:Gmail", "mcp:Slack"],
@@ -133,7 +133,7 @@ async def test_gate_disabled_tool_blocked_even_when_activated():
     """Tool with enabled=False stays blocked even if in active_mcps."""
     from backend.apps.agents.agent_manager import AgentManager
     fake_tools = [p_fake_tool("Gmail", enabled=False)]
-    with patch("backend.apps.agents.manager.RunSupportMixin.load_all_tools", return_value=fake_tools):
+    with patch("backend.apps.agents.manager.RunSupport.load_all_tools", return_value=fake_tools):
         mgr = AgentManager()
         result = await mgr.build_mcp_servers(
             allowed_tools=["mcp:Gmail"],
@@ -147,7 +147,7 @@ async def test_gate_unauthed_tool_blocked():
     """Tool with auth_status='disconnected' stays blocked."""
     from backend.apps.agents.agent_manager import AgentManager
     fake_tools = [p_fake_tool("Gmail", auth_status="disconnected")]
-    with patch("backend.apps.agents.manager.RunSupportMixin.load_all_tools", return_value=fake_tools):
+    with patch("backend.apps.agents.manager.RunSupport.load_all_tools", return_value=fake_tools):
         mgr = AgentManager()
         result = await mgr.build_mcp_servers(
             allowed_tools=["mcp:Gmail"],
@@ -161,8 +161,8 @@ async def test_gate_allowed_tools_filter_intersects_active_mcps():
     """Activate gmail+slack but allowed_tools only has gmail → only gmail passes."""
     from backend.apps.agents.agent_manager import AgentManager
     fake_tools = [p_fake_tool("Gmail"), p_fake_tool("Slack")]
-    with patch("backend.apps.agents.manager.RunSupportMixin.load_all_tools", return_value=fake_tools), \
-         patch("backend.apps.agents.manager.RunSupportMixin.refresh_google_token", new=AsyncMock(return_value=True)):
+    with patch("backend.apps.agents.manager.RunSupport.load_all_tools", return_value=fake_tools), \
+         patch("backend.apps.agents.manager.RunSupport.refresh_google_token", new=AsyncMock(return_value=True)):
         mgr = AgentManager()
         result = await mgr.build_mcp_servers(
             allowed_tools=["mcp:Gmail"],  # mode-restricted
@@ -192,10 +192,10 @@ async def test_gate_stress_random_activations():
         # allowed_tools mirrors raw names of connected
         allowed = [f"mcp:{raw_names[i]}" for i in connected_idx]
 
-        with patch("backend.apps.agents.manager.RunSupportMixin.load_all_tools", return_value=fake_tools), \
-             patch("backend.apps.agents.manager.RunSupportMixin.refresh_google_token", new=AsyncMock(return_value=True)), \
-             patch("backend.apps.agents.manager.RunSupportMixin.refresh_airtable_token", new=AsyncMock(return_value=True)), \
-             patch("backend.apps.agents.manager.RunSupportMixin.refresh_hubspot_token", new=AsyncMock(return_value=True)):
+        with patch("backend.apps.agents.manager.RunSupport.load_all_tools", return_value=fake_tools), \
+             patch("backend.apps.agents.manager.RunSupport.refresh_google_token", new=AsyncMock(return_value=True)), \
+             patch("backend.apps.agents.manager.RunSupport.refresh_airtable_token", new=AsyncMock(return_value=True)), \
+             patch("backend.apps.agents.manager.RunSupport.refresh_hubspot_token", new=AsyncMock(return_value=True)):
             mgr = AgentManager()
             result = await mgr.build_mcp_servers(
                 allowed_tools=allowed,
@@ -642,11 +642,11 @@ async def test_mcp_gate_only_forwards_activated_servers():
 
     # allowed_tools == get_all_tool_names() bypasses the (separate) permission
     # gate so we isolate the ACTIVATION gate. sanitize_server_name -> identity.
-    with patch("backend.apps.agents.manager.RunSupportMixin.load_all_tools", side_effect=installed), \
-         patch("backend.apps.agents.manager.RunSupportMixin.get_all_tool_names", return_value=["__ALL__"]), \
-         patch("backend.apps.agents.manager.RunSupportMixin.sanitize_server_name", side_effect=lambda n: n), \
-         patch("backend.apps.agents.manager.RunSupportMixin.is_fully_denied", return_value=False), \
-         patch("backend.apps.agents.manager.RunSupportMixin.derive_mcp_config", side_effect=lambda t: {"command": "x"}):
+    with patch("backend.apps.agents.manager.RunSupport.load_all_tools", side_effect=installed), \
+         patch("backend.apps.agents.manager.RunSupport.get_all_tool_names", return_value=["__ALL__"]), \
+         patch("backend.apps.agents.manager.RunSupport.sanitize_server_name", side_effect=lambda n: n), \
+         patch("backend.apps.agents.manager.RunSupport.is_fully_denied", return_value=False), \
+         patch("backend.apps.agents.manager.RunSupport.derive_mcp_config", side_effect=lambda t: {"command": "x"}):
         allowed = ["__ALL__"]
         # Boundary 1: empty activation list -> zero servers, always.
         assert await mgr.build_mcp_servers(allowed, active_mcps=[]) == {}
@@ -963,8 +963,8 @@ async def test_concurrent_gate_calls_isolated():
     """Two concurrent _build_mcp_servers calls with different active_mcps must not cross-contaminate."""
     from backend.apps.agents.agent_manager import AgentManager
     fake_tools = [p_fake_tool("Gmail"), p_fake_tool("Slack"), p_fake_tool("Notion")]
-    with patch("backend.apps.agents.manager.RunSupportMixin.load_all_tools", return_value=fake_tools), \
-         patch("backend.apps.agents.manager.RunSupportMixin.refresh_google_token", new=AsyncMock(return_value=True)):
+    with patch("backend.apps.agents.manager.RunSupport.load_all_tools", return_value=fake_tools), \
+         patch("backend.apps.agents.manager.RunSupport.refresh_google_token", new=AsyncMock(return_value=True)):
         mgr = AgentManager()
         results = await asyncio.gather(
             mgr.build_mcp_servers(allowed_tools=["mcp:Gmail", "mcp:Slack", "mcp:Notion"], active_mcps=["gmail"]),
@@ -1184,7 +1184,7 @@ async def test_gate_handles_missing_refresh_token_gracefully():
     from backend.apps.agents.agent_manager import AgentManager
     fake = p_fake_tool("MyApiTool", auth_status="configured")
     fake.auth_type = None  # no oauth
-    with patch("backend.apps.agents.manager.RunSupportMixin.load_all_tools", return_value=[fake]):
+    with patch("backend.apps.agents.manager.RunSupport.load_all_tools", return_value=[fake]):
         mgr = AgentManager()
         result = await mgr.build_mcp_servers(
             allowed_tools=["mcp:MyApiTool"],
@@ -3026,8 +3026,8 @@ def test_view_builder_mode_has_default_folder():
 async def test_gate_100_sequential_calls_no_leak():
     from backend.apps.agents.agent_manager import AgentManager
     fake_tools = [p_fake_tool(f"Server{i}") for i in range(10)]
-    with patch("backend.apps.agents.manager.RunSupportMixin.load_all_tools", return_value=fake_tools), \
-         patch("backend.apps.agents.manager.RunSupportMixin.refresh_google_token", new=AsyncMock(return_value=True)):
+    with patch("backend.apps.agents.manager.RunSupport.load_all_tools", return_value=fake_tools), \
+         patch("backend.apps.agents.manager.RunSupport.refresh_google_token", new=AsyncMock(return_value=True)):
         mgr = AgentManager()
         for i in range(100):
             n = i % 10
@@ -3141,8 +3141,8 @@ async def test_e2e_session_lifecycle_with_mcp_activation():
     from backend.apps.agents.agent_manager import AgentManager
     from backend.apps.agents.core.models import AgentSession
     fake_tools = [p_fake_tool("Gmail"), p_fake_tool("Slack")]
-    with patch("backend.apps.agents.manager.RunSupportMixin.load_all_tools", return_value=fake_tools), \
-         patch("backend.apps.agents.manager.RunSupportMixin.refresh_google_token", new=AsyncMock(return_value=True)):
+    with patch("backend.apps.agents.manager.RunSupport.load_all_tools", return_value=fake_tools), \
+         patch("backend.apps.agents.manager.RunSupport.refresh_google_token", new=AsyncMock(return_value=True)):
         mgr = AgentManager()
         s = AgentSession(id="e2e", name="End-to-end", model="sonnet", mode="agent")
 
@@ -3184,9 +3184,9 @@ async def test_e2e_50_random_activation_sequences():
                    ("Discord", "discord"), ("GitHub", "github"), ("Linear", "linear")]
     raw_names = [r for r, _ in server_pool]
     sanitized = [s for _, s in server_pool]
-    with patch("backend.apps.agents.manager.RunSupportMixin.load_all_tools",
+    with patch("backend.apps.agents.manager.RunSupport.load_all_tools",
                return_value=[p_fake_tool(r) for r in raw_names]), \
-         patch("backend.apps.agents.manager.RunSupportMixin.refresh_google_token", new=AsyncMock(return_value=True)):
+         patch("backend.apps.agents.manager.RunSupport.refresh_google_token", new=AsyncMock(return_value=True)):
         mgr = AgentManager()
         for _ in range(50):
             n = random.randint(0, len(sanitized))

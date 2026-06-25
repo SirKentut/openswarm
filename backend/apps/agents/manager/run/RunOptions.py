@@ -34,10 +34,10 @@ from backend.apps.agents.manager.run.run_options_helpers import (
 logger = logging.getLogger(__name__)
 
 
-from backend.apps.agents.manager.AgentManagerState import AgentManagerState
+from backend.apps.agents.manager.AgentManagerProtocol import AgentManagerProtocol
 
 
-class RunOptionsMixin(AgentManagerState):
+class RunOptions(AgentManagerProtocol):
     # No return annotation: the returned tuple carries an SDK ClaudeAgentOptions, which can't be
     # module-imported here (mock-mode would fail to import the manager); it's lazy-imported below.
     @typechecked

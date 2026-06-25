@@ -1,6 +1,6 @@
 """Turn-producing message operations for AgentManager (send + edit), the ones that append a
 user Message and spawn the agent loop. Session-control ops (stop / approve / branch / update)
-live in SessionControlMixin. Pure relocation: self.* resolves across the MRO as before."""
+live in SessionControl. Pure relocation: self.* resolves across the MRO as before."""
 
 import asyncio
 import logging
@@ -21,10 +21,10 @@ from backend.apps.agents.manager.prompt.prompt_context import resolve_mode
 logger = logging.getLogger(__name__)
 
 
-from backend.apps.agents.manager.AgentManagerState import AgentManagerState
+from backend.apps.agents.manager.AgentManagerProtocol import AgentManagerProtocol
 
 
-class MessagingMixin(AgentManagerState):
+class Messaging(AgentManagerProtocol):
     @typechecked
     async def send_message(
         self,

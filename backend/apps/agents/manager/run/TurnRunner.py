@@ -22,10 +22,10 @@ from backend.apps.settings.models import AppSettings
 logger = logging.getLogger(__name__)
 
 
-from backend.apps.agents.manager.AgentManagerState import AgentManagerState
+from backend.apps.agents.manager.AgentManagerProtocol import AgentManagerProtocol
 
 
-class TurnRunnerMixin(AgentManagerState):
+class TurnRunner(AgentManagerProtocol):
     # `options` is the SDK ClaudeAgentOptions, lazy-imported below (so mock-mode can import the
     # manager without the SDK present), so it's left unannotated; everything else is typed.
     @typechecked

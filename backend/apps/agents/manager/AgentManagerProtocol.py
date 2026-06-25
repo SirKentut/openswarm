@@ -1,7 +1,7 @@
 """Typing-only contract shared by the AgentManager mixins.
 
-The AgentManager god-object was decomposed into behavior mixins (MessagingMixin,
-SessionLifecycleMixin, ...) that read state set in AgentManager.__init__ and call
+The AgentManager god-object was decomposed into behavior mixins (Messaging,
+SessionLifecycle, ...) that read state set in AgentManager.__init__ and call
 methods implemented on sibling mixins. From inside one mixin a type checker can't
 see that composed surface, so it flags self.sessions / self.run_agent_loop as
 unknown. This base declares that surface (the __init__ state + the cross-mixin
@@ -20,7 +20,7 @@ if TYPE_CHECKING:
     from backend.apps.agents.manager.streaming.LivePartial import LivePartial
 
 
-class AgentManagerState:
+class AgentManagerProtocol:
     # State set in AgentManager.__init__.
     sessions: Dict[str, AgentSession]
     tasks: Dict[str, asyncio.Task]

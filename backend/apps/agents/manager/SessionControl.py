@@ -1,5 +1,5 @@
 """Session-control operations for AgentManager (stop / approve / switch-branch / update),
-split from MessagingMixin so each file stays one responsibility: these control or mutate a
+split from Messaging so each file stays one responsibility: these control or mutate a
 session WITHOUT producing a new agent turn. Pure relocation, self.* resolves across the MRO."""
 
 import asyncio
@@ -15,10 +15,10 @@ from backend.apps.agents.manager.session.session_store import save_session
 logger = logging.getLogger(__name__)
 
 
-from backend.apps.agents.manager.AgentManagerState import AgentManagerState
+from backend.apps.agents.manager.AgentManagerProtocol import AgentManagerProtocol
 
 
-class SessionControlMixin(AgentManagerState):
+class SessionControl(AgentManagerProtocol):
     @typechecked
     async def stop_agent(self, session_id: str):
         """Stop a running agent and all its browser-agent children."""
