@@ -6,12 +6,28 @@ tool calls are recorded, and the turn completes."""
 
 import asyncio
 
+import pytest
 import claude_agent_sdk
 from claude_agent_sdk import AssistantMessage, ResultMessage
 from claude_agent_sdk.types import TextBlock, ToolUseBlock, ThinkingBlock, StreamEvent
 
 from backend.apps.agents.agent_manager import AgentManager
 import backend.apps.agents.core.ws_manager as ws_mod
+
+
+@pytest.fixture(autouse=True)
+def p_provider_configured(monkeypatch):
+    """Every harness test drives the REAL loop, which resolves a provider before it queries.
+    Hand it a direct anthropic key so resolution succeeds, instead of leaning on a key leaking
+    in from the dev machine's settings (which made these tests pass by accident and fail in a
+    clean checkout). The harness tests the streaming loop, not provider config."""
+    import backend.apps.agents.agent_manager as am
+    import backend.apps.agents.manager.run.RunOptionsMixin as run_opts
+    from backend.apps.settings.models import AppSettings
+    settings = AppSettings(connection_mode="own_key", anthropic_api_key="sk-ant-test")
+    monkeypatch.setattr(am, "load_settings", lambda: settings, raising=True)
+    monkeypatch.setattr(run_opts, "load_settings", lambda: settings, raising=True)
+    yield
 
 
 def p_stream(event):
