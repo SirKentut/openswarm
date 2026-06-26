@@ -27,6 +27,10 @@ export interface BrowserWebview extends HTMLElement {
   executeJavaScript: (code: string) => Promise<any>;
   sendInputEvent: (event: any) => void;
   getWebContentsId: () => number;
+  getZoomLevel: () => number;
+  setZoomLevel: (level: number) => void;
+  findInPage: (text: string, options?: { forward?: boolean; findNext?: boolean; matchCase?: boolean }) => number;
+  stopFindInPage: (action: 'clearSelection' | 'keepSelection' | 'activateSelection') => void;
   addEventListener: (event: string, listener: (...args: any[]) => void, options?: boolean | AddEventListenerOptions) => void;
   removeEventListener: (event: string, listener: (...args: any[]) => void, options?: boolean | EventListenerOptions) => void;
 }

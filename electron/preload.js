@@ -103,7 +103,7 @@ contextBridge.exposeInMainWorld('openswarm', {
   },
 
   onWebviewNewWindow: (cb) => {
-    const listener = (_event, url, webContentsId) => cb(url, webContentsId);
+    const listener = (_event, url, webContentsId, disposition) => cb(url, webContentsId, disposition);
     ipcRenderer.on('webview-new-window', listener);
     return () => ipcRenderer.removeListener('webview-new-window', listener);
   },
@@ -113,6 +113,13 @@ contextBridge.exposeInMainWorld('openswarm', {
     const listener = () => cb();
     ipcRenderer.on('openswarm:reload-shortcut', listener);
     return () => ipcRenderer.removeListener('openswarm:reload-shortcut', listener);
+  },
+
+  // In-page browser shortcuts (zoom/find/tab-cycle) from a focused guest webview, carrying the guest's webContents id so the renderer targets that exact browser.
+  onBrowserShortcut: (cb) => {
+    const listener = (_event, payload) => cb(payload);
+    ipcRenderer.on('openswarm:browser-shortcut', listener);
+    return () => ipcRenderer.removeListener('openswarm:browser-shortcut', listener);
   },
 
   // Deep-link callback: fires when the OS opens the app with an

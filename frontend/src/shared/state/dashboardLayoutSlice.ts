@@ -1094,6 +1094,21 @@ const dashboardLayoutSlice = createSlice({
       }
     },
 
+    // Ctrl+Tab / Ctrl+Shift+Tab: move to the next/previous tab, wrapping around. dir 1 = forward.
+    cycleBrowserTab(
+      state,
+      action: PayloadAction<{ browserId: string; dir: 1 | -1 }>
+    ) {
+      const card = state.browserCards[action.payload.browserId];
+      if (!card || card.tabs.length < 2) return;
+      const idx = card.tabs.findIndex((t) => t.id === card.activeTabId);
+      if (idx === -1) return;
+      const n = card.tabs.length;
+      const next = card.tabs[(idx + action.payload.dir + n) % n];
+      card.activeTabId = next.id;
+      card.url = next.url;
+    },
+
     updateBrowserTabUrl(
       state,
       action: PayloadAction<{ browserId: string; tabId: string; url: string }>
@@ -1454,6 +1469,7 @@ export const {
   addBrowserTab,
   removeBrowserTab,
   setActiveBrowserTab,
+  cycleBrowserTab,
   updateBrowserTabUrl,
   updateBrowserTabTitle,
   updateBrowserTabFavicon,

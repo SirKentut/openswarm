@@ -1,5 +1,8 @@
 import { useState, useCallback, useRef, useEffect, useMemo, RefObject } from 'react';
 import { setCanvasInteractionActive } from '@/shared/canvasInteractionState';
+import { getLastInteractedBrowser } from '@/shared/browserFocus';
+import { getWebview } from '@/shared/browserRegistry';
+import { applyBrowserZoom } from '@/shared/browserZoom';
 
 const MIN_ZOOM = 0.15;
 const MAX_ZOOM = 3.0;
@@ -497,15 +500,21 @@ export function useCanvasControls(zoomSensitivity: number = 50, contentBounds?: 
         setCmdHeld(true);
       }
       if (e.ctrlKey || e.metaKey) {
+        // If the last thing you touched was a browser card, +/-/0 zooms THAT page (like a real browser); otherwise it zooms the dashboard canvas.
+        const focusedBrowser = getLastInteractedBrowser();
+        const browserWv = focusedBrowser ? getWebview(focusedBrowser) : undefined;
         if (e.key === '0') {
           e.preventDefault();
-          resetZoomRef.current();
+          if (browserWv) applyBrowserZoom(focusedBrowser as string, 0);
+          else resetZoomRef.current();
         } else if (e.key === '=' || e.key === '+') {
           e.preventDefault();
-          zoomInRef.current();
+          if (browserWv) applyBrowserZoom(focusedBrowser as string, 1);
+          else zoomInRef.current();
         } else if (e.key === '-') {
           e.preventDefault();
-          zoomOutRef.current();
+          if (browserWv) applyBrowserZoom(focusedBrowser as string, -1);
+          else zoomOutRef.current();
         }
       }
     };

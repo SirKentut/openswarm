@@ -6,6 +6,7 @@ import { removeNote, removeWorkflowCard, closeWorkflowsHub } from '@/shared/stat
 import { closeWorkflowCard } from '@/shared/state/workflowsSlice';
 import { removeBrowserCardCleanly } from '@/shared/browserTeardown';
 import { removeViewCardCleanly } from '@/shared/viewTeardown';
+import { getLastInteractedBrowser } from '@/shared/browserFocus';
 import type { useDashboardSelection } from '../state/useDashboardSelection';
 
 type Selection = ReturnType<typeof useDashboardSelection>;
@@ -117,6 +118,8 @@ export function useDashboardShortcuts({
     const handleSearch = (e: KeyboardEvent) => {
       if (!isActive) return;  // Don't fire shortcuts when dashboard is hidden
       if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== 'f') return;
+      // When you're in a browser card, Cmd+F is find-in-page (handled in AppShell), not card search.
+      if (getLastInteractedBrowser()) return;
       const tag = (e.target as HTMLElement)?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement)?.isContentEditable) return;
       e.preventDefault();

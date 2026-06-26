@@ -1990,6 +1990,27 @@ function routeReloadShortcut(event, input) {
   } catch (_) {}
 }
 
+// In-page browser shortcuts (zoom, find, tab-cycle) for a focused <webview> guest. Keydowns inside a
+// guest never reach the host renderer, so we catch them here and forward the intent + the guest's
+// webContents id so the renderer can target that exact browser. Attached to guests ONLY: on the host
+// the renderer's own keydown handles canvas-vs-browser, and intercepting there would eat canvas zoom.
+function routeBrowserShortcut(event, input, webContentsId) {
+  if (input.type !== 'keyDown' || input.alt) return;
+  const mod = input.meta || input.control;
+  const key = (input.key || '').toLowerCase();
+  let action = null;
+  if (mod && !input.shift && (key === '=' || key === '+')) action = 'zoom-in';
+  else if (mod && !input.shift && key === '-') action = 'zoom-out';
+  else if (mod && !input.shift && key === '0') action = 'zoom-reset';
+  else if (mod && !input.shift && key === 'f') action = 'find';
+  else if (input.control && !input.meta && key === 'tab') action = input.shift ? 'tab-prev' : 'tab-next';
+  if (!action) return;
+  event.preventDefault();
+  try {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('openswarm:browser-shortcut', { action, webContentsId });
+  } catch (_) {}
+}
+
 app.on('web-contents-created', (_event, contents) => {
   // Block Cmd+W from closing the main window, whether the window chrome or one of
   // its embedded webviews has focus. OAuth popups (their own 'window' contents,
@@ -1998,6 +2019,10 @@ app.on('web-contents-created', (_event, contents) => {
   if (isCreatingMainWindow || contents.getType() === 'webview') {
     contents.on('before-input-event', swallowCloseWindowShortcut);
     contents.on('before-input-event', routeReloadShortcut);
+  }
+  if (contents.getType() === 'webview') {
+    const wcId = contents.id;
+    contents.on('before-input-event', (event, input) => routeBrowserShortcut(event, input, wcId));
   }
 
   // Override the user-agent on popup BrowserWindows (i.e. anything created
@@ -2033,7 +2058,7 @@ app.on('web-contents-created', (_event, contents) => {
   contents.setWindowOpenHandler(({ url, disposition }) => {
     if (disposition === 'foreground-tab' || disposition === 'background-tab') {
       if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('webview-new-window', url, contents.id);
+        mainWindow.webContents.send('webview-new-window', url, contents.id, disposition);
       }
       return { action: 'deny' };
     }

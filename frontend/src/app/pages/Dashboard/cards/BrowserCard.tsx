@@ -47,6 +47,7 @@ import {
   type BrowserWebview,
 } from '@/shared/browserRegistry';
 import { setLastInteractedBrowser } from '@/shared/browserFocus';
+import BrowserFindBar from './BrowserFindBar';
 import { useBrowserActivity } from '@/shared/useBrowserActivity';
 import { getActionLabel } from '@/shared/browserCommandHandler';
 import { resolveInput, isGoogleSearch } from '@/shared/resolveUrl';
@@ -216,6 +217,9 @@ const BrowserCard: React.FC<Props> = ({
   // Electron webviews can't trigger OS platform auth; preload sends "passkey-detected" and we explain via modal.
   const [passkeyDialogOpen, setPasskeyDialogOpen] = useState(false);
   const [crashedTabs, setCrashedTabs] = useState<Set<string>>(new Set());
+  // Ctrl/Cmd+F find bar; focusSignal re-focuses the input each time Ctrl+F fires while it's already open.
+  const [findOpen, setFindOpen] = useState(false);
+  const [findFocusSignal, setFindFocusSignal] = useState(0);
   const updateTabLocal = useCallback((tabId: string, update: Partial<TabLocalState>) => {
     setTabLocalStates((prev) => {
       const existing = prev[tabId] ?? { loading: false, canGoBack: false, canGoForward: false };
@@ -243,6 +247,17 @@ const BrowserCard: React.FC<Props> = ({
   useEffect(() => {
     setRegistryActiveTab(browserId, activeTabId);
   }, [browserId, activeTabId]);
+
+  // Open the find bar when AppShell routes a Ctrl/Cmd+F to this browser; re-trigger re-focuses the input.
+  useEffect(() => {
+    const onFind = (e: Event) => {
+      if ((e as CustomEvent).detail?.browserId !== browserId) return;
+      setFindOpen(true);
+      setFindFocusSignal((n) => n + 1);
+    };
+    window.addEventListener('openswarm:browser-find', onFind as EventListener);
+    return () => window.removeEventListener('openswarm:browser-find', onFind as EventListener);
+  }, [browserId]);
 
   // A resumed webview remounts at about:blank; dropping the init markers lets doLoad re-fire.
   useEffect(() => {
@@ -1097,6 +1112,9 @@ const BrowserCard: React.FC<Props> = ({
 
       {/* Browser body: stacked webviews */}
       <Box sx={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
+        {findOpen && !suspendedSnap && (
+          <BrowserFindBar browserId={browserId} focusSignal={findFocusSignal} onClose={() => setFindOpen(false)} />
+        )}
         {isElementSelectMode && (
           <Box sx={{ position: 'absolute', inset: 0, zIndex: 10, pointerEvents: 'none' }} />
         )}
