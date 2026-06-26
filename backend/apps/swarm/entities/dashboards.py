@@ -93,6 +93,8 @@ class DashboardExportable:
             nbid = "browser-" + uuid4().hex[:10]
             c = dict(card)
             c["browser_id"] = nbid
+            # Re-stamp the home dashboard, else the card keeps the source's id and the anti-bleed render guard (DashboardCardLayer keepAliveHidden) hides it on the imported dashboard.
+            c["dashboard_id"] = new_did
             spawn = c.get("spawned_by")
             c["spawned_by"] = remap.local(spawn) if spawn else None
             browser_cards[nbid] = c

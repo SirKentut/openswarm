@@ -389,7 +389,7 @@ def test_dashboard_import_remaps_to_fresh_local_ids(monkeypatch):
             "ABID": {"output_id": "ABID", "parent_session_id": "SBID"},
             "ABID2": {"output_id": "ABID2", "parent_session_id": "GONE"},
         },
-        "browser_cards": {"b1": {"browser_id": "b1", "spawned_by": "SBID"}},
+        "browser_cards": {"b1": {"browser_id": "b1", "spawned_by": "SBID", "dashboard_id": "OLD_DASH"}},
         "expanded_session_ids": ["SBID", "ORPHAN"],
     }}
     remap.assign("ABID2", "newapp2")
@@ -399,6 +399,8 @@ def test_dashboard_import_remaps_to_fresh_local_ids(monkeypatch):
     assert L["view_cards"]["newapp"]["parent_session_id"] == "newsess"
     assert L["view_cards"]["newapp2"]["parent_session_id"] is None  # parent not in bundle
     assert list(L["browser_cards"].values())[0]["spawned_by"] == "newsess"
+    # The card's home dashboard must be re-stamped to the new id, else the anti-bleed render guard hides it on the import.
+    assert list(L["browser_cards"].values())[0]["dashboard_id"] == did
     assert L["expanded_session_ids"] == ["newsess"]  # the dangling ref is dropped
 
 
