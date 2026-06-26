@@ -5,7 +5,7 @@ import logging
 from contextlib import asynccontextmanager
 
 import httpx
-from fastapi import Request
+from fastapi import Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from backend.config.Apps import SubApp
@@ -51,24 +51,49 @@ _GPT5_UNSUPPORTED_PARAMS = (
     "logprobs", "top_logprobs", "logit_bias",
 )
 
+# Our OpenAI lane's 9Router node prefix. 0.3.60 intermittently forwards the model
+# WITH this prefix (`cp-openai/gpt-5.5`) instead of stripping it, and OpenAI 400s
+# "invalid model ID". We're the last hop to api.openai.com, so the model must be
+# the bare id regardless of what 9Router sent.
+_CP_OPENAI_PREFIX = "cp-openai/"
+
+# GPT-5 burns 8-30K hidden reasoning tokens before any output; under that, OpenAI 400s
+# "max_tokens reached" instead of truncating. The CLI defaults to 4096. The 9router_gpt5
+# patch floors this, but it hooks 9Router's calls to api.openai.com and on our lane 9Router
+# calls THIS passthrough instead, so the patch never fires here. Floor it ourselves. Match
+# the patch's value. Only raise, never lower.
+_GPT5_MIN_COMPLETION_TOKENS = 32768
+
 
 def _scrub_gpt5_params(body: bytes) -> bytes:
-    """For GPT-5: rename max_tokens→max_completion_tokens and drop the sampling
-    params the reasoning models reject. Bytes in/out, never raises."""
+    """Prep an OpenAI chat body: normalize the model id (drop a leaked `cp-openai/`
+    routing prefix) and, for GPT-5, rename max_tokens→max_completion_tokens and drop the
+    sampling params the reasoning models reject. Bytes in/out, never raises."""
     if not body:
         return body
     try:
         parsed = json.loads(body)
     except Exception:
         return body
-    if not isinstance(parsed, dict) or not _is_gpt5(str(parsed.get("model") or "")):
+    if not isinstance(parsed, dict):
         return body
     mutated = False
+    model = str(parsed.get("model") or "")
+    if model.startswith(_CP_OPENAI_PREFIX):
+        model = model[len(_CP_OPENAI_PREFIX):]
+        parsed["model"] = model
+        mutated = True
+    if not _is_gpt5(model):
+        return json.dumps(parsed).encode("utf-8") if mutated else body
     if "max_tokens" in parsed:
         if "max_completion_tokens" not in parsed:
             parsed["max_completion_tokens"] = parsed.pop("max_tokens")
         else:
             parsed.pop("max_tokens", None)
+        mutated = True
+    mct = parsed.get("max_completion_tokens")
+    if isinstance(mct, (int, float)) and not isinstance(mct, bool) and mct < _GPT5_MIN_COMPLETION_TOKENS:
+        parsed["max_completion_tokens"] = _GPT5_MIN_COMPLETION_TOKENS
         mutated = True
     if "temperature" in parsed and parsed["temperature"] != 1:
         parsed.pop("temperature", None)
@@ -113,6 +138,22 @@ async def passthrough(rest: str, request: Request):
         return JSONResponse(
             {"error": {"message": str(e), "type": "upstream_error"}},
             status_code=502,
+        )
+
+    # OpenAI sends 4xx/5xx as a small JSON error, not a stream. Surface its real
+    # complaint (we used to swallow it) and return it decoded so the caller sees why.
+    if upstream_resp.status_code >= 400:
+        raw = await upstream_resp.aread()
+        await upstream_resp.aclose()
+        await client.aclose()
+        logger.warning(
+            "openai-passthrough upstream %s on /%s: %s",
+            upstream_resp.status_code, rest, raw.decode("utf-8", "replace")[:400],
+        )
+        return Response(
+            content=raw,
+            status_code=upstream_resp.status_code,
+            media_type=upstream_resp.headers.get("content-type", "application/json"),
         )
 
     response_headers: dict[str, str] = {}
