@@ -1,6 +1,5 @@
 import { useMemo } from 'react';
 import { useAppSelector } from '@/shared/hooks';
-import { isAgentDrivingBrowser } from '@/shared/isAgentDrivingBrowser';
 
 // All of the dashboard's Redux reads in one place. Keeps Dashboard.tsx a thin composition layer instead of a 25-line selector wall.
 export function useDashboardSelectors(dashboardId: string) {
@@ -20,14 +19,14 @@ export function useDashboardSelectors(dashboardId: string) {
     }
     return out;
   }, [allBrowserCards, dashboardId]);
-  // Only an AGENT-driven browser from another dashboard stays mounted-but-hidden here so its run keeps going in the background; a MANUAL browser is deliberately NOT rendered off its own dashboard (it reloads on return) because a kept-alive heavy page bleeds its webview surface onto whatever dashboard you're viewing. Kept OUT of `browserCards` so save/bounds/keyboard-nav only ever see THIS dashboard's cards.
+  // Browser cards from OTHER dashboards stay mounted (so their webContents + session survive a switch, no Discord logout) but get rendered parked far off-screen by the card layer; that off-screen park reliably hides even a heavy live page (Discord), CDP-verified. Kept OUT of `browserCards` so save/bounds/keyboard-nav only ever see THIS dashboard's cards (no cross-dashboard leak), and tagging every card's home dashboard is what stops the real bleed (an untagged card renders as home everywhere).
   const keepAliveBrowserCards = useMemo(() => {
     const out: typeof allBrowserCards = {};
     for (const [id, bc] of Object.entries(allBrowserCards)) {
-      if (bc.dashboard_id && bc.dashboard_id !== dashboardId && isAgentDrivingBrowser(sessions, id, bc.spawned_by)) out[id] = bc;
+      if (bc.dashboard_id && bc.dashboard_id !== dashboardId) out[id] = bc;
     }
     return out;
-  }, [allBrowserCards, dashboardId, sessions]);
+  }, [allBrowserCards, dashboardId]);
   const workflowCards = useAppSelector((state) => state.dashboardLayout.workflowCards);
   const workflowsHub = useAppSelector((state) => state.dashboardLayout.workflowsHub);
   const pendingFocusWorkflowId = useAppSelector((state) => state.dashboardLayout.pendingFocusWorkflowId);

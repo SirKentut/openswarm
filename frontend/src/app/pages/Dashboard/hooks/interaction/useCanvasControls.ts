@@ -543,6 +543,9 @@ export function useCanvasControls(zoomSensitivity: number = 50, contentBounds?: 
     const prev = stateRef.current;
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
     for (let i = 0; i < children.length; i++) {
+      const child = children[i] as HTMLElement;
+      // Skip a kept-alive browser card from another dashboard (parked off-screen): fitting to it pans the canvas right onto it, which is the cross-dashboard bleed. On an empty dashboard this leaves nothing to fit, so the !isFinite reset below restores an identity transform and the off-screen card stays off-screen.
+      if (child.getAttribute?.('data-keepalive-hidden') === '1' || child.querySelector?.('[data-keepalive-hidden="1"]')) continue;
       const r = children[i].getBoundingClientRect();
       if (r.width === 0 && r.height === 0) continue;
       const sx = (r.left - vRect.left - prev.panX) / prev.zoom;

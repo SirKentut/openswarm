@@ -729,6 +729,8 @@ const BrowserCard: React.FC<Props> = ({
       data-select-type="browser-card"
       data-select-id={browserId}
       data-select-meta={JSON.stringify({ name: activeTitle || 'Browser', url: activeUrl })}
+      // Marks a kept-alive card parked off-screen (it belongs to another dashboard); fit-to-view must skip it or it pans the canvas to chase it and the card bleeds onto the dashboard you're viewing.
+      data-keepalive-hidden={keepAliveHidden ? '1' : undefined}
       onPointerDownCapture={() => onBringToFront?.(browserId, 'browser')}
       onClick={(e: React.MouseEvent) => {
         if (justDraggedRef.current) return;

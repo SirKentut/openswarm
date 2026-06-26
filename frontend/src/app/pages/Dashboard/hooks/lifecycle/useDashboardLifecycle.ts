@@ -26,7 +26,7 @@ import { fetchWorkflows, fetchAllRuns, fetchActiveRuns } from '@/shared/state/wo
 import { fetchMissedRuns } from '@/shared/state/missedRunsSlice';
 import { dashboardWs } from '@/shared/ws/WebSocketManager';
 import { initBrowserCommandHandler } from '@/shared/browserCommandHandler';
-import { isAgentDrivingBrowser } from '@/shared/isAgentDrivingBrowser';
+import { getKeepAliveBrowserIds } from '@/shared/browserFocus';
 import { clearPendingBrowserUrl, clearPendingFocusAgentId } from '@/shared/state/tempStateSlice';
 import { API_BASE } from '@/shared/config';
 import type { CanvasActions } from '../interaction/useCanvasControls';
@@ -99,12 +99,7 @@ export function useDashboardLifecycle({
     hasFittedRef.current = false;
     restoredExpandedRef.current = false;
     setOutputsRefetched(false);
-    // Only keep AGENT-driven browsers alive across the switch; a manual browser is dropped here (reloads when you return) so its kept-alive surface can't bleed onto the dashboard you land on.
-    const st = store.getState();
-    const agentLiveIds = Object.keys(st.dashboardLayout.browserCards).filter(
-      (id) => isAgentDrivingBrowser(st.agents.sessions, id, st.dashboardLayout.browserCards[id]?.spawned_by),
-    );
-    dispatch(resetLayout({ keepBrowserIds: agentLiveIds }));
+    dispatch(resetLayout({ keepBrowserIds: getKeepAliveBrowserIds() }));
     // CRITICAL path: these populate the cards the user expects to see on first paint. Don't defer.
     dispatch(fetchSessions({ dashboardId }));
     dispatch(fetchLayout({ dashboardId }));
