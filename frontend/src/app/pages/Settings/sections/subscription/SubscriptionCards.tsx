@@ -17,6 +17,17 @@ import { SUBSCRIPTION_PROVIDERS } from './subscriptionProviders';
 import SubscriptionCard from './SubscriptionCard';
 import { runConnectFlow } from './subscriptionConnect';
 
+function friendlyConnectError(detail: string): string {
+  const d = (detail || '').trim();
+  const lower = d.toLowerCase();
+  if (!d) return 'Could not start the login. Please try again.';
+  if (lower.includes('1455') || lower.includes('1457') || lower.includes('codex login ports')) return d;
+  if (lower.includes('import name') || lower.includes('traceback') || lower.includes('/backend/') || lower.includes('backend.')) {
+    return 'Could not start the login. Please try again.';
+  }
+  return d.length > 180 ? 'Could not start the login. Please try again.' : d;
+}
+
 const SubscriptionCards: React.FC = () => {
   const c = useClaudeTokens();
   const dispatch = useAppDispatch();
@@ -84,7 +95,7 @@ const SubscriptionCards: React.FC = () => {
         // instead of silently dropping the spinner.
         let detail = '';
         try { detail = (await r.json())?.detail || ''; } catch {}
-        setConnectError(detail || 'Could not start the login. Please try again.');
+        setConnectError(friendlyConnectError(detail));
         setConnecting(null);
         return;
       }
