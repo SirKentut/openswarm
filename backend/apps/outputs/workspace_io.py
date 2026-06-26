@@ -75,6 +75,12 @@ WALK_SKIP_DIRS = frozenset({
     ".ruff_cache",
 })
 
+# OS/editor junk files that ride along in a workspace but are noise in an export.
+WALK_SKIP_FILES = frozenset({
+    ".DS_Store",
+    "Thumbs.db",
+})
+
 # Cap per-file response size at 256 KB. Hand-written source rarely exceeds this; auto-generated bundles routinely run into the MBs and they're not what the user/agent is editing. Anything over the cap returns a truncated stub the frontend treats as "open the file directly to see full contents."
 P_WALK_MAX_FILE_BYTES = 256 * 1024
 

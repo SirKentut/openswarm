@@ -12,7 +12,7 @@ import socket
 from uuid import uuid4
 
 from backend.apps.outputs.models import Output
-from backend.apps.outputs.workspace_io import WALK_SKIP_DIRS, save, load_output
+from backend.apps.outputs.workspace_io import WALK_SKIP_DIRS, WALK_SKIP_FILES, save, load_output
 from backend.config.paths import OUTPUTS_DIR, OUTPUTS_WORKSPACE_DIR
 
 from backend.apps.swarm.exportable import DepRef, ExportContext, RemapTable
@@ -56,6 +56,8 @@ class AppExportable:
             for fn in fnames:
                 # .env is install-specific (absolute paths + port); .env.example travels instead.
                 if fn == ".env":
+                    continue
+                if fn in WALK_SKIP_FILES:
                     continue
                 full = os.path.join(root, fn)
                 if os.path.islink(full):
