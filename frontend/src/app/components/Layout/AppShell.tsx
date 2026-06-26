@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback, startTransition, useMemo } from 'react';
 import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { openSettingsModal } from '@/shared/state/settingsSlice';
-import { getLastInteractedBrowser, setLastInteractedBrowser, clearLastInteractedBrowser } from '@/shared/browserFocus';
+import { getLastInteractedBrowser, getKeepAliveBrowserIds, setLastInteractedBrowser, clearLastInteractedBrowser } from '@/shared/browserFocus';
 import { getWebview } from '@/shared/browserRegistry';
 import Box from '@mui/material/Box';
 import ListItemButton from '@mui/material/ListItemButton';
@@ -336,14 +336,15 @@ const AppShell: React.FC = () => {
     return () => document.removeEventListener('pointerdown', onPointerDown, true);
   }, []);
 
-  // Cmd/Ctrl+R: main neutralizes the default-menu reload and hands us the decision. If you're focused IN a browser, reload just that one in place (keeps its login); the moment you click off into the dashboard it reloads OpenSwarm itself, same as a normal browser tab vs the app window.
+  // Cmd/Ctrl+R: main neutralizes the default-menu reload and hands us the decision. Reload the browser you're in or last used IN PLACE (keeps its login); only when no browser is open at all fall back to a full app reload, since reloading the renderer destroys every webview and wipes its session. To deliberately reload OpenSwarm itself, use View > Reload.
   useEffect(() => {
     const w = window as any;
     if (!w.openswarm?.onReloadShortcut) return;
     return w.openswarm.onReloadShortcut(() => {
-      const id = getLastInteractedBrowser();
-      const wv = id ? getWebview(id) : undefined;
-      if (wv) { try { wv.reload(); return; } catch (_e) { /* torn-down webview; fall through to app reload */ } }
+      for (const id of [getLastInteractedBrowser(), ...getKeepAliveBrowserIds()]) {
+        const wv = id ? getWebview(id) : undefined;
+        if (wv) { try { wv.reload(); return; } catch (_e) { /* torn-down webview; try the next */ } }
+      }
       window.location.reload();
     });
   }, []);
