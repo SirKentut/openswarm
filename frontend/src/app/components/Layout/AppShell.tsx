@@ -36,6 +36,7 @@ import Dashboard from '@/app/pages/Dashboard/Dashboard';
 import DashboardHost from '@/app/components/Layout/DashboardHost';
 import { useLastDashboardId } from '@/shared/hooks/useLastDashboardId';
 import { useAppDispatch, useAppSelector } from '@/shared/hooks';
+import { hasModelConnected as selectHasModelConnected } from '@/app/components/Onboarding/steps/skipPredicates';
 import { shallowEqual } from 'react-redux';
 import { fetchDashboards, createDashboard, renameDashboard } from '@/shared/state/dashboardsSlice';
 import { Typewriter } from '@/app/components/feedback/Animated';
@@ -133,10 +134,9 @@ const AppShell: React.FC = () => {
     };
   }, []);
 
-  // /agents/models intersects BUILTIN_MODELS with API keys + 9Router state; non-empty means at least one usable model.
-  const modelsByProvider = useAppSelector((s) => s.models.byProvider);
   const modelsLoaded = useAppSelector((s) => s.models.loaded);
-  const hasModelConnected = Object.keys(modelsByProvider).length > 0;
+  // "Connected" = the user's OWN model (key/sub/pro/custom), NOT a non-empty /models list: the free-trial Haiku is always in that list now, so a byProvider-length check would falsely read as connected and hide the out-of-runs banner.
+  const hasModelConnected = useAppSelector(selectHasModelConnected);
   // During an active free trial the user CAN run things, so a red "no model connected" warning is misleading and discouraging (it sits right above the working starter chips). The trial flips connection_mode back to own_key the moment it's spent, so this banner returns then, landing the connect-a-model nudge after the win, not before it.
   const freeTrialActive = useAppSelector((s) => {
     const d = s.settings.data as any;

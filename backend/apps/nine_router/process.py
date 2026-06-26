@@ -357,12 +357,16 @@ async def ensure_running():
 
 async def p_ensure_running_impl():
     """Start 9Router if not already running."""
-    global p_process
+    global p_process, p_is_running_last_ok
     p_is_packaged = os.environ.get("OPENSWARM_PACKAGED") == "1"
 
     if is_running():
         # In dev mode, kill stale standalone servers (from previous builds) so we can start `next dev` which always uses latest source code
         if not p_is_packaged:
+            # But never kill the instance WE already started: a second ensure call (another sub-app's lifespan races settings') would pkill our fresh next-server, leaving a dead window the boot key-sync fails into, so the cp-openai node never registers and gpt-5.* own-key dies.
+            if p_process is not None and p_process.poll() is None:
+                logger.info("9Router already running (ours) on port %d", NINE_ROUTER_PORT)
+                return
             import subprocess as p_sp
             try:
                 result = p_sp.run(
@@ -372,6 +376,8 @@ async def p_ensure_running_impl():
                 if result.stdout.strip():
                     logger.info("Dev mode: killing stale standalone 9Router to use next dev instead")
                     p_sp.run(["pkill", "-f", "next-server"], timeout=5)
+                    # The port is about to go dead; drop the positive-cache so the start-loop below actually re-probes instead of trusting the killed server's stale "ready".
+                    p_is_running_last_ok = 0.0
                     await asyncio.sleep(2)
                 else:
                     logger.info("9Router already running on port %d", NINE_ROUTER_PORT)

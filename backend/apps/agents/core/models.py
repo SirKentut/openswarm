@@ -13,6 +13,8 @@ class AgentConfig(BaseModel):
     max_turns: Optional[int] = None
     target_directory: Optional[str] = None
     dashboard_id: Optional[str] = None
+    workflow_run_id: Optional[str] = None
+    workflow_edit_id: Optional[str] = None
     # App cards the user picked to edit. When exactly one resolves, launch binds the chat's cwd to that app instead of seeding a new "Untitled App".
     selected_app_output_ids: Optional[list[str]] = None
 
@@ -110,6 +112,10 @@ class AgentSession(BaseModel):
     dashboard_id: Optional[str] = None
     browser_id: Optional[str] = None
     parent_session_id: Optional[str] = None
+    # Set when this session IS a workflow run's agent; the run renders in the Workflows monitor card, so the canvas suppresses the duplicate standalone agent card.
+    workflow_run_id: Optional[str] = None
+    # Set when this session IS a workflow's embedded edit/compose chat; it lives in the Workflows hub window, so the canvas suppresses its standalone card and docks its browser below the hub.
+    workflow_edit_id: Optional[str] = None
     workflow_test_state: Optional[Literal["running", "complete", "error"]] = None
     # Browser memory signals, drive the subtle "remembered/learned" card chip so the user feels the agent getting smarter without lifting a finger.
     memory_recalled: bool = False

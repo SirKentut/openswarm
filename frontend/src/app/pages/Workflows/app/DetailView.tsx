@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useAppDispatch, useAppSelector } from '@/shared/hooks';
 import { runWorkflowNow } from '@/shared/state/workflowsSlice';
 import { openWorkflowMonitor, setWorkflowsRunContext, clearWorkflowsRunContext } from '@/shared/state/dashboardLayoutSlice';
@@ -28,6 +28,7 @@ const DetailView: React.FC<{ workflowId: string; nav: AppNav }> = ({ workflowId 
   const runContext = useAppSelector((s) => s.dashboardLayout.workflowsRunContext);
   // When you Run now from this chat, attach that run as a context chip once it finishes, so the next question rides on its transcript (removable, no popup).
   const autoCtxRunId = useRef<string | null>(null);
+  const [paneOpen, setPaneOpen] = useState(true);
 
   useEffect(() => {
     const rid = autoCtxRunId.current;
@@ -77,6 +78,13 @@ const DetailView: React.FC<{ workflowId: string; nav: AppNav }> = ({ workflowId 
                 : <div style={{ width: 0, height: 0, borderTop: '5px solid transparent', borderBottom: '5px solid transparent', borderLeft: `8px solid ${WC.paper}`, flex: 'none' }} />}
               <span>{running ? 'Running…' : 'Run'}</span>
             </button>
+            <div
+              onClick={() => setPaneOpen((v) => !v)}
+              title={paneOpen ? 'Hide schedule & steps' : 'Show schedule & steps'}
+              style={{ width: 28, height: 28, borderRadius: 7, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: paneOpen ? WC.ink3 : WC.muted, flex: 'none' }}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M14 4v16" /><path d={paneOpen ? 'M19 9l-2 3 2 3' : 'M17 9l2 3-2 3'} /></svg>
+            </div>
           </div>
           {workflow.description && <div style={{ fontSize: 13.5, color: WC.muted, marginTop: 7, paddingLeft: 27 }}>{workflow.description}</div>}
         </div>
@@ -95,12 +103,14 @@ const DetailView: React.FC<{ workflowId: string; nav: AppNav }> = ({ workflowId 
         </div>
       </div>
 
-      <div style={{ width: 344, flex: 'none', borderLeft: `1px solid ${WC.line}`, background: WC.rail, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+      <div style={{ width: paneOpen ? 344 : 0, flex: 'none', overflow: 'hidden', background: WC.rail, transition: 'width .4s cubic-bezier(.4,0,.2,1)' }}>
+       <div style={{ width: 344, height: '100%', borderLeft: `1px solid ${WC.line}`, display: 'flex', flexDirection: 'column', minHeight: 0, opacity: paneOpen ? 1 : 0, transition: 'opacity .4s ease' }}>
         <div style={{ flex: 1, overflowY: 'auto', minHeight: 0, padding: '18px 18px 22px', display: 'flex', flexDirection: 'column', gap: 16 }}>
           <ScheduleCard workflow={workflow} />
           <StepsCard workflow={workflow} />
           <HistoryCard workflowId={workflow.id} title={workflow.title} />
         </div>
+       </div>
       </div>
     </>
   );

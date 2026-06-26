@@ -401,8 +401,8 @@ async def subscriptions_connect(body: dict):
         result = await start_oauth(provider)
 
         if result.get("flow") == "authorization_code" and result.get("state"):
-            from backend.main import p_pending_oauth
-            p_pending_oauth[result["state"]] = {
+            from backend.apps.oauth_state import pending_oauth
+            pending_oauth[result["state"]] = {
                 "provider": provider,
                 "code_verifier": result.get("code_verifier", ""),
                 "redirect_uri": result.get("redirect_uri", ""),
@@ -432,6 +432,8 @@ async def subscriptions_poll(body: dict):
             from backend.apps.service.client import sync as p_sync
             from backend.apps.settings.settings import load_settings
             p_sync(load_settings().model_dump())
+            from backend.apps.subscription.free_trial import clear_free_trial_on_connect
+            await clear_free_trial_on_connect()
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -465,6 +467,9 @@ async def subscriptions_exchange(body: dict):
             from backend.apps.service.client import sync as do_sync
             from backend.apps.settings.settings import load_settings
             do_sync(load_settings().model_dump())
+            # A connected subscription takes precedence over the free trial right away.
+            from backend.apps.subscription.free_trial import clear_free_trial_on_connect
+            await clear_free_trial_on_connect()
         return result
     except Exception as e:
         if state and state in completed_oauth:
@@ -804,6 +809,16 @@ async def list_models():
             })
         if entries:
             result[cp_name] = entries
+
+    # Free lane: nothing of the user's own is connected, so surface the funded Haiku as the free-trial face. The picker shows "Claude Haiku" and the session/default reconcile to it, instead of the picker going empty and the model staying stuck on a dead last-used id (active = it runs; spent = the send is gated by the out-of-runs UI).
+    if not result:
+        haiku_entry = next((m for m in anthropic_models if m.get("value") == "haiku"), None)
+        if haiku_entry:
+            haiku_rows = p_serialize([haiku_entry])
+            for hr in haiku_rows:
+                hr["is_free"] = True
+                hr["billing_kind"] = "free"
+            result["Anthropic"] = haiku_rows
 
     return {"models": result, "notes": notes}
 

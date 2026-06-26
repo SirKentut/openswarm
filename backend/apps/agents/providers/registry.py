@@ -217,6 +217,9 @@ def p_antigravity_connected() -> bool:
 
 def resolve_model_id_for_sdk(short_name: str, settings: AppSettings) -> str:
     """Short model name → id string for ClaudeAgentOptions."""
+    # Free trial funds only Haiku via the cloud proxy; force it so a session left on a gpt-*/sub model can't escape to a lane the trial can't fund (which snags as a 401/404).
+    if getattr(settings, "connection_mode", "own_key") == "free-trial":
+        short_name = "haiku"
     entry = find_builtin_model(short_name)
     if entry is None:
         return short_name

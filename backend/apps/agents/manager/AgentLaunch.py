@@ -115,6 +115,8 @@ class AgentLaunch(AgentManagerProtocol):
             repo_url=repo_url,
             branch=branch_name,
             dashboard_id=config.dashboard_id,
+            workflow_run_id=config.workflow_run_id,
+            workflow_edit_id=config.workflow_edit_id,
             thinking_level=getattr(global_settings, "default_thinking_level", "auto"),
         )
         apply_context_window(session, global_settings)

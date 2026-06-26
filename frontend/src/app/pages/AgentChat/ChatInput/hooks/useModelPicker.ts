@@ -179,6 +179,7 @@ export function useModelPicker(
         });
         if (cancelled) return;
         const data = await res.json();
+        if (!data.ok && data.error) console.warn('[model-probe]', model, data.error);
         setProbeResult({ value: model, ok: !!data.ok, error: data.error, latency_ms: data.latency_ms });
       } catch {}
     }, 350);

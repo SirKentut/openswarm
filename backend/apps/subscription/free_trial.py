@@ -22,7 +22,7 @@ import time
 import httpx
 
 from backend.apps.settings.credentials import OPENSWARM_DEFAULT_PROXY_URL
-from backend.apps.settings.settings import save_settings_async
+from backend.apps.settings.settings import load_settings, save_settings_async
 
 logger = logging.getLogger(__name__)
 
@@ -132,12 +132,25 @@ async def clear_free_trial(settings_obj) -> None:
     (so the UI knows it's spent) and never touches a real paid mode."""
     if getattr(settings_obj, "connection_mode", "own_key") == "free-trial":
         settings_obj.connection_mode = "own_key"
-        # arm() pinned default_model to "haiku" for the free run; once the wheel is handed back, don't let that forced pick linger (it'd silently default a real subscription user to Haiku). "sonnet" is the fresh default; the frontend's DefaultModelGuard reconciles it to a reachable model if the connected provider isn't Anthropic.
-        if getattr(settings_obj, "default_model", None) == "haiku":
+        # Keep Haiku as the face of the free lane while the user has no model of their own (a spent trial still shows "Claude Haiku", with the send gated by the out-of-runs UI); only fall back to "sonnet" once a real key/sub connects so we never pin a paying user to Haiku.
+        if getattr(settings_obj, "default_model", None) == "haiku" and (
+            has_own_model(settings_obj) or await p_has_connected_subscription()
+        ):
             settings_obj.default_model = "sonnet"
     settings_obj.free_trial_token = None
     await save_settings_async(settings_obj)
     await p_sync_routing(settings_obj)
+
+
+async def clear_free_trial_on_connect() -> None:
+    """Hand the wheel back to a just-connected subscription immediately, instead of
+    waiting for the next-boot arm_free_trial reconcile. Subscriptions live in 9Router,
+    not settings, so `apply_settings_update`'s `_has_own_model` clear (which covers keys +
+    custom providers) can't see them; this is the connect-time equivalent for subs."""
+    try:
+        await clear_free_trial(load_settings())
+    except Exception as e:
+        logger.debug("clear_free_trial_on_connect skipped: %s", e)
 
 
 async def arm_free_trial(settings_obj) -> dict:

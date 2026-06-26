@@ -27,6 +27,7 @@ import { openSettingsModal } from '@/shared/state/settingsSlice';
 import { fetchSubscriptionStatus } from '@/shared/state/subscriptionsSlice';
 import { shallowEqual } from 'react-redux';
 import { useAppDispatch, useAppSelector } from '@/shared/hooks';
+import { hasModelConnected as selectHasModelConnected } from '@/app/components/Onboarding/steps/skipPredicates';
 import { useClaudeTokens } from '@/shared/styles/ThemeContext';
 import { SKILL_COLOR } from '@/app/components/editor/richEditorUtils';
 import PlanPickerModal from '@/app/components/overlays/PlanPickerModal';
@@ -977,7 +978,7 @@ const MessageBubble: React.FC<Props> = React.memo(({ message, editing = false, o
       frameworkOverhead: s.framework_overhead_tokens,
       activeMcpCount: s.active_mcps?.length ?? 0,
       messagesCount: s.messages?.length ?? 0,
-      hasModel: Object.keys(state.models.byProvider || {}).length > 0,
+      hasModel: selectHasModelConnected(state),
     } as OverflowContext;
   }, shallowEqual);
   const activeSessionId = useAppSelector((state) => state.agents.activeSessionId);

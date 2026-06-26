@@ -43,6 +43,21 @@ interface Props {
   pendingPayloadEstimate: number;
 }
 
+// Probe errors come back as raw upstream JSON ("Error code: 400 - {'error': {...}}"); never show that to users. Map to a short actionable line (the raw is console-logged in useModelPicker for devs).
+function friendlyProbeError(raw?: string): string {
+  const r = (raw || '').toLowerCase();
+  if (r.includes('no credentials') || r.includes('not connected') || r.includes('bad_request')) {
+    return "This model isn't connected, add its provider in Settings.";
+  }
+  if (r.includes('401') || r.includes('unauthorized') || r.includes('invalid api key') || r.includes('invalid_api_key')) {
+    return "This model's key looks invalid, check it in Settings.";
+  }
+  if (r.includes('402') || r.includes('quota') || r.includes('credit') || r.includes('billing')) {
+    return "This model is out of credits, check billing.";
+  }
+  return "This model isn't available right now.";
+}
+
 export const ModelPickerMenu: React.FC<Props> = (props) => {
   const {
     c, menuPaperProps, modelAnchor, setModelAnchor, model, onModelChange, onProviderChange,
@@ -84,7 +99,7 @@ export const ModelPickerMenu: React.FC<Props> = (props) => {
       />
 
       {probeResult && probeResult.value === model && !probeResult.ok && (
-        <Tooltip title={probeResult.error || 'health check failed'} placement="bottom-start" enterDelay={400}>
+        <Tooltip title={friendlyProbeError(probeResult.error)} placement="bottom-start" enterDelay={400}>
           <Box
             onClick={(e) => e.stopPropagation()}
             sx={{
@@ -108,7 +123,7 @@ export const ModelPickerMenu: React.FC<Props> = (props) => {
               whiteSpace: 'nowrap',
               opacity: 0.85,
             }}>
-              · {probeResult.error || 'this model failed its health check'}
+              · {friendlyProbeError(probeResult.error)}
             </Box>
           </Box>
         </Tooltip>

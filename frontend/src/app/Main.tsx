@@ -11,6 +11,7 @@ import { useAppDispatch, useAppSelector } from '@/shared/hooks';
 import { fetchSettings, updateSettingsPatch, markFreeTrialArmSettled } from '@/shared/state/settingsSlice';
 import { fetchSubscriptionStatus } from '@/shared/state/subscriptionsSlice';
 import { fetchModels } from '@/shared/state/modelsSlice';
+import { updateSessionModel } from '@/shared/state/agentsSlice';
 import { API_BASE } from '@/shared/config';
 import {
   setAppVersion,
@@ -322,8 +323,11 @@ const DefaultModelGuard: React.FC<{ children: React.ReactNode }> = ({ children }
   const modelsLoaded = useAppSelector((s) => s.models.loaded);
   // Until 9Router answers, /models omits subscription models, so the saved default can look "no longer available" when it's really just not loaded yet. Reconciling then would clobber a real sub user's default down to a fallback (and persist it). Only reconcile against the complete list.
   const nineRouterUp = useAppSelector((s) => s.subscriptions.status?.running === true);
+  const sessions = useAppSelector((s) => s.agents.sessions);
+  const connectionMode = useAppSelector((s) => s.settings.data.connection_mode);
+  const freeTrialRemaining = useAppSelector((s) => s.settings.data.free_trial_remaining);
 
-  const [warning, setWarning] = useState<{ from: string; to: string; provider: string } | null>(null);
+  const [sessionSwitch, setSessionSwitch] = useState<{ toFreeTrial: boolean; runs: number | null; toLabel: string } | null>(null);
   const pendingRef = useRef(false);
 
   useEffect(() => {
@@ -338,33 +342,60 @@ const DefaultModelGuard: React.FC<{ children: React.ReactNode }> = ({ children }
     const fallback = pickFallbackModel(byProvider);
     if (!fallback || fallback.value === settings.default_model) return;
 
-    const fromLabel = flat.find((m) => m.value === settings.default_model)?.label ?? settings.default_model;
+    // Persist the fallback so the stored default is never a dead model, and surface the same blue banner the per-session reconcile uses (no separate yellow notice, it just doubled up).
     pendingRef.current = true;
     dispatch(updateSettingsPatch({ default_model: fallback.value }))
       .finally(() => {
         pendingRef.current = false;
       });
-    setWarning({ from: fromLabel, to: fallback.label, provider: fallback.provider });
-  }, [settingsLoaded, modelsLoaded, nineRouterUp, byProvider, settings, dispatch]);
+    setSessionSwitch({ toFreeTrial: connectionMode === 'free-trial', runs: freeTrialRemaining ?? null, toLabel: fallback.label });
+  }, [settingsLoaded, modelsLoaded, nineRouterUp, connectionMode, freeTrialRemaining, byProvider, settings, dispatch]);
+
+  // Same staleness per session: a session pinned to a now-gone model (e.g. gpt-5.4-api after its key is disconnected) snags on the next send since the send carries that model, so reconcile open sessions to the valid default/fallback and warn once.
+  useEffect(() => {
+    if (!settingsLoaded || !modelsLoaded) return;
+    // free-trial/pro model lists don't wait on 9Router sub enumeration, so don't gate them on nineRouterUp (often false on the free lane) or a stranded session never recovers.
+    if (!nineRouterUp && connectionMode !== 'free-trial' && connectionMode !== 'openswarm-pro') return;
+    if (Object.keys(byProvider).length === 0) return;
+    const flat = Object.values(byProvider).flat();
+    const valid = new Set(flat.map((m) => m.value));
+    if (valid.size === 0) return;
+    const fallback = pickFallbackModel(byProvider);
+    if (!fallback) return;
+    const target = valid.has(settings.default_model) ? settings.default_model : fallback.value;
+    let switched = false;
+    for (const sess of Object.values(sessions)) {
+      if (sess.model && !valid.has(sess.model)) {
+        switched = true;
+        dispatch(updateSessionModel({ sessionId: sess.id, model: target }));
+      }
+    }
+    if (switched) {
+      const toLabel = flat.find((m) => m.value === target)?.label ?? target;
+      setSessionSwitch({ toFreeTrial: connectionMode === 'free-trial', runs: freeTrialRemaining ?? null, toLabel });
+    }
+  }, [settingsLoaded, modelsLoaded, nineRouterUp, connectionMode, freeTrialRemaining, byProvider, sessions, settings, dispatch]);
 
   return (
     <>
       {children}
       <Snackbar
-        open={!!warning}
-        autoHideDuration={8000}
-        onClose={() => setWarning(null)}
-        anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
+        open={!!sessionSwitch}
+        autoHideDuration={9000}
+        onClose={() => setSessionSwitch(null)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
       >
         <Alert
-          severity="warning"
+          severity="info"
           variant="filled"
-          onClose={() => setWarning(null)}
+          onClose={() => setSessionSwitch(null)}
           sx={{ fontSize: '0.8rem' }}
         >
-          {warning && (
-            <>Default model <b>{warning.from}</b> is no longer available, switched to <b>{warning.to}</b> ({warning.provider}).</>
-          )}
+          {sessionSwitch && (sessionSwitch.toFreeTrial ? (
+            <>Your model isn't connected, you're on the free trial now{sessionSwitch.runs != null ? <> ({sessionSwitch.runs} runs left)</> : null}.</>
+          ) : (
+            <>Your model isn't available anymore, switched to <b>{sessionSwitch.toLabel}</b>.</>
+          ))}
         </Alert>
       </Snackbar>
     </>

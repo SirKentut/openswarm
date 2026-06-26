@@ -8,6 +8,7 @@ import TextField from '@mui/material/TextField';
 import ClickAwayListener from '@mui/material/ClickAwayListener';
 import Fade from '@mui/material/Fade';
 import SwapHorizRoundedIcon from '@mui/icons-material/SwapHorizRounded';
+import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import CloseIcon from '@mui/icons-material/Close';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
@@ -336,6 +337,9 @@ const AgentChat: React.FC<AgentChatProps> = ({ sessionId: sessionIdProp, onClose
   // Workflow build chat only: brief "this model now runs the workflow" notice when the user switches models, so the run-model change isn't silent.
   const [workflowModelNotice, setWorkflowModelNotice] = useState<string | null>(null);
   const workflowModelNoticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [freeTrialModelNotice, setFreeTrialModelNotice] = useState<{ kind: 'connect' | 'spent'; label: string } | null>(null);
+  const freeTrialModelNoticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const freeTrialRemaining = useAppSelector((s) => s.settings.data.free_trial_remaining);
 
   // Read live in the stable handleSend/dispatchMessage closures without busting their memo (ChatInput leans on handleSend identity holding across renders).
   const runContextRef = useRef(runContext);
@@ -844,16 +848,33 @@ const AgentChat: React.FC<AgentChatProps> = ({ sessionId: sessionIdProp, onClose
   }, [id, isDraft, dispatch]);
 
   const handleModelChange = useCallback((newModel: string) => {
+    // On the trial only Haiku is funded; picking anything else needs a connected provider, and once runs are spent nothing local works, so warn and keep the funded model instead of snagging.
+    if (connectionMode === 'free-trial') {
+      const kind: 'connect' | 'spent' | null =
+        (freeTrialRemaining ?? 0) <= 0 ? 'spent' : (newModel !== 'haiku' ? 'connect' : null);
+      if (kind) {
+        setFreeTrialModelNotice({ kind, label: resolveModelLabel(newModel) });
+        if (freeTrialModelNoticeTimer.current) clearTimeout(freeTrialModelNoticeTimer.current);
+        freeTrialModelNoticeTimer.current = setTimeout(() => setFreeTrialModelNotice(null), 6000);
+        return;
+      }
+    }
     if (workflowEditId && newModel !== model) {
       setWorkflowModelNotice(resolveModelLabel(newModel));
       if (workflowModelNoticeTimer.current) clearTimeout(workflowModelNoticeTimer.current);
       workflowModelNoticeTimer.current = setTimeout(() => setWorkflowModelNotice(null), 5000);
     }
+    // Picked a usable model: drop any stale notice now (fades out in ~220ms) instead of letting it sit out its timer.
+    setFreeTrialModelNotice(null);
+    if (freeTrialModelNoticeTimer.current) clearTimeout(freeTrialModelNoticeTimer.current);
     setModel(newModel);
     if (id && !isDraft) dispatch(updateSessionModel({ sessionId: id, model: newModel }));
-  }, [id, isDraft, dispatch, workflowEditId, model, resolveModelLabel]);
+  }, [id, isDraft, dispatch, workflowEditId, model, resolveModelLabel, connectionMode, freeTrialRemaining]);
 
-  useEffect(() => () => { if (workflowModelNoticeTimer.current) clearTimeout(workflowModelNoticeTimer.current); }, []);
+  useEffect(() => () => {
+    if (workflowModelNoticeTimer.current) clearTimeout(workflowModelNoticeTimer.current);
+    if (freeTrialModelNoticeTimer.current) clearTimeout(freeTrialModelNoticeTimer.current);
+  }, []);
 
   const handleThinkingLevelChange = useCallback((level: 'off' | 'low' | 'medium' | 'high' | 'auto') => {
     if (!id) return;
@@ -2219,6 +2240,7 @@ const AgentChat: React.FC<AgentChatProps> = ({ sessionId: sessionIdProp, onClose
               ) : (
                 <Box sx={{ position: 'relative' }}>
                   <WorkflowModelNotice c={c} label={workflowModelNotice} />
+                  <FreeTrialModelNotice c={c} notice={freeTrialModelNotice} />
                   <ChatInput
                   ref={chatInputRef}
                   onSend={handleSend}
@@ -2269,6 +2291,33 @@ function WorkflowModelNotice({ c, label }: { c: ReturnType<typeof useClaudeToken
         <SwapHorizRoundedIcon sx={{ fontSize: 17, color: c.accent.primary, flexShrink: 0 }} />
         <Box sx={{ fontSize: '0.83rem', color: c.text.primary, lineHeight: 1.4 }}>
           This workflow will now be using <b>{display}</b>.
+        </Box>
+      </Box>
+    </Fade>
+  );
+}
+
+function FreeTrialModelNotice({ c, notice }: { c: ReturnType<typeof useClaudeTokens>; notice: { kind: 'connect' | 'spent'; label: string } | null }) {
+  const last = React.useRef<{ kind: 'connect' | 'spent'; label: string } | null>(null);
+  if (notice) last.current = notice;
+  const display = last.current;
+  if (!display) return null;
+  return (
+    <Fade in={!!notice} timeout={{ enter: 200, exit: 220 }} unmountOnExit>
+      <Box sx={{
+        position: 'absolute', left: 8, right: 8, bottom: 'calc(100% + 8px)',
+        display: 'flex', alignItems: 'center', gap: 1,
+        bgcolor: c.bg.surface, border: `1px solid ${c.border.medium}`,
+        boxShadow: c.shadow.md, borderRadius: '12px',
+        px: 1.75, py: 1, zIndex: 6,
+      }}>
+        <InfoOutlinedIcon sx={{ fontSize: 17, color: c.accent.primary, flexShrink: 0 }} />
+        <Box sx={{ fontSize: '0.83rem', color: c.text.primary, lineHeight: 1.4 }}>
+          {display.kind === 'spent' ? (
+            <>You're out of free runs, connect a model in Settings to use <b>{display.label}</b>.</>
+          ) : (
+            <>Connect a provider in Settings to use <b>{display.label}</b>.</>
+          )}
         </Box>
       </Box>
     </Fade>

@@ -43,12 +43,13 @@ from backend.apps.subscription.router import subscription
 from backend.apps.auth.router import auth
 from backend.apps.web.web import web
 from backend.apps.agents.proxy.anthropic_proxy import anthropic_proxy
+from backend.apps.agents.core.openai_passthrough import openai_passthrough
 from backend.apps.workflows.workflows import workflows
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi import WebSocket, WebSocketDisconnect
 import json
 
-main_app = MainApp([health, agents, skills, tools_lib, modes, settings, mcp_registry, skill_registry, outputs, output_versions, dashboards, swarm, service, subscription, auth, web, anthropic_proxy, workflows])
+main_app = MainApp([health, agents, skills, tools_lib, modes, settings, mcp_registry, skill_registry, outputs, output_versions, dashboards, swarm, service, subscription, auth, web, anthropic_proxy, workflows, openai_passthrough])
 app = main_app.app
 
 # Generate per-install auth token BEFORE we bind the HTTP port. By the time any request lands, the token file exists. See backend/auth.py.
@@ -354,6 +355,10 @@ async def websocket_dashboard(websocket: WebSocket):
                     payload.get("request_id", ""),
                     payload,
                 )
+            elif event == "dashboard:active":
+                dash_id = payload.get("dashboard_id")
+                if dash_id:
+                    ws_manager.set_active_dashboard(websocket, dash_id)
     except WebSocketDisconnect:
         ws_manager.disconnect_global(websocket)
 
@@ -406,7 +411,7 @@ P_SUCCESS_HTML = (
     '<div style="text-align:center">'
     '<div style="width:64px;height:64px;border-radius:50%;background:#22c55e20;display:flex;align-items:center;justify-content:center;margin:0 auto 16px;font-size:32px">&#10003;</div>'
     '<h2 style="margin:0 0 8px">Connected!</h2>'
-    '<p style="color:#888;margin:0">You can close this tab, and any other Claude login tab still open.</p>'
+    '<p style="color:#888;margin:0">You can close this tab, and any other login tab still open.</p>'
     '</div>'
     '<script>setTimeout(()=>window.close(),1500)</script>'
     '</body></html>'
@@ -454,6 +459,12 @@ async def subscriptions_callback(request: Request):
 
     mark_oauth_completed(state)
     logger.info(f"OAuth exchange succeeded for provider={pending.get('provider')}")
+    # A connected subscription takes precedence over the free trial right away.
+    try:
+        from backend.apps.subscription.free_trial import clear_free_trial_on_connect
+        await clear_free_trial_on_connect()
+    except Exception:
+        pass
     return HTMLResponse(P_SUCCESS_HTML)
 
 

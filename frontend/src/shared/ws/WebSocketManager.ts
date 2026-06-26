@@ -25,7 +25,7 @@ import {
   clearTurnLabel,
 } from '../state/agentsSlice';
 import { streamStart, streamDelta, streamEnd, clearStreamingForSession } from '../state/streamingSlice';
-import { addBrowserCardFromBackend, markBrowserCardEnding, keepBrowserCardOpen, placeInParentColumn, setBrowserCardPosition, setGlowingBrowserCards, GRID_GAP, openWorkflowsApp } from '../state/dashboardLayoutSlice';
+import { addBrowserCardFromBackend, markBrowserCardEnding, keepBrowserCardOpen, placeBesideCard, placeBelowCard, setBrowserCardPosition, setGlowingBrowserCards, GRID_GAP, WORKFLOW_CARD_GAP, openWorkflowsApp, openWorkflowMonitor } from '../state/dashboardLayoutSlice';
 import { upsertOutput } from '../state/outputsSlice';
 import { fetchSettings } from '../state/settingsSlice';
 import { displaySessionName } from '../state/sessionDisplay';
@@ -67,6 +67,9 @@ interface WSManagerOptions {
 // Heartbeat tuning. 25s is below typical aggressive NAT idle timeouts (some enterprise firewalls drop after 30s of silence), and well below browser-tab background throttling thresholds. 10s pong timeout is a balance: long enough to tolerate flaky cellular RTT spikes, short enough that a real dead socket reconnects fast.
 const HEARTBEAT_INTERVAL_MS = 25_000;
 const HEARTBEAT_TIMEOUT_MS = 10_000;
+
+// Manual runs whose monitor card we've already popped open, so the repeated "workflow:run" updates that stream during a run don't re-pin or re-stack the card.
+const autoOpenedRunIds = new Set<string>();
 
 interface QueuedFrame {
   event: string;
@@ -673,7 +676,13 @@ class WebSocketManager {
 
       case 'workflow:run':
         if (data.run) {
-          store.dispatch(upsertRun(data.run));
+          const run = data.run;
+          store.dispatch(upsertRun(run));
+          // A manual run (the Run button OR the edit agent's RunWorkflowNow) should surface its live card the moment it starts. Fire once per run so the run's later tool-call updates don't keep re-pinning the monitor; scheduled runs stay quiet so they never hijack the canvas.
+          if (run.status === 'running' && run.triggered_by === 'manual' && run.id && !autoOpenedRunIds.has(run.id)) {
+            autoOpenedRunIds.add(run.id);
+            store.dispatch(openWorkflowMonitor({ workflowId: run.workflow_id, runId: run.id }));
+          }
         }
         break;
 
@@ -758,25 +767,33 @@ class WebSocketManager {
           if (parentId) {
             const layoutState = store.getState().dashboardLayout;
             const browserCard = layoutState.browserCards[data.browser_card.browser_id];
-            if (layoutState.cards[parentId] && browserCard) {
-              const pos = placeInParentColumn(
-                layoutState,
-                parentId,
-                browserCard.width,
-                browserCard.height,
-                undefined,
-                { type: 'browser', id: browserCard.browser_id },
-              );
-              store.dispatch(setBrowserCardPosition({
-                browserId: data.browser_card.browser_id,
-                x: pos.x,
-                y: pos.y,
-              }));
-              store.dispatch(setGlowingBrowserCards({
-                browserIds: [data.browser_card.browser_id],
-                sessionId: parentId,
-                label: 'Use Browser',
-              }));
+            if (browserCard) {
+              const exclude = { type: 'browser' as const, id: browserCard.browser_id };
+              const parentCard = layoutState.cards[parentId];
+              // Workflow chats have no standalone agent card: a run lives in the monitor (dock beside it), an edit/compose chat lives in the hub window (dock below it). Without this the browser keeps the backend's default spot, which overlaps the Workflows window.
+              const sess = store.getState().agents.sessions[parentId];
+              let pos: { x: number; y: number } | null = null;
+              let glowLabel = 'Use Browser';
+              if (parentCard) {
+                pos = placeBesideCard(layoutState, parentCard, browserCard.width, browserCard.height, undefined, exclude);
+              } else if (sess?.workflow_run_id && layoutState.workflowsMonitorCard) {
+                pos = placeBesideCard(layoutState, layoutState.workflowsMonitorCard, browserCard.width, browserCard.height, undefined, exclude, WORKFLOW_CARD_GAP, true);
+              } else if (sess?.workflow_edit_id && layoutState.workflowsHub) {
+                pos = placeBelowCard(layoutState, layoutState.workflowsHub, browserCard.width, browserCard.height, undefined, exclude);
+                glowLabel = 'Browser';
+              }
+              if (pos) {
+                store.dispatch(setBrowserCardPosition({
+                  browserId: data.browser_card.browser_id,
+                  x: pos.x,
+                  y: pos.y,
+                }));
+                store.dispatch(setGlowingBrowserCards({
+                  browserIds: [data.browser_card.browser_id],
+                  sessionId: parentId,
+                  label: glowLabel,
+                }));
+              }
             }
           }
         }

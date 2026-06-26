@@ -2,8 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useAppDispatch, useAppSelector } from '@/shared/hooks';
 import { createWorkflow, updateWorkflow } from '@/shared/state/workflowsSlice';
 import { sendMessage } from '@/shared/state/agentsSlice';
-import { defaultSchedule, stepsSignature, needsScheduleTestWarning } from '@/app/pages/Workflows/scheduleUtils';
-import { runWorkflowTest } from '@/app/pages/Workflows/runWorkflowTest';
+import { defaultSchedule } from '@/app/pages/Workflows/scheduleUtils';
 import AgentChat from '@/app/pages/AgentChat/AgentChat';
 import InlineEditableTitle from '@/app/components/InlineEditableTitle';
 import { Typewriter } from '@/app/components/feedback/Animated';
@@ -13,7 +12,6 @@ import { useEditAgentSession } from './useEditAgentSession';
 import { useWorkflowPatch } from './useWorkflowPatch';
 import ScheduleCard from './ScheduleCard';
 import StepsCard from './StepsCard';
-import SaveGuard from './SaveGuard';
 import type { AppNav } from './types';
 
 // Short pill label for the clean cluster, plus the richer prompt actually sent so the agent gets real detail. Spread across personas (work, money, research, lifestyle, monitoring) so most people see one that fits. Keep labels similar length so they cluster two-per-row.
@@ -30,8 +28,6 @@ const ComposeView: React.FC<{ nav: AppNav }> = ({ nav }) => {
   const dispatch = useAppDispatch();
   const patch = useWorkflowPatch();
   const [draftId, setDraftId] = useState<string | null>(null);
-  const [testing, setTesting] = useState(false);
-  const [guardOpen, setGuardOpen] = useState(false);
   // null = follow the auto open-on-first-message behavior; true/false = user override.
   const [paneManual, setPaneManual] = useState<boolean | null>(null);
   const created = useRef(false);
@@ -100,25 +96,6 @@ const ComposeView: React.FC<{ nav: AppNav }> = ({ nav }) => {
     );
   }
 
-  const tested = workflow.steps.length > 0 && stepsSignature(workflow.steps) === (workflow.tested_signature ?? '');
-
-  const doTest = async () => {
-    if (testing || workflow.steps.length === 0) return;
-    setTesting(true);
-    try { await runWorkflowTest(workflow.id, workflow.steps, async () => {}); }
-    finally { setTesting(false); }
-  };
-
-  // No steps / no title is fine, you can save a bare workflow and fill it in later. No If-Match: this is the user's own brand-new draft, so there's no concurrent edit to guard against and a stale stamp shouldn't block the save.
-  const finalizeSave = () => {
-    dispatch(updateWorkflow({ id: workflow.id, patch: { unsaved: false } }));
-    nav.selectWorkflow(workflow.id);
-  };
-  const onSave = () => {
-    if (needsScheduleTestWarning(workflow)) { setGuardOpen(true); return; }
-    finalizeSave();
-  };
-
   return (
     <>
       <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', background: WC.page, position: 'relative' }}>
@@ -174,14 +151,6 @@ const ComposeView: React.FC<{ nav: AppNav }> = ({ nav }) => {
           )}
         </div>
 
-        {guardOpen && (
-          <SaveGuard
-            title={workflow.title || 'this workflow'}
-            onClose={() => setGuardOpen(false)}
-            onSaveAnyway={() => { setGuardOpen(false); finalizeSave(); }}
-            onRunTest={() => { setGuardOpen(false); doTest(); }}
-          />
-        )}
       </div>
 
       {/* Hidden on the blank landing page; opens with a smooth width/fade once
@@ -191,23 +160,6 @@ const ComposeView: React.FC<{ nav: AppNav }> = ({ nav }) => {
         <div style={{ flex: 1, overflowY: 'auto', minHeight: 0, padding: '18px 18px 22px', display: 'flex', flexDirection: 'column', gap: 16 }}>
           <ScheduleCard workflow={workflow} />
           <StepsCard workflow={workflow} />
-        </div>
-        <div style={{ flex: 'none', borderTop: `1px solid rgba(${WC.inkRGB},0.08)`, background: WC.rail, padding: '13px 18px', display: 'flex', flexDirection: 'column', gap: 10 }}>
-          {!tested && (
-            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 7, fontSize: 11.5, lineHeight: 1.4, color: WC.muted }}>
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={WC.warn} strokeWidth="2" style={{ flex: 'none', marginTop: 1 }}><circle cx="12" cy="12" r="9" /><path d="M12 8v5" /><path d="M12 16h.01" /></svg>
-              <span>Not tested yet. A test run grants the tool access this workflow needs.</span>
-            </div>
-          )}
-          <div style={{ display: 'flex', gap: 9 }}>
-            <button onClick={doTest} disabled={testing || workflow.steps.length === 0} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, flex: 'none', padding: '10px 15px', borderRadius: 9, border: `1px solid rgba(${WC.inkRGB},0.14)`, background: WC.paper, color: testing || workflow.steps.length === 0 ? WC.muted2 : WC.ink, fontSize: 13, fontWeight: 600, cursor: testing || workflow.steps.length === 0 ? 'default' : 'pointer' }}>
-              {testing
-                ? <div style={{ width: 12, height: 12, borderRadius: '50%', border: '2px solid rgba(140,133,122,0.3)', borderTopColor: WC.muted, animation: 'os-spin 0.7s linear infinite', flex: 'none' }} />
-                : <div style={{ width: 0, height: 0, borderTop: '5px solid transparent', borderBottom: '5px solid transparent', borderLeft: `8px solid ${WC.accent}`, flex: 'none' }} />}
-              <span>{testing ? 'Testing…' : tested ? 'Run again' : 'Test run'}</span>
-            </button>
-            <button onClick={onSave} style={{ flex: 1, background: WC.accent, color: '#fff', border: 'none', borderRadius: 9, padding: 10, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Save workflow</button>
-          </div>
         </div>
        </div>
       </div>

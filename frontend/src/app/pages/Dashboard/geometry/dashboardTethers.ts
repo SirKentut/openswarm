@@ -91,6 +91,8 @@ interface UseTethersArgs {
   workflowsHub: WorkflowsHubPosition | null;
   workflowsMonitorCard: WorkflowsHubPosition | null;
   workflowsMonitorLabel: string;
+  /** Session id of the run the monitor is showing; its browser tethers to the monitor card, not a (suppressed) standalone agent card. */
+  monitorRunSessionId: string | null;
 }
 
 export function useTethers({
@@ -111,8 +113,10 @@ export function useTethers({
   workflowsHub,
   workflowsMonitorCard,
   workflowsMonitorLabel,
+  monitorRunSessionId,
 }: UseTethersArgs): Tether[] {
   return useMemo(() => {
+    const sessionById = new Map(sessionList.map((s) => [s.id, s]));
     const wfHeight = (wc: WorkflowCardPosition): number =>
       measuredHeightsRef.current![wc.workflow_id] ?? wc.height;
     const agentTethers = Object.entries(glowingAgentCards).map(([copyId, { sourceId, fading, label }]) => {
@@ -163,13 +167,18 @@ export function useTethers({
       label: string,
       fading: boolean,
     ): Tether | null {
-      const src = cards[sourceId];
+      // Workflow chats have no standalone agent card: a run anchors to the monitor card, an edit/compose chat to the hub window, so the browser tether lands on the workflow surface instead of nothing.
+      const srcSession = sessionById.get(sourceId);
+      const srcIsMonitor = !!workflowsMonitorCard && sourceId === monitorRunSessionId;
+      const srcIsHub = !srcIsMonitor && !!workflowsHub && !!srcSession?.workflow_edit_id;
+      const src = srcIsMonitor ? workflowsMonitorCard : srcIsHub ? workflowsHub : cards[sourceId];
       if (!src || !dst) return null;
 
+      const srcDragId = srcIsMonitor ? 'workflows-monitor' : srcIsHub ? 'workflows-hub' : sourceId;
       let srcX = src.x, srcY = src.y;
       let dstX = dst.x, dstY = dst.y;
       if (liveDragInfo) {
-        if (liveDragInfo.cardId === sourceId) { srcX += liveDragInfo.dx; srcY += liveDragInfo.dy; }
+        if (liveDragInfo.cardId === srcDragId) { srcX += liveDragInfo.dx; srcY += liveDragInfo.dy; }
         if (liveDragInfo.cardId === dstId) { dstX += liveDragInfo.dx; dstY += liveDragInfo.dy; }
       }
 
@@ -234,8 +243,9 @@ export function useTethers({
 
       const midX = x1 + (x2 - x1) / 2;
       const midY = y1 + (y2 - y1) / 2;
-      const labelX = isVertical ? midX : midX + (x2 - midX) * 0.15;
-      const labelY = isVertical ? midY + (y2 - midY) * 0.15 : y2;
+      // Center the pill on the line midpoint: the box is left-anchored at labelX, so back off half its text width (same trick as the monitor "Watching" label).
+      const labelX = midX - (label.length * 7.5) / 2;
+      const labelY = midY;
 
       return {
         key,
@@ -265,12 +275,14 @@ export function useTethers({
       if (s.status !== 'running' && s.status !== 'waiting_approval') continue;
       if (!s.browser_id || !s.parent_session_id) continue;
       if (glowTethers.has(s.browser_id)) continue;
+      // A browser docked below the hub keeps a "Browser" pointer so the link reads at a glance; the right-docked agent/run cases stay label-free (their glow already said it on spawn).
+      const parent = sessionById.get(s.parent_session_id);
       const t = cardTether(
         browserCards[s.browser_id],
         s.browser_id,
         s.parent_session_id,
         `browser-${s.browser_id}`,
-        '',
+        parent?.workflow_edit_id ? 'Browser' : '',
         false,
       );
       if (t) glowTethers.set(s.browser_id, t);
@@ -407,7 +419,7 @@ export function useTethers({
       });
     }
 
-    // Run Monitor tether: the Workflows window to its spawned live-run card. Same border-anchor + elbow math as the sidecar "Watching" arrow.
+    // Run Monitor tether: the Workflows window to its spawned live-run card.
     const monitorTethers: Tether[] = [];
     if (workflowsHub && workflowsMonitorCard) {
       let hubX = workflowsHub.x, hubY = workflowsHub.y;
@@ -417,12 +429,9 @@ export function useTethers({
         if (liveDragInfo.cardId === 'workflows-hub') { hubX += liveDragInfo.dx; hubY += liveDragInfo.dy; }
         if (liveDragInfo.cardId === 'workflows-monitor') { monX += liveDragInfo.dx; monY += liveDragInfo.dy; }
       }
-      const hubRect = { x: hubX, y: hubY, width: workflowsHub.width, height: workflowsHub.height };
-      const monRect = { x: monX, y: monY, width: workflowsMonitorCard.width, height: workflowsMonitorCard.height };
-      const hubC = rectCenter(hubRect);
-      const monC = rectCenter(monRect);
-      const a = borderPoint(hubRect.x, hubRect.y, hubRect.width, hubRect.height, monC.x, monC.y);
-      const b = borderPoint(monRect.x, monRect.y, monRect.width, monRect.height, hubC.x, hubC.y);
+      // The monitor always spawns directly right of the hub, so anchor at the hub's right edge and the monitor's left edge at the same 0.54 height the browser/agent tethers use. Keeps the window->monitor line at the identical vertical spot as the monitor->browser line.
+      const a = { x: hubX + workflowsHub.width, y: hubY + workflowsHub.height * 0.54 };
+      const b = { x: monX, y: monY + workflowsMonitorCard.height * 0.54 };
       const midX = a.x + (b.x - a.x) / 2;
       const midY = a.y + (b.y - a.y) / 2;
       // The label box is left-anchored at labelX (rect starts there and grows right), so shift left by half the text width to truly center it on the line.
@@ -466,5 +475,5 @@ export function useTethers({
 
     return [...agentTethers, ...browserTethers, ...workflowTethers, ...viewTethers, ...monitorTethers];
   // measuredHeightsTick re-runs the memo once ResizeObserver reports a new height after a collapse (the ref read is invisible to the dep checker). eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [glowingAgentCards, glowingBrowserCards, cards, browserCards, workflowCards, workflowItems, workflowOpenCards, viewCards, outputs, expandedSessionIds, liveDragInfo, measuredHeightsTick, sessionList, workflowsHub, workflowsMonitorCard, workflowsMonitorLabel]);
+  }, [glowingAgentCards, glowingBrowserCards, cards, browserCards, workflowCards, workflowItems, workflowOpenCards, viewCards, outputs, expandedSessionIds, liveDragInfo, measuredHeightsTick, sessionList, workflowsHub, workflowsMonitorCard, workflowsMonitorLabel, monitorRunSessionId]);
 }

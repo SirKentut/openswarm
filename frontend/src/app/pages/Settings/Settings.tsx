@@ -196,8 +196,11 @@ const Settings: React.FC = () => {
     if (saveTimer.current) clearTimeout(saveTimer.current);
     const payload = loaded ? buildSubmit() : null;
     if (payload) {
-      dispatch(updateSettingsPatch(payload.patch));
-      dispatch(fetchModels());
+      // Refetch only AFTER the patch lands, or it races the save and reads the pre-change list (stale Haiku until you reopen Settings). Not awaited, so the modal still closes instantly.
+      dispatch(updateSettingsPatch(payload.patch))
+        .unwrap()
+        .then(() => dispatch(fetchModels()))
+        .catch(() => {});
       baselineRef.current = form;
     }
     dispatch(closeSettingsModal());

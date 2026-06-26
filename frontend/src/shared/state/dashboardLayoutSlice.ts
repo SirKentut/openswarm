@@ -25,6 +25,8 @@ export const DEFAULT_WORKFLOWS_HUB_W = DEFAULT_BROWSER_CARD_W;
 export const DEFAULT_WORKFLOWS_HUB_H = DEFAULT_BROWSER_CARD_H;
 export const EXPANDED_CARD_MIN_H = 620;
 export const GRID_GAP = 24;
+// Gap between the Workflows window and the cards it spawns (run monitor, that monitor's browser). Keeps the hub -> monitor -> browser row evenly spaced.
+export const WORKFLOW_CARD_GAP = 140;
 const GRID_ORIGIN = { x: 40, y: 100 };
 const GRID_COLS_FALLBACK = 4;
 
@@ -380,21 +382,19 @@ export function findOpenSpotNear(
   return findOpenGridCell(occupiedRects, newW, newH);
 }
 
-export function placeInParentColumn(
+// Dock a new card to the right of an anchor card, stacking under any cards already in that right-hand column. Anchor is any rect, so a browser can dock beside a normal agent card OR a workflow run/monitor card that has no session entry in state.cards.
+export function placeBesideCard(
   state: DashboardLayoutState,
-  parentSessionId: string | null | undefined,
+  anchor: { x: number; y: number; width: number; height: number },
   newW: number,
   newH: number,
   expandedSessionIds?: string[],
   exclude?: CardPlacementExclusion,
+  gap: number = GRID_GAP * 12,
+  exact: boolean = false,
 ): { x: number; y: number } {
   const rects = collectOccupiedRects(state, expandedSessionIds, exclude);
-  const parentCard = parentSessionId ? state.cards[parentSessionId] : null;
-  if (!parentCard) {
-    return findOpenGridCell(rects, newW, newH);
-  }
-
-  const targetX = parentCard.x + parentCard.width + GRID_GAP * 12;
+  const targetX = anchor.x + anchor.width + gap;
   const columnCards = [
     ...Object.values(state.browserCards).filter(
       (c) => !(exclude?.type === 'browser' && exclude.id === c.browser_id),
@@ -405,9 +405,41 @@ export function placeInParentColumn(
   ].filter((c) => Math.abs(c.x - targetX) < 50);
   const targetY = columnCards.length > 0
     ? Math.max(...columnCards.map((c) => c.y + c.height)) + GRID_GAP
-    : parentCard.y;
+    : anchor.y;
 
+  // exact keeps the precise gap (so the card mirrors however its anchor was placed, e.g. a run browser matching the hub->monitor gap); grid-snapping would knock that gap off. Fall back to the snapped search only if the exact spot is taken.
+  if (exact && !rects.some((r) => rectsOverlap({ x: targetX, y: targetY, w: newW, h: newH }, r))) {
+    return { x: targetX, y: targetY };
+  }
   return findOpenSpotNear(targetX, targetY, rects, newW, newH);
+}
+
+// Dock a new card directly below an anchor card (left edges aligned). Used for a browser spawned by a Workflows-hub chat, which has no agent card to sit beside.
+export function placeBelowCard(
+  state: DashboardLayoutState,
+  anchor: { x: number; y: number; width: number; height: number },
+  newW: number,
+  newH: number,
+  expandedSessionIds?: string[],
+  exclude?: CardPlacementExclusion,
+): { x: number; y: number } {
+  const rects = collectOccupiedRects(state, expandedSessionIds, exclude);
+  return findOpenSpotNear(anchor.x, anchor.y + anchor.height + GRID_GAP, rects, newW, newH);
+}
+
+export function placeInParentColumn(
+  state: DashboardLayoutState,
+  parentSessionId: string | null | undefined,
+  newW: number,
+  newH: number,
+  expandedSessionIds?: string[],
+  exclude?: CardPlacementExclusion,
+): { x: number; y: number } {
+  const parentCard = parentSessionId ? state.cards[parentSessionId] : null;
+  if (!parentCard) {
+    return findOpenGridCell(collectOccupiedRects(state, expandedSessionIds, exclude), newW, newH);
+  }
+  return placeBesideCard(state, parentCard, newW, newH, expandedSessionIds, exclude);
 }
 
 // Reconnect-refetch merge: ADD only the cards the snapshot carries that the client is missing (e.g. a spawned browser whose broadcast was lost in a socket gap), collision-resolving each against the live layout so a recovered card can't land on a card already on canvas, and NEVER touch a card the client already has (that's exactly what preserves its live, collision-placed position). The shared `occupied` list carries placements forward so two recovered cards in the same pass also avoid each other.
@@ -945,7 +977,7 @@ const dashboardLayoutSlice = createSlice({
       // Keep the existing card position when just switching the run shown.
       if (!state.workflowsMonitorCard) {
         state.workflowsMonitorCard = {
-          x: hub ? hub.x + hub.width + 140 : 220,
+          x: hub ? hub.x + hub.width + WORKFLOW_CARD_GAP : 220,
           y: hub ? hub.y : 160,
           width: 520,
           height: hub ? hub.height : 560,
