@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 import CircularProgress from '@mui/material/CircularProgress';
+import Fade from '@mui/material/Fade';
 import { useAppDispatch, useAppSelector } from '@/shared/hooks';
 import { useClaudeTokens } from '@/shared/styles/ThemeContext';
 import { fetchModels } from '@/shared/state/modelsSlice';
@@ -26,6 +27,7 @@ const SubscriptionCards: React.FC = () => {
   const [disconnecting, setDisconnecting] = useState<string | null>(null);
   const [userCode, setUserCode] = useState('');
   const [pollTimer, setPollTimer] = useState<any>(null);
+  const [connectError, setConnectError] = useState<string | null>(null);
 
   // Thin wrapper that returns the resolved status so call sites inspecting the payload keep working.
   const fetchStatus = useCallback(
@@ -65,6 +67,7 @@ const SubscriptionCards: React.FC = () => {
 
   const handleConnect = async (providerId: string) => {
     if (pollTimer) { clearInterval(pollTimer); setPollTimer(null); }
+    setConnectError(null);
     setConnecting(providerId);
     setUserCode('');
 
@@ -76,7 +79,15 @@ const SubscriptionCards: React.FC = () => {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ provider: providerId }),
       });
-      if (!r.ok) { setConnecting(null); return; }
+      if (!r.ok) {
+        // Surface an actionable reason (e.g. the ChatGPT :1455 port is held by another app)
+        // instead of silently dropping the spinner.
+        let detail = '';
+        try { detail = (await r.json())?.detail || ''; } catch {}
+        setConnectError(detail || 'Could not start the login. Please try again.');
+        setConnecting(null);
+        return;
+      }
       const data = await r.json();
       runConnectFlow({ providerId, data, setConnecting, setUserCode, setPollTimer, fetchStatus, refreshPickerModels, markConnected });
     } catch { setConnecting(null); }
@@ -159,6 +170,25 @@ const SubscriptionCards: React.FC = () => {
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+      <Fade in={!!connectError} timeout={{ enter: 200, exit: 220 }} unmountOnExit>
+        <Box sx={{
+          display: 'flex', alignItems: 'flex-start', gap: 1, px: 1.5, py: 1,
+          borderRadius: `${c.radius.md}px`, border: `1px solid ${c.border.subtle}`,
+          bgcolor: c.bg.surface,
+        }}>
+          <Typography sx={{ fontSize: '0.72rem', color: c.text.secondary, flex: 1, lineHeight: 1.4 }}>
+            {connectError}
+          </Typography>
+          <Box
+            role="button"
+            aria-label="Dismiss"
+            onClick={() => setConnectError(null)}
+            sx={{ color: c.text.muted, cursor: 'pointer', fontSize: '0.9rem', lineHeight: 1, px: 0.3, '&:hover': { color: c.text.secondary } }}
+          >
+            ×
+          </Box>
+        </Box>
+      </Fade>
       {SUBSCRIPTION_PROVIDERS.map(p => (
         <SubscriptionCard
           key={p.id}
