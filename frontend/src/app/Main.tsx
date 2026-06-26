@@ -11,6 +11,7 @@ import { useAppDispatch, useAppSelector } from '@/shared/hooks';
 import { fetchSettings, updateSettingsPatch, markFreeTrialArmSettled } from '@/shared/state/settingsSlice';
 import { fetchSubscriptionStatus } from '@/shared/state/subscriptionsSlice';
 import { fetchModels } from '@/shared/state/modelsSlice';
+import { updateSessionModel } from '@/shared/state/agentsSlice';
 import { API_BASE } from '@/shared/config';
 import {
   setAppVersion,
@@ -340,6 +341,7 @@ const DefaultModelGuard: React.FC<{ children: React.ReactNode }> = ({ children }
   // then would clobber a real sub user's default down to a fallback (and persist it).
   // Only reconcile against the complete list.
   const nineRouterUp = useAppSelector((s) => s.subscriptions.status?.running === true);
+  const sessions = useAppSelector((s) => s.agents.sessions);
 
   const [warning, setWarning] = useState<{ from: string; to: string; provider: string } | null>(null);
   const pendingRef = useRef(false);
@@ -364,6 +366,25 @@ const DefaultModelGuard: React.FC<{ children: React.ReactNode }> = ({ children }
       });
     setWarning({ from: fromLabel, to: fallback.label, provider: fallback.provider });
   }, [settingsLoaded, modelsLoaded, nineRouterUp, byProvider, settings, dispatch]);
+
+  // Same staleness, per session: a session pinned to a now-gone model (e.g. gpt-5.5-api
+  // after the OpenAI key is disconnected) makes the picker show an out-of-range value and
+  // the next send snags, since the send carries the session's model. The guard above only
+  // fixes the global default, so reconcile open sessions to the (valid) default or fallback.
+  useEffect(() => {
+    if (!settingsLoaded || !modelsLoaded || !nineRouterUp) return;
+    if (Object.keys(byProvider).length === 0) return;
+    const valid = new Set(Object.values(byProvider).flat().map((m) => m.value));
+    if (valid.size === 0) return;
+    const fallback = pickFallbackModel(byProvider);
+    if (!fallback) return;
+    const target = valid.has(settings.default_model) ? settings.default_model : fallback.value;
+    for (const sess of Object.values(sessions)) {
+      if (sess.model && !valid.has(sess.model)) {
+        dispatch(updateSessionModel({ sessionId: sess.id, model: target }));
+      }
+    }
+  }, [settingsLoaded, modelsLoaded, nineRouterUp, byProvider, sessions, settings, dispatch]);
 
   return (
     <>
