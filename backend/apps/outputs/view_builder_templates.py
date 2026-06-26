@@ -381,6 +381,14 @@ def link_node_modules(workspace_dir: str) -> None:
     cache_modules = ensure_warm_cache()
     if not cache_modules:
         return
+    # The warm cache holds the TEMPLATE's deps; only link it when this workspace's package.json matches, else run.sh sees vite present, skips install, and the app's custom deps are missing. On mismatch (a customized import) leave node_modules absent so run.sh installs the app's real deps.
+    pkg_path = os.path.join(workspace_dir, "frontend", "package.json")
+    try:
+        with open(pkg_path, "rb") as fh:
+            if hashlib.sha256(fh.read()).hexdigest()[:12] != warm_cache_digest():
+                return
+    except OSError:
+        return
     target = os.path.join(workspace_dir, "frontend", "node_modules")
     if os.path.islink(target):
         try:
