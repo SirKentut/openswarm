@@ -29,7 +29,7 @@ export function useDashboardController(dashboardId: string, isActive: boolean) {
   const elementSelectionCtx = useElementSelection();
   const isElementSelectMode = elementSelectionCtx?.selectMode ?? false;
   const {
-    dashboardName, sessions, expandedSessionIds, cards, viewCards, browserCards,
+    dashboardName, sessions, expandedSessionIds, cards, viewCards, browserCards, keepAliveBrowserCards,
     workflowCards, workflowItems, workflowOpenCards, workflowsHub,
     pendingFocusWorkflowId, pendingFocusWorkflowsHub,
     notes, pendingFocusNoteId, layoutInitialized, persistedExpandedSessionIds,
@@ -299,7 +299,7 @@ export function useDashboardController(dashboardId: string, isActive: boolean) {
 
   return {
     c, dashboardId, dashboardName, canvas, selection, sessions, sessionList,
-    cards, viewCards, browserCards, notes, outputs, glowingAgentCards,
+    cards, viewCards, browserCards, keepAliveBrowserCards, notes, outputs, glowingAgentCards,
     workflowCards, workflowsHub,
     expandedSessionIds, tethers, highlightedCardId, autoFocusSessionId,
     focusedCardId, pendingFocusNoteId, multiDragDelta, shakeDirection,

@@ -19,6 +19,14 @@ export function useDashboardSelectors(dashboardId: string) {
     }
     return out;
   }, [allBrowserCards, dashboardId]);
+  // Keep-alive browser cards from OTHER dashboards still in state (resetLayout preserved them across the switch). Rendered mounted-but-hidden by the card layer so their webContents + sessionStorage survive; kept OUT of `browserCards` so save/bounds/keyboard-nav only ever see THIS dashboard's cards (no cross-dashboard leak).
+  const keepAliveBrowserCards = useMemo(() => {
+    const out: typeof allBrowserCards = {};
+    for (const [id, bc] of Object.entries(allBrowserCards)) {
+      if (bc.dashboard_id && bc.dashboard_id !== dashboardId) out[id] = bc;
+    }
+    return out;
+  }, [allBrowserCards, dashboardId]);
   const workflowCards = useAppSelector((state) => state.dashboardLayout.workflowCards);
   const workflowsHub = useAppSelector((state) => state.dashboardLayout.workflowsHub);
   const pendingFocusWorkflowId = useAppSelector((state) => state.dashboardLayout.pendingFocusWorkflowId);
@@ -46,6 +54,7 @@ export function useDashboardSelectors(dashboardId: string) {
     cards,
     viewCards,
     browserCards,
+    keepAliveBrowserCards,
     workflowCards,
     workflowItems,
     workflowOpenCards,

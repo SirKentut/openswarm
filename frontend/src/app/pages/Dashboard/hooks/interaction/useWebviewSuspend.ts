@@ -8,6 +8,7 @@ import {
 } from '@/shared/state/dashboardLayoutSlice';
 import { getWebview } from '@/shared/browserRegistry';
 import { getActivity } from '@/shared/browserCommandHandler';
+import { isKeepAliveBrowser } from '@/shared/browserFocus';
 
 const isElectron = typeof navigator !== 'undefined' && navigator.userAgent.includes('Electron');
 
@@ -52,6 +53,11 @@ function agentNeedsLive(browserId: string, card: BrowserCardPosition): boolean {
     if (parent && (parent.status === 'running' || parent.status === 'waiting_approval')) return true;
   }
   return false;
+}
+
+// A card we must never snapshot-swap: an agent is driving it, OR it's in the keep-alive set (recently used). Suspending a keep-alive card would destroy its webContents and wipe its sessionStorage (logged-in sites drop their session), the whole thing we're preventing.
+function mustStayLive(browserId: string, card: BrowserCardPosition): boolean {
+  return agentNeedsLive(browserId, card) || isKeepAliveBrowser(browserId);
 }
 
 /**
@@ -103,7 +109,7 @@ export function useWebviewSuspend(
       .filter(([, card]) => !!card)
       .sort((a, b) => distFromCenter(a[1], vpRef.current) - distFromCenter(b[1], vpRef.current));
     for (const [id, card] of parked) {
-      if (agentNeedsLive(id, card)) {
+      if (mustStayLive(id, card)) {
         dispatch(resumeBrowserCard(id));
         budget--;
         continue;
@@ -121,22 +127,22 @@ export function useWebviewSuspend(
       for (const [id, card] of Object.entries(browserCards)) {
         if (isSuspended(id)) continue;
         if (cardIntersectsViewport(card, vpRef.current, SUSPEND_MARGIN_PX)) continue;
-        if (agentNeedsLive(id, card)) continue;
+        if (mustStayLive(id, card)) continue;
         const dataUrl = await captureCard(id, card);
         // The capture await yielded; conditions may have changed under us.
-        if (!dataUrl || cardIntersectsViewport(card, vpRef.current, SUSPEND_MARGIN_PX) || agentNeedsLive(id, card)) continue;
+        if (!dataUrl || cardIntersectsViewport(card, vpRef.current, SUSPEND_MARGIN_PX) || mustStayLive(id, card)) continue;
         dispatch(suspendBrowserCard({ browserId: id, dataUrl }));
       }
 
       const countLive = () => Object.keys(browserCards).filter((id) => !isSuspended(id)).length;
       if (countLive() > MAX_LIVE_WEBVIEWS) {
         const candidates = Object.entries(browserCards)
-          .filter(([id, card]) => !isSuspended(id) && !agentNeedsLive(id, card))
+          .filter(([id, card]) => !isSuspended(id) && !mustStayLive(id, card))
           .sort((a, b) => distFromCenter(b[1], vpRef.current) - distFromCenter(a[1], vpRef.current));
         for (const [id, card] of candidates) {
           if (countLive() <= MAX_LIVE_WEBVIEWS) break;
           const dataUrl = await captureCard(id, card);
-          if (!dataUrl || agentNeedsLive(id, card)) continue;
+          if (!dataUrl || mustStayLive(id, card)) continue;
           dispatch(suspendBrowserCard({ browserId: id, dataUrl }));
         }
       }

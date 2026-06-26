@@ -26,6 +26,7 @@ import { fetchWorkflows, fetchAllRuns, fetchActiveRuns } from '@/shared/state/wo
 import { fetchMissedRuns } from '@/shared/state/missedRunsSlice';
 import { dashboardWs } from '@/shared/ws/WebSocketManager';
 import { initBrowserCommandHandler } from '@/shared/browserCommandHandler';
+import { getKeepAliveBrowserIds } from '@/shared/browserFocus';
 import { clearPendingBrowserUrl, clearPendingFocusAgentId } from '@/shared/state/tempStateSlice';
 import { API_BASE } from '@/shared/config';
 import type { CanvasActions } from '../interaction/useCanvasControls';
@@ -98,7 +99,7 @@ export function useDashboardLifecycle({
     hasFittedRef.current = false;
     restoredExpandedRef.current = false;
     setOutputsRefetched(false);
-    dispatch(resetLayout());
+    dispatch(resetLayout({ keepBrowserIds: getKeepAliveBrowserIds() }));
     // CRITICAL path: these populate the cards the user expects to see on first paint. Don't defer.
     dispatch(fetchSessions({ dashboardId }));
     dispatch(fetchLayout({ dashboardId }));

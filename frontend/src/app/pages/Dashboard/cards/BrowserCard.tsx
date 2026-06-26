@@ -157,6 +157,8 @@ interface Props {
   isSelected?: boolean;
   isHighlighted?: boolean;
   multiDragDelta?: { dx: number; dy: number } | null;
+  // Belongs to a non-active dashboard but kept mounted-hidden so its webContents + sessionStorage survive the switch.
+  keepAliveHidden?: boolean;
   onCardSelect?: (id: string, type: 'agent' | 'view' | 'browser', shiftKey: boolean) => void;
   onDragStart?: (id: string, type: 'agent' | 'view' | 'browser') => void;
   onDragMove?: (dx: number, dy: number, mouseX?: number, mouseY?: number) => void;
@@ -169,7 +171,7 @@ interface Props {
 
 const BrowserCard: React.FC<Props> = ({
   browserId, tabs, activeTabId, cardX, cardY, cardWidth, cardHeight, zoom = 1, panX = 0, panY = 0, cmdHeld = false,
-  isSelected = false, isHighlighted = false, multiDragDelta, onCardSelect, onDragStart, onDragMove, onDragEnd,
+  isSelected = false, isHighlighted = false, keepAliveHidden = false, multiDragDelta, onCardSelect, onDragStart, onDragMove, onDragEnd,
   cardZOrder = 0, onDoubleClick, onBringToFront,
 }) => {
   const c = useClaudeTokens();
@@ -738,6 +740,9 @@ const BrowserCard: React.FC<Props> = ({
       }}
       sx={{
         position: 'absolute',
+        // Kept-alive card from another dashboard: invisible + click-through (webContents stays live so its session survives), but never unmounted.
+        visibility: keepAliveHidden ? 'hidden' : undefined,
+        pointerEvents: keepAliveHidden ? 'none' : undefined,
         // contain: webview repaints don't shake neighbor cards.
         contain: 'layout style',
         // Own compositor layer so hover/paint invalidations stay contained to this card. See AgentCard for full rationale.

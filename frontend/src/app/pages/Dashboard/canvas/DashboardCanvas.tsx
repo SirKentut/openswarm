@@ -39,6 +39,7 @@ interface DashboardCanvasProps {
   cards: Record<string, CardPosition>;
   viewCards: Record<string, ViewCardPosition>;
   browserCards: Record<string, BrowserCardPosition>;
+  keepAliveBrowserCards: Record<string, BrowserCardPosition>;
   notes: Record<string, NotePosition>;
   workflowCards: Record<string, WorkflowCardPosition>;
   workflowsHub: WorkflowsHubPosition | null;
@@ -101,6 +102,7 @@ const DashboardCanvas: React.FC<DashboardCanvasProps> = ({
   cards,
   viewCards,
   browserCards,
+  keepAliveBrowserCards,
   notes,
   workflowCards,
   workflowsHub,
@@ -225,9 +227,8 @@ const DashboardCanvas: React.FC<DashboardCanvasProps> = ({
           }}
         />
 
-        {sessionList.length === 0 && Object.keys(viewCards).length === 0 && Object.keys(browserCards).length === 0 && Object.keys(workflowCards).length === 0 && !workflowsHub ? (
-          <DashboardEmptyState c={c} onLaunch={onToolbarSend} onStarter={onStarter} />
-        ) : (
+        {/* Card layer always mounts, even on an empty dashboard, so keep-alive browser cards from other dashboards stay alive; the empty-state overlays it below. */}
+        {(
           <div
             ref={canvas.contentRef}
             style={{
@@ -244,6 +245,7 @@ const DashboardCanvas: React.FC<DashboardCanvasProps> = ({
               cards={cards}
               viewCards={viewCards}
               browserCards={browserCards}
+              keepAliveBrowserCards={keepAliveBrowserCards}
               notes={notes}
               workflowCards={workflowCards}
               workflowsHub={workflowsHub}
@@ -275,6 +277,9 @@ const DashboardCanvas: React.FC<DashboardCanvasProps> = ({
               onMeasuredHeight={onMeasuredHeight}
             />
           </div>
+        )}
+        {sessionList.length === 0 && Object.keys(viewCards).length === 0 && Object.keys(browserCards).length === 0 && Object.keys(workflowCards).length === 0 && !workflowsHub && (
+          <DashboardEmptyState c={c} onLaunch={onToolbarSend} onStarter={onStarter} />
         )}
       </Box>
 

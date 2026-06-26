@@ -1,6 +1,7 @@
 import type { Dispatch } from '@reduxjs/toolkit';
 import { removeBrowserCard } from '@/shared/state/dashboardLayoutSlice';
 import { getBrowserWebviews } from '@/shared/browserRegistry';
+import { forgetBrowser } from '@/shared/browserFocus';
 
 interface CdpBridge {
   cdpDetachClean?: (wcId: number) => Promise<unknown>;
@@ -34,5 +35,6 @@ export async function removeBrowserCardCleanly(
   dispatch: Dispatch,
 ): Promise<void> {
   await detachBrowserCdp(browserId);
+  forgetBrowser(browserId);
   dispatch(removeBrowserCard(browserId));
 }

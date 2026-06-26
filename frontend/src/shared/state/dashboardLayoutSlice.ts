@@ -1296,10 +1296,18 @@ const dashboardLayoutSlice = createSlice({
       delete state.glowingAgentCards[action.payload];
     },
 
-    resetLayout(state) {
+    resetLayout(state, action: PayloadAction<{ keepBrowserIds?: string[] } | undefined>) {
+      // Keep the recently-used (keep-alive) browser cards mounted across a dashboard switch so their webContents + sessionStorage survive (logged-in sites stay logged in); everything else is wiped for the fresh load. Their suspend entry rides along so a parked one isn't silently dropped.
+      const keep = new Set(action.payload?.keepBrowserIds || []);
+      const keptBrowsers: typeof state.browserCards = {};
+      const keptSuspended: typeof state.suspendedBrowserCards = {};
+      for (const id of keep) {
+        if (state.browserCards[id]) keptBrowsers[id] = state.browserCards[id];
+        if (state.suspendedBrowserCards[id]) keptSuspended[id] = state.suspendedBrowserCards[id];
+      }
       state.cards = {};
       state.viewCards = {};
-      state.browserCards = {};
+      state.browserCards = keptBrowsers;
       state.workflowCards = {};
       state.workflowsHub = null;
       state.notes = {};
@@ -1310,7 +1318,7 @@ const dashboardLayoutSlice = createSlice({
       state.nextZOrder = 1;
       state.initialized = false;
       state.pendingFocusNoteId = null;
-      state.suspendedBrowserCards = {};
+      state.suspendedBrowserCards = keptSuspended;
       state.endingBrowserCards = {};
       state.pendingFocusWorkflowId = null;
     },
@@ -1330,18 +1338,20 @@ const dashboardLayoutSlice = createSlice({
         if (!isReconnectRefetch) {
           state.cards = action.payload.cards;
           state.viewCards = action.payload.viewCards;
-          state.browserCards = action.payload.browserCards;
-          for (const card of Object.values(state.browserCards)) {
+          // Merge, don't replace: the keep-alive browser cards resetLayout preserved are ALREADY in state.browserCards with their webContents live. Keep them and add this dashboard's saved cards on top; on overlap (switching back to their own dashboard) the live data wins so the mounted webview isn't disturbed.
+          const keptAlive = state.browserCards;
+          const incoming = action.payload.browserCards;
+          for (const card of Object.values(incoming)) {
             card.dashboard_id = ownerDashboardId;
           }
+          // New cards boot parked (no guest process, title placeholder); the suspend hook wakes viewport-sized and agent-driven ones on its first pass. NEVER re-park a live keep-alive card, that snapshot-swap would kill its session.
+          for (const id of Object.keys(incoming)) {
+            if (keptAlive[id] === undefined) state.suspendedBrowserCards[id] = { dataUrl: '', capturedAt: 0 };
+          }
+          state.browserCards = { ...incoming, ...keptAlive };
           state.workflowCards = action.payload.workflowCards || {};
           state.workflowsHub = action.payload.workflowsHub || null;
           state.notes = action.payload.notes || {};
-          // Cards boot parked (no guest process, title placeholder); the suspend hook wakes viewport-sized and agent-driven ones on its first pass. Beats mounting 100 webviews just to suspend 92 of them.
-          state.suspendedBrowserCards = {};
-          for (const id of Object.keys(action.payload.browserCards)) {
-            state.suspendedBrowserCards[id] = { dataUrl: '', capturedAt: 0 };
-          }
         } else {
           const occupied = collectOccupiedRects(state, action.payload.expandedSessionIds);
           addMissingCards(state.cards, action.payload.cards, occupied);

@@ -32,6 +32,7 @@ interface DashboardCardLayerProps {
   cards: Record<string, CardPosition>;
   viewCards: Record<string, ViewCardPosition>;
   browserCards: Record<string, BrowserCardPosition>;
+  keepAliveBrowserCards: Record<string, BrowserCardPosition>;
   notes: Record<string, NotePosition>;
   workflowCards: Record<string, WorkflowCardPosition>;
   workflowsHub: WorkflowsHubPosition | null;
@@ -68,6 +69,7 @@ const DashboardCardLayer: React.FC<DashboardCardLayerProps> = ({
   cards,
   viewCards,
   browserCards,
+  keepAliveBrowserCards,
   notes,
   workflowCards,
   workflowsHub,
@@ -217,9 +219,11 @@ const DashboardCardLayer: React.FC<DashboardCardLayerProps> = ({
           />
         );
       })}
-      {Object.values(browserCards).map((bc) => (
+      {/* One map over active + keep-alive cards: a card switching from active to hidden keeps its key + tree slot, so React never remounts it (a remount = new webview = lost session). Cross-dashboard ones render keepAliveHidden. */}
+      {Object.values({ ...browserCards, ...keepAliveBrowserCards }).map((bc) => (
         <BrowserCard
           key={`browser-${bc.browser_id}`}
+          keepAliveHidden={!!bc.dashboard_id && bc.dashboard_id !== dashboardId}
           browserId={bc.browser_id}
           tabs={bc.tabs}
           activeTabId={bc.activeTabId}
