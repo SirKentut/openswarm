@@ -916,6 +916,26 @@ async def edit_agent_session(workflow_id: str):
         if wf.draft_steps is None:
             wf.draft_steps = list(wf.steps)
             storage.save_workflow(wf)
+        # Reattach: an edit session created before browser support (or last opened on another dashboard) lacks the markers, so its browser would spawn nowhere and the canvas couldn't dock it under the hub. Refresh the live session + rebroadcast so an already-built workflow gets the fix without recreating its chat.
+        from backend.apps.agents.agent_manager import agent_manager as p_am
+        from backend.apps.agents.core.ws_manager import ws_manager as p_wsm
+        p_sess = p_am.sessions.get(existing_id)
+        if p_sess is not None:
+            p_sess.dashboard_id = p_wsm.active_dashboard_id or executor.resolve_workflow_dashboard_id(wf)
+            p_sess.workflow_edit_id = wf.id
+            try:
+                from backend.apps.agents.manager.session.session_store import _save_session
+                _save_session(p_sess.id, p_sess.model_dump(mode="json"))
+            except Exception:
+                logger.debug("could not persist reattached edit-agent markers", exc_info=True)
+            try:
+                await p_wsm.send_to_session(existing_id, "agent:status", {
+                    "session_id": existing_id,
+                    "status": p_sess.status,
+                    "session": p_sess.model_dump(mode="json"),
+                })
+            except Exception:
+                logger.debug("could not rebroadcast reattached edit-agent", exc_info=True)
         return {"session_id": existing_id}
 
     # Fresh edit session: snapshot a clean draft from the current committed steps so the Edit Agent's edits stage there (never the live workflow) until the user clicks Save, and Discard reverts to exactly this.
@@ -929,9 +949,15 @@ async def edit_agent_session(workflow_id: str):
     intro = (
         "Help the user iterate on it."
         if wf.steps
-        else "This workflow is brand new and has no steps yet. Help the user "
-        "build it from scratch: ask what it should do, then add steps with "
-        "AddWorkflowStep."
+        else "This workflow is brand new and has no steps yet. The user's first "
+        "message tells you what it should do, so act on it: turn that request "
+        "into one or more steps with AddWorkflowStep instead of replying with "
+        "only text. Don't stall on open-ended 'what should this do' questions. "
+        "The one exception: if a step genuinely can't run without a specific "
+        "detail only the user has (their location, an account, a recipient, "
+        "etc.), ask for that one thing first with AskUserQuestion, then add "
+        "the step with it baked in, so you never leave behind a step you "
+        "already know won't run."
     )
     steps_block = f"Current steps:\n{steps_lines}\n\n" if wf.steps else "It has no steps yet.\n\n"
     system_prompt = (
@@ -940,9 +966,13 @@ async def edit_agent_session(workflow_id: str):
         f"{wf.description or '(unspecified)'}.\n\n"
         f"{steps_block}"
         "How to work:\n"
-        "1. When the user describes a change, briefly confirm what you'll do.\n"
-        "2. If you need to look at files / search / activate an MCP / etc. to "
-        "verify your idea, use your tools.\n"
+        "1. You BUILD the workflow; you never perform it. Do NOT carry out the "
+        "user's actual task in this chat: don't open a browser, send email, or "
+        "do the real work yourself. Your job is to turn the request into steps; "
+        "running them is the Test Agent's job (see TestWorkflow below). When the "
+        "user describes a change, briefly confirm what you'll do, then make it.\n"
+        "2. You may use read-only tools (read files, search, MCPSearch) only to "
+        "check that a step is feasible, never to complete the task itself.\n"
         "3. To change the workflow's steps, call the matching tool. Your edits "
         "STAGE to a pending draft and are fully reversible; nothing touches the "
         "live workflow until the user clicks Save. The card shows your draft as "
@@ -967,6 +997,9 @@ async def edit_agent_session(workflow_id: str):
         "objects at the user; that belongs in your EditWorkflowStep tool call, "
         "not the message."
     )
+    # The edit chat lives in the Workflows hub on whatever dashboard the user is viewing, so its browser must spawn there (else BrowserAgent has no card to drive). Prefer the live active dashboard over the workflow's stored home.
+    from backend.apps.agents.core.ws_manager import ws_manager as p_wsm
+    edit_dashboard_id = p_wsm.active_dashboard_id or executor.resolve_workflow_dashboard_id(wf)
     config = AgentConfig(
         name=f"Edit Agent: {wf.title}",
         model=wf.model or "sonnet",
@@ -974,7 +1007,8 @@ async def edit_agent_session(workflow_id: str):
         provider=wf.provider or "anthropic",
         system_prompt=system_prompt,
         allowed_tools=[],
-        dashboard_id=wf.dashboard_id,
+        dashboard_id=edit_dashboard_id,
+        workflow_edit_id=wf.id,
     )
     session = await agent_manager.launch_agent(config)
     # launch_agent marks the session "running" assuming a turn fires immediately, but an edit-agent chat sits idle until the user sends something. Settle it to idle or the chat is stuck "thinking" forever. An existing workflow also gets a fixed (non-LLM) intro message; a brand-new build stays empty so the compose page can show its own starter prompts.
