@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback, startTransition, useMemo } from 'react';
 import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { openSettingsModal } from '@/shared/state/settingsSlice';
-import { getLastInteractedBrowser, setLastInteractedBrowser, clearLastInteractedBrowser } from '@/shared/browserFocus';
+import { getLastInteractedBrowser, getKeepAliveBrowserIds, setLastInteractedBrowser, clearLastInteractedBrowser } from '@/shared/browserFocus';
 import { getWebview } from '@/shared/browserRegistry';
 import Box from '@mui/material/Box';
 import ListItemButton from '@mui/material/ListItemButton';
@@ -336,14 +336,16 @@ const AppShell: React.FC = () => {
     return () => document.removeEventListener('pointerdown', onPointerDown, true);
   }, []);
 
-  // Cmd/Ctrl+R: main neutralizes the default-menu reload and hands us the decision. Reload the browser you last interacted with; if your last click was NOT in a live browser, do nothing, a real browser reloads the active tab, not the whole app shell, and reloading the renderer here would destroy every browser card's webContents and wipe its sessionStorage (silently logging you out of sites like Discord). View > Reload still reloads the app on purpose.
+  // Cmd/Ctrl+R: main neutralizes the default-menu reload and hands us the decision. Reload the browser you're in or last used IN PLACE (keeps its login); only when no browser is open at all do we fall back to a full app reload, since reloading the renderer destroys every webview and wipes its session.
   useEffect(() => {
     const w = window as any;
     if (!w.openswarm?.onReloadShortcut) return;
     return w.openswarm.onReloadShortcut(() => {
-      const id = getLastInteractedBrowser();
-      const wv = id ? getWebview(id) : undefined;
-      if (wv) { try { wv.reload(); } catch (_e) { /* torn-down webview; ignore */ } }
+      for (const id of [getLastInteractedBrowser(), ...getKeepAliveBrowserIds()]) {
+        const wv = id ? getWebview(id) : undefined;
+        if (wv) { try { wv.reload(); return; } catch (_e) { /* torn-down webview; try the next */ } }
+      }
+      window.location.reload();
     });
   }, []);
 
