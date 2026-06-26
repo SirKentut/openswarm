@@ -49,6 +49,18 @@ export function useDashboardController(dashboardId: string, isActive: boolean) {
     !!workflowsMonitorId && s.workflows.active.some((a) => a.workflow_id === workflowsMonitorId));
   const workflowsMonitorLabel = monitorIsLive ? 'Watching' : 'Viewing';
 
+  // The session id of the run the monitor is showing, mirroring RunMonitor's pinned-or-latest pick, so its browser tether can anchor to the monitor card.
+  const workflowsMonitorRunId = useAppSelector((s) => s.dashboardLayout.workflowsMonitorRunId);
+  const monitorRuns = useAppSelector((s) => (workflowsMonitorId ? s.workflows.runs[workflowsMonitorId] : undefined));
+  const allRuns = useAppSelector((s) => s.workflows.allRuns);
+  const monitorRunSessionId = useMemo(() => {
+    if (!workflowsMonitorId) return null;
+    const run = workflowsMonitorRunId
+      ? (monitorRuns || []).find((r) => r.id === workflowsMonitorRunId) || allRuns.find((r) => r.id === workflowsMonitorRunId)
+      : (monitorRuns && monitorRuns[0]) || allRuns.find((r) => r.workflow_id === workflowsMonitorId);
+    return run?.session_id || null;
+  }, [workflowsMonitorId, workflowsMonitorRunId, monitorRuns, allRuns]);
+
   const contentBounds = useMemo(
     () => computeContentBounds(cards, viewCards, browserCards, workflowCards, workflowsHub),
     [cards, viewCards, browserCards, workflowCards, workflowsHub],
@@ -295,6 +307,7 @@ export function useDashboardController(dashboardId: string, isActive: boolean) {
     workflowsHub,
     workflowsMonitorCard,
     workflowsMonitorLabel,
+    monitorRunSessionId,
   });
 
   return {

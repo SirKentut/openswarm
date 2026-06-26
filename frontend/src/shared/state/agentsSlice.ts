@@ -93,6 +93,10 @@ export interface AgentSession {
   dashboard_id?: string;
   browser_id?: string | null;
   parent_session_id?: string | null;
+  /** Set when this session IS a workflow run's agent; the run shows in the Workflows monitor, so it gets no standalone canvas card. */
+  workflow_run_id?: string | null;
+  /** Set when this session IS a workflow's embedded edit/compose chat; it lives in the Workflows hub, so it gets no standalone card and its browser docks below the hub. */
+  workflow_edit_id?: string | null;
   /** Browser memory signals that drive the subtle "Remembered"/"Learned" card chip. */
   memory_recalled?: boolean;
   memory_learned?: boolean;

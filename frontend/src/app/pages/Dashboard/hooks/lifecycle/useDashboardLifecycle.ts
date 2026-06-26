@@ -279,7 +279,7 @@ export function useDashboardLifecycle({
   useEffect(() => {
     if (!layoutInitialized) return;
     const dashboardSessionIds = Object.values(sessions)
-      .filter((s) => s.dashboard_id === dashboardId && s.mode !== 'browser-agent' && s.mode !== 'invoked-agent' && s.mode !== 'sub-agent')
+      .filter((s) => s.dashboard_id === dashboardId && !s.workflow_run_id && !s.workflow_edit_id && s.mode !== 'browser-agent' && s.mode !== 'invoked-agent' && s.mode !== 'sub-agent')
       .map((s) => s.id);
     const liveIds = dashboardSessionIds.sort().join(',');
     if (liveIds === prevSessionIdsRef.current) return;

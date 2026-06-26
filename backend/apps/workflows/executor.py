@@ -64,7 +64,7 @@ def _resolve_allowed_tools(wf: Workflow) -> Optional[list[str]]:
     return list(wf.actions.configured_sets)
 
 
-def p_resolve_run_dashboard_id(wf: Workflow) -> Optional[str]:
+def resolve_workflow_dashboard_id(wf: Workflow) -> Optional[str]:
     """Pick the dashboard this run's agent attaches to, so browser tools work like in chat.
 
     Browser cards render only on the dashboard the renderer is currently showing, so we
@@ -262,7 +262,8 @@ async def execute(
             allowed_tools=resolved_allowed_tools if resolved_allowed_tools is not None else [
                 "Read", "Edit", "Write", "Bash", "Glob", "Grep", "AskUserQuestion",
             ],
-            dashboard_id=p_resolve_run_dashboard_id(wf),
+            dashboard_id=resolve_workflow_dashboard_id(wf),
+            workflow_run_id=run.id,
         )
 
         session = await agent_manager.launch_agent(config)
