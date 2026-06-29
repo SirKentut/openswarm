@@ -247,6 +247,7 @@ export function useDashboardController(dashboardId: string, isActive: boolean) {
     expandedSessionIds,
     dashboardId,
     expandNewChats,
+    selection,
     canvasActions: canvas.actions,
     viewportRef: canvas.viewportRef,
     toolbarRef,
@@ -274,6 +275,8 @@ export function useDashboardController(dashboardId: string, isActive: boolean) {
     selection,
     canvasActions: canvas.actions,
     getCardRect,
+    viewportRef: canvas.viewportRef,
+    canvasStateRef,
     handleHighlightCard,
     setAutoFocusSessionId,
   });

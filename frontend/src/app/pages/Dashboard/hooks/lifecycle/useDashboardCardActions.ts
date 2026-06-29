@@ -1,4 +1,4 @@
-import { useCallback, useEffect, type Dispatch, type SetStateAction } from 'react';
+import { useCallback, useEffect, type Dispatch, type RefObject, type SetStateAction } from 'react';
 import { report } from '@/shared/serviceClient';
 import { store } from '@/shared/state/store';
 import { useAppDispatch } from '@/shared/hooks';
@@ -9,10 +9,17 @@ import {
   addBrowserCard,
   addNote,
   clearPendingFocusNoteId,
+  DEFAULT_VIEW_CARD_W,
+  DEFAULT_VIEW_CARD_H,
+  DEFAULT_BROWSER_CARD_W,
+  DEFAULT_BROWSER_CARD_H,
+  DEFAULT_NOTE_W,
+  DEFAULT_NOTE_H,
   EXPANDED_CARD_MIN_H,
 } from '@/shared/state/dashboardLayoutSlice';
 import type { CardType, useDashboardSelection } from '../state/useDashboardSelection';
 import type { CanvasActions } from '../interaction/useCanvasControls';
+import { useSpawnPlacement } from './useSpawnPlacement';
 
 type Selection = ReturnType<typeof useDashboardSelection>;
 
@@ -23,6 +30,8 @@ interface UseDashboardCardActionsArgs {
   selection: Selection;
   canvasActions: CanvasActions;
   getCardRect: (id: string, type: CardType) => { x: number; y: number; width: number; height: number } | undefined;
+  viewportRef: RefObject<HTMLDivElement | null>;
+  canvasStateRef: RefObject<{ panX: number; panY: number; zoom: number }>;
   handleHighlightCard: (cardId: string) => void;
   setAutoFocusSessionId: Dispatch<SetStateAction<string | null>>;
 }
@@ -34,13 +43,17 @@ export function useDashboardCardActions({
   selection,
   canvasActions,
   getCardRect,
+  viewportRef,
+  canvasStateRef,
   handleHighlightCard,
   setAutoFocusSessionId,
 }: UseDashboardCardActionsArgs) {
   const dispatch = useAppDispatch();
+  const getSpawnPlacement = useSpawnPlacement({ selection, viewportRef, canvasStateRef, expandedSessionIds });
 
   const handleAddView = useCallback((outputId: string) => {
-    dispatch(addViewCard({ outputId, expandedSessionIds }));
+    const pos = getSpawnPlacement(DEFAULT_VIEW_CARD_W, DEFAULT_VIEW_CARD_H);
+    dispatch(addViewCard({ outputId, expandedSessionIds, x: pos.x, y: pos.y }));
     setTimeout(() => {
       const card = store.getState().dashboardLayout.viewCards[outputId];
       if (card) {
@@ -48,12 +61,13 @@ export function useDashboardCardActions({
         handleHighlightCard(outputId);
       }
     }, 200);
-  }, [dispatch, expandedSessionIds, canvasActions, handleHighlightCard]);
+  }, [dispatch, expandedSessionIds, getSpawnPlacement, canvasActions, handleHighlightCard]);
 
   const handleAddBrowser = useCallback(() => {
     report('dashboard', 'browser_added');
     const prevIds = new Set(Object.keys(store.getState().dashboardLayout.browserCards));
-    dispatch(addBrowserCard({ url: browserHomepage, expandedSessionIds }));
+    const pos = getSpawnPlacement(DEFAULT_BROWSER_CARD_W, DEFAULT_BROWSER_CARD_H);
+    dispatch(addBrowserCard({ url: browserHomepage, expandedSessionIds, x: pos.x, y: pos.y }));
     setTimeout(() => {
       const allBrowserCards = store.getState().dashboardLayout.browserCards;
       const newId = Object.keys(allBrowserCards).find((id) => !prevIds.has(id));
@@ -63,12 +77,13 @@ export function useDashboardCardActions({
         handleHighlightCard(newId);
       }
     }, 200);
-  }, [dispatch, browserHomepage, expandedSessionIds, canvasActions, handleHighlightCard]);
+  }, [dispatch, browserHomepage, expandedSessionIds, getSpawnPlacement, canvasActions, handleHighlightCard]);
 
   const handleAddNote = useCallback(() => {
     report('dashboard', 'note_added');
     const prevIds = new Set(Object.keys(store.getState().dashboardLayout.notes));
-    dispatch(addNote({ expandedSessionIds }));
+    const pos = getSpawnPlacement(DEFAULT_NOTE_W, DEFAULT_NOTE_H);
+    dispatch(addNote({ expandedSessionIds, x: pos.x, y: pos.y }));
     setTimeout(() => {
       const allNotes = store.getState().dashboardLayout.notes;
       const newId = Object.keys(allNotes).find((id) => !prevIds.has(id));
@@ -78,7 +93,7 @@ export function useDashboardCardActions({
         handleHighlightCard(newId);
       }
     }, 200);
-  }, [dispatch, expandedSessionIds, canvasActions, handleHighlightCard]);
+  }, [dispatch, expandedSessionIds, getSpawnPlacement, canvasActions, handleHighlightCard]);
 
   // Auto-clear pendingFocusNoteId after the note has had a chance to mount + autofocus.
   useEffect(() => {

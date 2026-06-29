@@ -21,14 +21,18 @@ import {
 import { generateDashboardName } from '@/shared/state/dashboardsSlice';
 import type { ContextPath } from '@/app/components/editor/DirectoryBrowser';
 import type { CanvasActions } from '../interaction/useCanvasControls';
+import type { useDashboardSelection } from '../state/useDashboardSelection';
+import { useSpawnPlacement } from './useSpawnPlacement';
 
 type SpawnOrigin = { x: number; y: number; type?: 'branch' };
+type Selection = ReturnType<typeof useDashboardSelection>;
 
 interface UseAgentSpawnArgs {
   cards: Record<string, CardPosition>;
   expandedSessionIds: string[];
   dashboardId: string;
   expandNewChats: boolean;
+  selection: Selection;
   canvasActions: CanvasActions;
   viewportRef: RefObject<HTMLDivElement | null>;
   toolbarRef: RefObject<HTMLDivElement | null>;
@@ -48,6 +52,7 @@ export function useAgentSpawn({
   expandedSessionIds,
   dashboardId,
   expandNewChats,
+  selection,
   canvasActions,
   viewportRef,
   toolbarRef,
@@ -61,6 +66,7 @@ export function useAgentSpawn({
   onWelcomeNewAgent,
 }: UseAgentSpawnArgs) {
   const dispatch = useAppDispatch();
+  const getSpawnPlacement = useSpawnPlacement({ selection, viewportRef, canvasStateRef, expandedSessionIds });
 
   const handleBranchFromCard = useCallback(
     (sourceSessionId: string, newSessionId: string) => {
@@ -133,6 +139,8 @@ export function useAgentSpawn({
       report('dashboard', 'agent_created', { mode, model, has_images: !!images?.length, has_context: !!contextPaths?.length, has_browser: !!selectedBrowserIds?.length });
 
       const draftId = `draft-${Date.now().toString(36)}`;
+      // Capture where the chat should land at click time (beside the selected card, else in front of the viewport). Applied on fulfilled, unless the single-selected-browser case below docks it left of that browser instead.
+      const spawnPos = getSpawnPlacement(DEFAULT_CARD_W, DEFAULT_CARD_H);
 
       const toolbarEl = toolbarRef.current;
       const vpEl = viewportRef.current;
@@ -171,6 +179,8 @@ export function useAgentSpawn({
         if (launchAndSendFirstMessage.fulfilled.match(action)) {
           const realId = action.payload.session.id;
           dispatch(generateTitle({ sessionId: realId, prompt }));
+          // A single browser used as context docks the chat to ITS left; that intentional anchor wins over the generic spawn placement below.
+          let dockedBesideBrowser = false;
           if (selectedBrowserIds?.length) {
             dispatch(setGlowingBrowserCards({ browserIds: selectedBrowserIds, sessionId: realId, label: 'Use Browser' }));
 
@@ -186,8 +196,20 @@ export function useAgentSpawn({
                   height: DEFAULT_CARD_H,
                   expandedSessionIds,
                 }));
+                dockedBesideBrowser = true;
               }
             }
+          }
+          // Place the chat beside the selected card / in front of the viewport. placeCard runs before reconcileSessions fires, so the card is created here at the right spot and never flashes through a top-left grid cell.
+          if (!dockedBesideBrowser) {
+            dispatch(placeCard({
+              sessionId: realId,
+              x: spawnPos.x,
+              y: spawnPos.y,
+              width: DEFAULT_CARD_W,
+              height: DEFAULT_CARD_H,
+              expandedSessionIds,
+            }));
           }
           spawnOriginsRef.current![realId] = spawnOriginsRef.current![draftId];
           delete spawnOriginsRef.current![draftId];

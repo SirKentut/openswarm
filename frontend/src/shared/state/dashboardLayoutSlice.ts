@@ -459,6 +459,29 @@ export function placeInParentColumn(
   return placeBesideCard(state, parentCard, newW, newH, expandedSessionIds, exclude);
 }
 
+// Where a user-created card (chat/app/browser/note) should land. Resolved in the UI layer where selection + viewport are known, then handed to the add reducers as an explicit x/y. `beside` (the currently selected card) docks the new card to its right, stacking under that column; `viewportCenter` (canvas-space center of what the user is looking at) drops it "in front of you". Both collision-dodge; with neither, falls back to the legacy top-left grid scan.
+export interface SpawnAnchor {
+  beside?: { x: number; y: number; width: number; height: number };
+  viewportCenter?: { x: number; y: number };
+}
+
+export function computeSpawnPosition(
+  state: DashboardLayoutState,
+  newW: number,
+  newH: number,
+  anchor: SpawnAnchor,
+  expandedSessionIds?: string[],
+): { x: number; y: number } {
+  if (anchor.beside) {
+    return placeBesideCard(state, anchor.beside, newW, newH, expandedSessionIds);
+  }
+  const rects = collectOccupiedRects(state, expandedSessionIds);
+  if (anchor.viewportCenter) {
+    return findOpenSpotNear(anchor.viewportCenter.x - newW / 2, anchor.viewportCenter.y - newH / 2, rects, newW, newH);
+  }
+  return findOpenGridCell(rects, newW, newH);
+}
+
 // Reconnect-refetch merge: ADD only the cards the snapshot carries that the client is missing (e.g. a spawned browser whose broadcast was lost in a socket gap), collision-resolving each against the live layout so a recovered card can't land on a card already on canvas, and NEVER touch a card the client already has (that's exactly what preserves its live, collision-placed position). The shared `occupied` list carries placements forward so two recovered cards in the same pass also avoid each other.
 function addMissingCards<T extends { x: number; y: number; width: number; height: number }>(
   live: Record<string, T>,
@@ -742,11 +765,13 @@ const dashboardLayoutSlice = createSlice({
       state.activeViewCardId = action.payload;
     },
 
-    addBrowserCard(state, action: PayloadAction<{ url: string; expandedSessionIds?: string[] }>) {
+    addBrowserCard(state, action: PayloadAction<{ url: string; expandedSessionIds?: string[]; x?: number; y?: number }>) {
       const id = `browser-${Date.now().toString(36)}`;
       const tabId = generateTabId();
-      const rects = collectOccupiedRects(state, action.payload.expandedSessionIds);
-      const pos = findOpenGridCell(rects, DEFAULT_BROWSER_CARD_W, DEFAULT_BROWSER_CARD_H);
+      // Caller may pre-resolve the spawn position (beside the selected card, or in front of the viewport); otherwise fall back to the top-left grid scan.
+      const pos = action.payload.x != null && action.payload.y != null
+        ? { x: action.payload.x, y: action.payload.y }
+        : findOpenGridCell(collectOccupiedRects(state, action.payload.expandedSessionIds), DEFAULT_BROWSER_CARD_W, DEFAULT_BROWSER_CARD_H);
       state.browserCards[id] = {
         browser_id: id,
         url: action.payload.url,
