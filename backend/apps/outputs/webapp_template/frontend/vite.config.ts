@@ -1,10 +1,16 @@
 import { defineConfig } from 'vite';
-import react from '@vitejs/plugin-react';
-import Pages from 'vite-plugin-pages';
-import terminal from 'vite-plugin-terminal';
 import path from 'path';
 import os from 'os';
 import fs from 'fs';
+
+// Detect whether the workspace is in React/workspace mode or vanilla/lightweight
+// mode. Lightweight apps delete src/ entirely (per SKILL.md); when it's gone,
+// we must NOT load react() or vite-plugin-pages. The pages plugin registers a
+// catch-all SPA fallback that intercepts any unresolved URL — including static
+// asset requests like /css/style.css — and returns index.html with Content-Type
+// text/html, causing the browser to refuse the file as a stylesheet.
+const srcDir = path.join(__dirname, 'src');
+const isWorkspaceMode = fs.existsSync(srcDir) && fs.readdirSync(srcDir).length > 0;
 
 // Shared, hash-keyed vite optimization cache. Every webapp-template
 // workspace shares its node_modules/ via a symlink to OpenSwarm's warm
@@ -43,36 +49,45 @@ function sharedViteCacheDir(): string {
   return path.join(base, digest);
 }
 
-export default defineConfig(({ mode }) => {
+export default defineConfig(async ({ mode }) => {
   const backendPort = process.env.BACKEND_PORT;
   const backendEnabled = backendPort && backendPort !== 'NONE';
 
-  return {
-    cacheDir: sharedViteCacheDir(),
-    plugins: [
+  const plugins = [];
+
+  if (isWorkspaceMode) {
+    const { default: react } = await import('@vitejs/plugin-react');
+    const { default: Pages } = await import('vite-plugin-pages');
+    const { default: terminal } = await import('vite-plugin-terminal');
+    plugins.push(
       react(),
       Pages({ dirs: 'src/pages', extensions: ['tsx'] }),
-      // vite-plugin-terminal provides a `virtual:terminal/console` module
-      // that only exists in dev; loading it during `vite build` errors
-      // out, so the End-of-turn build-verify gate would fail on every
-      // brand-new workspace.
       ...(mode === 'development'
         ? [terminal({ console: 'terminal', output: ['terminal', 'console'] })]
         : []),
-    ],
-    resolve: {
-      alias: {
-        '@': path.resolve(__dirname, 'src'),
-      },
-      // Force single instances of React and emotion — even if anything
-      // tries to resolve them from a deeper node_modules path (which
-      // could happen with symlinked node_modules + nested deps), vite
-      // pins to the one true copy at the symlinked top-level.
-      dedupe: ['react', 'react-dom', '@emotion/react', '@emotion/styled'],
-    },
-    define: {
-      'process.env.BACKEND_ENABLED': JSON.stringify(backendEnabled ? 'true' : ''),
-    },
+    );
+  }
+
+  return {
+    cacheDir: sharedViteCacheDir(),
+    plugins,
+    ...(isWorkspaceMode
+      ? {
+          resolve: {
+            alias: {
+              '@': path.resolve(__dirname, 'src'),
+            },
+            // Force single instances of React and emotion — even if anything
+            // tries to resolve them from a deeper node_modules path (which
+            // could happen with symlinked node_modules + nested deps), vite
+            // pins to the one true copy at the symlinked top-level.
+            dedupe: ['react', 'react-dom', '@emotion/react', '@emotion/styled'],
+          },
+          define: {
+            'process.env.BACKEND_ENABLED': JSON.stringify(backendEnabled ? 'true' : ''),
+          },
+        }
+      : {}),
     server: {
       host: '127.0.0.1',
       port: Number(process.env.FRONTEND_PORT) || 3000,
