@@ -10,6 +10,7 @@ import {
 } from '@/shared/state/agentsSlice';
 import {
   placeCard,
+  setCardPosition,
   setGlowingAgentCard,
   setGlowingBrowserCards,
   DEFAULT_CARD_W,
@@ -139,8 +140,8 @@ export function useAgentSpawn({
       report('dashboard', 'agent_created', { mode, model, has_images: !!images?.length, has_context: !!contextPaths?.length, has_browser: !!selectedBrowserIds?.length });
 
       const draftId = `draft-${Date.now().toString(36)}`;
-      // Capture where the chat should land at click time (beside the selected card, else in front of the viewport). Applied on fulfilled, unless the single-selected-browser case below docks it left of that browser instead.
-      const spawnPos = getSpawnPlacement(DEFAULT_CARD_W, DEFAULT_CARD_H);
+      // Capture where the chat should land at click time (beside the selected card, else in front of the viewport). Applied on fulfilled, unless the single-selected-browser case below docks it left of that browser instead. Center on the height it will RENDER at (expanded chats are tall) so it lands vertically centered, not high-biased.
+      const spawnPos = getSpawnPlacement(DEFAULT_CARD_W, expandNewChats ? EXPANDED_CARD_MIN_H : DEFAULT_CARD_H);
 
       const toolbarEl = toolbarRef.current;
       const vpEl = viewportRef.current;
@@ -200,7 +201,7 @@ export function useAgentSpawn({
               }
             }
           }
-          // Place the chat beside the selected card / in front of the viewport. placeCard runs before reconcileSessions fires, so the card is created here at the right spot and never flashes through a top-left grid cell.
+          // Place the chat beside the selected card / in front of the viewport. placeCard runs before reconcileSessions fires, so the card is created here at the right spot and never flashes through a top-left grid cell. spawnPos is already collision-resolved, so pin it exactly (placeCard grid-snaps internally, which would knock the chat off the precise center).
           if (!dockedBesideBrowser) {
             dispatch(placeCard({
               sessionId: realId,
@@ -210,6 +211,7 @@ export function useAgentSpawn({
               height: DEFAULT_CARD_H,
               expandedSessionIds,
             }));
+            dispatch(setCardPosition({ sessionId: realId, x: spawnPos.x, y: spawnPos.y }));
           }
           spawnOriginsRef.current![realId] = spawnOriginsRef.current![draftId];
           delete spawnOriginsRef.current![draftId];
@@ -224,7 +226,9 @@ export function useAgentSpawn({
           setTimeout(() => {
             const card = store.getState().dashboardLayout.cards[realId];
             if (card) {
-              canvasActions.fitToCards([{ x: card.x, y: card.y, width: card.width, height: card.height }], 1.15, true);
+              // Fit against the height it actually renders at (expanded chats are taller than the stored collapsed height) so the centered fit frames it correctly.
+              const renderH = expandNewChats ? Math.max(EXPANDED_CARD_MIN_H, card.height) : card.height;
+              canvasActions.fitToCards([{ x: card.x, y: card.y, width: card.width, height: renderH }], 1.15, true, undefined, true);
               handleHighlightCard(realId);
             }
           }, 200);
@@ -249,7 +253,7 @@ export function useAgentSpawn({
         }
       });
     },
-    [viewportRef, canvasActions, dispatch, dashboardId, expandNewChats, handleHighlightCard],
+    [viewportRef, canvasActions, dispatch, dashboardId, expandNewChats, expandedSessionIds, getSpawnPlacement, handleHighlightCard],
   );
 
   return {
